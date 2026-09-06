@@ -193,6 +193,8 @@ html.is-dark .chip.pub { color: #B6E36A; }
 .map-tools .btn { background: var(--glass); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-color: rgba(255,255,255,.5); }
 .map-tools .btn.beacon { width: 56px; height: 56px; background: var(--mandarine); border-color: var(--mandarine); color: #fff; box-shadow: var(--sh-accent); flex-direction: column; gap: 0; font-size: 10px; font-weight: 800; letter-spacing: .04em; }
 .map-tools .btn.beacon svg.i { width: 22px; height: 22px; }
+.map-tools .btn.tool { width: 56px; height: 52px; flex-direction: column; gap: 1px; font-size: 9.5px; font-weight: 800; letter-spacing: .03em; color: var(--ink); }
+.map-tools .btn.tool svg.i { width: 20px; height: 20px; }
 .map-tools .btn.beacon.pop { animation: pop-btn var(--t-fast) var(--ease); }
 @keyframes pop-btn { 50% { transform: scale(1.15); } }
 .ping { width: 14px; height: 14px; border-radius: 50%; background: var(--mandarine); position: relative; }
@@ -430,10 +432,13 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-walker.west img { transform: scaleX(-1); }
 .bv-walker.walking .in { animation: walk .5s ease-in-out infinite; }
 @keyframes walk { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-5px) rotate(3deg); } }
-.bv-walker .vehicle { position: absolute; left: 50%; bottom: -2px; width: 72px; height: 42px; transform: translateX(-50%); filter: drop-shadow(0 4px 6px rgba(18,63,102,.4)); }
-.bv-walker .vehicle svg { width: 100%; height: 100%; display: block; }
-.bv-walker.west .vehicle { transform: translateX(-50%) scaleX(-1); }
+/* Véhicule = emoji (reconnaissable) ; Valdo entier assis dessus. Les emojis regardent vers la gauche : on les retourne vers l'est. */
+.bv-walker .vehicle { position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); font-size: 44px; line-height: 1; filter: drop-shadow(0 4px 6px rgba(18,63,102,.4)); }
+.bv-walker.east .vehicle { transform: translateX(-50%) scaleX(-1); }
+.bv-walker[data-mode]:not([data-mode=""]):not([data-mode="walk"]) img { width: 30px; height: 30px; position: absolute; left: 50%; top: -22px; transform: translateX(-50%); z-index: 2; }
+.bv-walker.west[data-mode]:not([data-mode=""]):not([data-mode="walk"]) img { transform: translateX(-50%) scaleX(-1); }
 .bv-walker[data-mode="plane"] .in { transform: translateY(-22px); }
+.bv-walker[data-mode="plane"] .vehicle { font-size: 40px; }
 .bv-walker[data-mode="plane"].walking .in, .bv-walker[data-mode="car"].walking .in, .bv-walker[data-mode="bus"].walking .in, .bv-walker[data-mode="train"].walking .in, .bv-walker[data-mode="bike"].walking .in { animation: none; }
 .bv-walker[data-mode="boat"].walking .in { animation: float 1.4s ease-in-out infinite; }
 @keyframes float { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
@@ -442,7 +447,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .mode-picker .mode small { font-size: 9.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-family: var(--font-body); }
 .mode-picker .mode.active { background: var(--sky-soft); border-color: var(--azur); }
 .mode-picker .mode.active small { color: var(--azur); }
-.day-card { position: absolute; left: 12px; right: 12px; top: calc(70px + var(--safe-t)); z-index: 1002; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 20px; padding: 12px 14px; box-shadow: var(--sh-2); max-width: 440px; }
+.day-card { position: absolute; left: 12px; right: 80px; top: calc(70px + var(--safe-t)); z-index: 1002; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 20px; padding: 12px 14px; box-shadow: var(--sh-2); max-width: 440px; }
 .day-card .dc-head { display: flex; align-items: center; gap: 10px; }
 .day-card .dc-head b { display: block; font-family: var(--font-title); font-weight: 500; font-size: 17px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .day-card .dc-num { flex: none; color: #fff; font-family: var(--font-title); font-weight: 600; font-size: 13px; padding: 4px 11px; border-radius: 999px; }

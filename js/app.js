@@ -293,11 +293,13 @@
     $("#panel").classList.add("collapsed");
     $("#app-replay").hidden = false; $("#app-replay").classList.toggle("compact", !!opts.silent);
     updateSpeedBtns();
+    // Le panneau replié change la hauteur de la carte : on la recale avant de lancer l'animation, sinon Valdo est décalé du tracé
+    setTimeout(() => BVMAP.resize(S.map), 300);
     setTimeout(() => BVMAP.replay(S.map, S.cur, {
       dayList: allDays(), only, dayNumber: (iso) => dayNumber(S.cur.trip, iso),
       onDay: (iso, info) => { const d = dayInfo(iso) || {}; $("#app-replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}</span>` : ""}`; },
       onDone: () => { $("#app-replay").hidden = true; if (opts.onDone) opts.onDone(); },
-    }), 300);
+    }), 450);
   }
   function updateSpeedBtns() { const s = BVMAP.SPEEDS.find((x) => x.k === BVMAP.replaySpeed()); $$(".speed-btn").forEach((b) => { b.textContent = s.icon; b.title = "Vitesse : " + s.label; }); }
   function cycleSpeed() { const n = BVMAP.cycleSpeed(); updateSpeedBtns(); toast(`Vitesse du survol : ${n.label} (prise en compte à la prochaine journée)`, "info", 2500); }
@@ -323,7 +325,7 @@
       startReplay(iso, { silent: true, onDone: () => { if (S.cur && S.dayFilter === iso) card.hidden = false; } });
     };
     if (rp) { rp.onclick = dayReplay; $$(".speed-btn", card).forEach((b) => b.onclick = cycleSpeed); updateSpeedBtns(); }
-    if (hasPath) dayReplay(); else $("#panel").classList.add("collapsed");
+    if (hasPath) dayReplay(); else { $("#panel").classList.add("collapsed"); setTimeout(() => BVMAP.resize(S.map), 300); }
   }
   function fit() {
     if (S.drawn && S.drawn.bounds) BVMAP.fitBounds(S.map, S.drawn.bounds, { padding: 48, maxZoom: 15 });
@@ -463,8 +465,8 @@
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
         ${legs ? `<div class="field"><label>🚶🚗⛵ Moyen de locomotion entre les photos</label>
           <div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
-            <select data-to="${l.to.id}" class="leg-mode"><option value="">↩︎ idem${i === 0 ? " (à pied)" : ""}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.to.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div>
-          <p class="help">Chaque ligne = le trajet jusqu'à la photo de droite. « idem » reprend le moyen du tronçon précédent. Se règle aussi dans la fiche de chaque photo (« Arrivé ici… »).</p></div>` : ""}
+            <select data-to="${l.to.id}" class="leg-mode"><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : "↩︎ idem"}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.to.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div>
+          <p class="help">Chaque ligne = le trajet jusqu'à la photo de droite. Sans indication, l'app devine : voiture (par la route) au-delà de 2,5 km, à pied en dessous ; « idem » reprend le moyen du tronçon précédent.</p></div>` : ""}
         <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
         <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
         ${statsHtml}
