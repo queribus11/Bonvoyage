@@ -23,7 +23,7 @@ window.CARNET_CONFIG = {
   //   "voyager"  : joli, coloré, lisible (par défaut)
   //   "positron" : très clair, minimaliste
   //   "outdoors" : OpenTopoMap, avec le relief (idéal randonnée)
-  MAP_STYLE: "voyager",
+  MAP_STYLE: "satellite",
 
   // Taille max des photos envoyées (px, côté le plus long). 1600 = bon compromis qualité/poids.
   PHOTO_MAX_SIZE: 1600,
