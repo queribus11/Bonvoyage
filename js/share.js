@@ -93,7 +93,7 @@
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
         <div class="legend" id="legend"></div>
         <div class="map-actions"><button class="btn sm glass" id="map-expand">${ic("expand", "sm")} Agrandir</button>${canReplay ? `<button class="btn sm glass" id="map-replay">${ic("play", "sm")} Survol</button>` : ""}</div>
-        <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Arrêter</button></div></div>
+        <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><button class="btn sm" id="replay-speed" title="Vitesse"></button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Arrêter</button></div></div>
       <main class="story">
         ${t.description ? `<div class="intro">${nl2p(t.description)}</div>` : ""}
         ${days.map((iso) => daySection(iso, days)).join("")}
@@ -131,10 +131,12 @@
           onDone: () => { $("#replay-overlay").hidden = true; },
         });
       };
-      if (introDone) setTimeout(go, isMobile() ? 400 : 700); else replayWanted = true;
+      if (introDone) setTimeout(go, isMobile() ? 400 : 700); else replayWanted = only || true;
     };
     $$(".day-replay", root).forEach((b) => b.onclick = () => startReplay(b.dataset.iso));
     $("#replay-stop").onclick = () => { if (map.stopReplay) map.stopReplay(); };
+    const speedBtn = $("#replay-speed"), showSpeed = () => { const s = BVMAP.SPEEDS.find((x) => x.k === BVMAP.replaySpeed()); speedBtn.textContent = s.icon; speedBtn.title = "Vitesse : " + s.label; };
+    showSpeed(); speedBtn.onclick = () => { const n = BVMAP.cycleSpeed(); showSpeed(); toast(`Vitesse : ${n.label} (à partir de la prochaine journée)`, "info", 2000); };
     const rb = $("#btn-replay"); if (rb) rb.onclick = () => startReplay();
     const mr = $("#map-replay"); if (mr) mr.onclick = () => startReplay();
     draw(false);
@@ -142,7 +144,7 @@
     // Intro : le globe tourne vers le voyage quand la carte arrive à l'écran (une seule fois)
     const runIntro = () => {
       if (introDone) return; introDone = true;
-      BVMAP.intro(map, drawn && drawn.bounds, () => { if (replayWanted) { replayWanted = false; startReplay(); } });
+      BVMAP.intro(map, drawn && drawn.bounds, () => { if (replayWanted) { const w = replayWanted; replayWanted = false; startReplay(w === true ? null : w); } });
     };
     if ("IntersectionObserver" in window) {
       const mo = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) { runIntro(); mo.disconnect(); } }, { threshold: .35 });

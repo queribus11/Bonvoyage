@@ -5,7 +5,10 @@
 // ============================================================
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
-  const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d";
+  const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
+  const SPEEDS = [{ k: .5, icon: "🐢", label: "lent" }, { k: 1, icon: "▶", label: "normal" }, { k: 2, icon: "🐇", label: "rapide" }];
+  function replaySpeed() { const v = parseFloat(LS.get(SPEED_KEY)); return SPEEDS.some((s) => s.k === v) ? v : 1; }
+  function cycleSpeed() { const i = SPEEDS.findIndex((s) => s.k === replaySpeed()); const n = SPEEDS[(i + 1) % SPEEDS.length]; LS.set(SPEED_KEY, n.k); return n; }
   const LS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { } } };
 
   const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
@@ -279,7 +282,7 @@ window.BVMAP = (() => {
       if (options.dayFilter && options.dayFilter !== iso) return;
       const p = dayStart(data, iso); if (!p) return;
       const n = options.dayNumber ? options.dayNumber(iso) : (dayList.indexOf(iso) + 1);
-      const el = document.createElement("div"); el.className = "bv-day"; el.style.background = colorForDay(dayList, iso); el.textContent = n ? `Jour ${n}` : iso.slice(8, 10) + "/" + iso.slice(5, 7);
+      const el = document.createElement("div"); el.className = "bv-day"; el.innerHTML = `<span class="in" style="background:${colorForDay(dayList, iso)}">${n ? `J${n}` : iso.slice(8, 10) + "/" + iso.slice(5, 7)}</span>`; el.title = n ? `Jour ${n}` : iso;
       el.title = iso;
       el.addEventListener("click", (e) => { e.stopPropagation(); if (options.onDayClick) options.onDayClick(iso); });
       const mk = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(M.map);
@@ -304,12 +307,12 @@ window.BVMAP = (() => {
         el.className = "bv-photo" + (M.replaying ? " hidden" : "");
         if (p.cluster) {
           el.classList.add("cluster");
-          el.innerHTML = `<img alt="">`; el.title = `${p.point_count} photos`;
+          el.innerHTML = `<div class="in"><img alt=""></div>`; el.title = `${p.point_count} photos`;
           src.getClusterLeaves(p.cluster_id, 1, 0).then((leaves) => { const m = leaves && leaves[0] && M.mediaById.get(leaves[0].properties.id); const img = el.querySelector("img"); if (m && img) img.src = thumbOf(M, m); }).catch(() => { });
           el.addEventListener("click", (e) => { e.stopPropagation(); src.getClusterExpansionZoom(p.cluster_id).then((z) => map.easeTo({ center: [lng, lat], zoom: Math.min(z + .3, 18), duration: 600 })).catch(() => { }); });
         } else {
           const m = M.mediaById.get(p.id); if (!m) continue;
-          el.innerHTML = `<img alt="" src="${thumbOf(M, m)}">${m.kind === "video" ? '<span class="play">▶</span>' : ""}${m.transport && MODES[m.transport] ? `<span class="mode" title="Arrivée ${MODES[m.transport].label}">${MODES[m.transport].icon}</span>` : ""}`;
+          el.innerHTML = `<div class="in"><img alt="" src="${thumbOf(M, m)}">${m.kind === "video" ? '<span class="play">▶</span>' : ""}${m.transport && MODES[m.transport] ? `<span class="mode" title="Arrivée ${MODES[m.transport].label}">${MODES[m.transport].icon}</span>` : ""}</div>`;
           el.addEventListener("click", (e) => { e.stopPropagation(); if (M.drawOpts.onMediaClick) M.drawOpts.onMediaClick(m); });
           el.dataset.id = m.id; el.dataset.day = m.day_date || "";
         }
@@ -393,7 +396,7 @@ window.BVMAP = (() => {
     for (const mk of M.dayMarkers) mk.getElement().classList.add("hidden");
     for (const e of M.markers.values()) e.el.classList.add("hidden");
     // Valdo marche sur le trajet
-    const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<img src="icons/valdo.svg" alt=""><span class="vehicle"></span>';
+    const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<div class="in"><img src="icons/valdo.svg" alt=""><span class="vehicle"></span></div>';
     const walker = new maplibregl.Marker({ element: wEl, anchor: "bottom" });
     let curMode = null;
     const walkTo = (c, bearing, mode) => {
@@ -442,16 +445,18 @@ window.BVMAP = (() => {
         const realTotal = d.coords.reduce((a, c, i) => i ? a + dist(d.coords[i - 1], c) : 0, 0);
         // Trajet estimé (photos reliées à vol d'oiseau) : on prend du recul, les tuiles ont le temps d'arriver
         const zoom = (realTotal < 12000 ? 14.2 : realTotal < 40000 ? 13 : realTotal < 120000 ? 11.8 : realTotal < 500000 ? 10.5 : 8.5) - (d.est ? 1.6 : 0);
-        const duration = Math.max(4000, Math.min(16000, total / 1000 * 450));
+        const speed = replaySpeed();
+        const duration = Math.max(6000, Math.min(45000, total / 1000 * 1100)) / speed;
         // Position de la caméra sur le départ
-        const bearing0 = heading(d.coords[0], d.coords[Math.min(5, d.coords.length - 1)]);
-        map.easeTo({ center: d.coords[0], zoom, pitch: d.est ? 50 : 60, bearing: bearing0, duration: 1800, easing: (t) => 1 - Math.pow(1 - t, 2) });
+        // Cap de départ : direction générale de la journée (pas le premier virage), pour une caméra posée
+        const bearing0 = heading(d.coords[0], d.coords[d.coords.length - 1]);
+        map.easeTo({ center: d.coords[0], zoom, pitch: d.est ? 48 : 55, bearing: bearing0, duration: 2200, easing: (t) => 1 - Math.pow(1 - t, 2) });
         await moveEnd(); if (stopped) return;
         walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
 
         // Photos ordonnées par distance le long du tracé
         const photoAt = d.photos.map((m) => ({ m, at: nearestDist(d.coords, cum, [m.lng, m.lat]) })).sort((a, b) => a.at - b.at);
-        let pi = 0, seg = 1, bearing = bearing0;
+        let pi = 0, seg = 1, bearing = bearing0, lastT = performance.now();
         const t0 = performance.now();
         await new Promise((resolve) => {
           const frame = (now) => {
@@ -463,8 +468,12 @@ window.BVMAP = (() => {
             const cur = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
             const line = d.coords.slice(0, seg).concat([cur]);
             map.getSource("progress").setData({ type: "FeatureCollection", features: [{ type: "Feature", properties: { color: d.color }, geometry: { type: "LineString", coordinates: line } }] });
-            const look = d.coords[Math.min(seg + 8, d.coords.length - 1)];
-            bearing = lerpAngle(bearing, heading(cur, look), .04);
+            // Regard loin devant (≈ 1/6 du tracé), rotation limitée à 12°/s : pas de tournis
+            const look = d.coords[Math.min(seg + Math.max(8, Math.floor(d.coords.length / 6)), d.coords.length - 1)];
+            const dt = Math.min(.1, (now - lastT) / 1000); lastT = now;
+            const want = dist(cur, look) > 150 ? heading(cur, look) : bearing;
+            const delta = ((want - bearing + 540) % 360) - 180;
+            bearing = (bearing + Math.max(-12 * dt, Math.min(12 * dt, delta * dt * 1.5)) + 360) % 360;
             map.jumpTo({ center: cur, bearing, zoom: map.getZoom(), pitch: map.getPitch() });
             walkTo(cur, heading(a, b), d.modes ? d.modes[seg] : null);
             while (pi < photoAt.length && photoAt[pi].at <= target) { reveal(photoAt[pi].m); pi++; }
@@ -488,5 +497,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, arc, estimatedLegs, dayPhotosSorted, maps, create, draw, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, dayPhotosSorted, maps, create, draw, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

@@ -271,6 +271,7 @@
     $("#btn-fit").onclick = () => fit();
     $("#btn-replay").onclick = () => startReplay();
     $("#app-replay-stop").onclick = () => { if (S.map.stopReplay) S.map.stopReplay(); };
+    $$(".speed-btn").forEach((b) => b.onclick = cycleSpeed);
     $("#btn-locate").onclick = () => locateMe(true);
     $("#btn-beacon").onclick = () => addBeacon();
   }
@@ -286,17 +287,20 @@
     if (fitAfter) fit();
   }
   // Survol du voyage (Valdo sur le parcours), comme sur la page des proches ; `only` = une seule journée
-  function startReplay(only = null) {
+  function startReplay(only = null, opts = {}) {
     if (!S.cur || S.map.replaying) return;
     if (!only && S.dayFilter) { S.dayFilter = null; redraw(); renderPanel(); }
     $("#panel").classList.add("collapsed");
-    $("#app-replay").hidden = false;
+    if (!opts.silent) $("#app-replay").hidden = false;
+    updateSpeedBtns();
     setTimeout(() => BVMAP.replay(S.map, S.cur, {
       dayList: allDays(), only, dayNumber: (iso) => dayNumber(S.cur.trip, iso),
       onDay: (iso, info) => { const d = dayInfo(iso) || {}; $("#app-replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}</span>` : ""}`; },
-      onDone: () => { $("#app-replay").hidden = true; },
+      onDone: () => { $("#app-replay").hidden = true; if (opts.onDone) opts.onDone(); },
     }), 300);
   }
+  function updateSpeedBtns() { const s = BVMAP.SPEEDS.find((x) => x.k === BVMAP.replaySpeed()); $$(".speed-btn").forEach((b) => { b.textContent = s.icon; b.title = "Vitesse : " + s.label; }); }
+  function cycleSpeed() { const n = BVMAP.cycleSpeed(); updateSpeedBtns(); toast(`Vitesse du survol : ${n.label} (prise en compte à la prochaine journée)`, "info", 2500); }
   // Ouvrir une journée : on la voit d'abord (survol de la journée), puis la carte flottante mène aux photos et au récit
   function openDay(iso) {
     const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso);
@@ -305,14 +309,20 @@
     if (S.map.replaying && S.map.stopReplay) S.map.stopReplay();
     S.dayFilter = iso; redraw(true); renderPanel();
     const card = $("#day-card");
-    card.innerHTML = `<div class="dc-head"><span class="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n ? "Jour " + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b>${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted">${d?.place ? esc(d.place) + " · " : ""}${ph.length} photo${ph.length > 1 ? "s" : ""}${d?.story ? " · récit" : ""}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
-      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
+    card.innerHTML = `<div class="dc-head"><span class="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b>${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted">${d?.place ? esc(d.place) + " · " : ""}${ph.length} photo${ph.length > 1 ? "s" : ""}${d?.story ? " · récit" : ""}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
     card.hidden = false;
     $("#dc-open").onclick = () => dayForm(iso);
     const closeCard = () => { card.hidden = true; if (S.map.stopReplay && S.map.replaying) S.map.stopReplay(); S.dayFilter = null; redraw(true); renderPanel(); };
     $("#dc-close").onclick = closeCard; $("#dc-all").onclick = closeCard;
-    const rp = $("#dc-replay"); if (rp) rp.onclick = () => startReplay(iso);
-    if (hasPath) startReplay(iso); else $("#panel").classList.add("collapsed");
+    const rp = $("#dc-replay");
+    const dayReplay = () => {
+      if (S.map.replaying) { S.map.stopReplay(); return; }
+      rp.innerHTML = `${ic("stop", "sm")} Arrêter`;
+      startReplay(iso, { silent: true, onDone: () => { if (!card.hidden) rp.innerHTML = `${ic("play", "sm")} Revoir`; } });
+    };
+    if (rp) { rp.onclick = dayReplay; $$(".speed-btn", card).forEach((b) => b.onclick = cycleSpeed); updateSpeedBtns(); }
+    if (hasPath) dayReplay(); else $("#panel").classList.add("collapsed");
   }
   function fit() {
     if (S.drawn && S.drawn.bounds) BVMAP.fitBounds(S.map, S.drawn.bounds, { padding: 48, maxZoom: 15 });
@@ -430,6 +440,7 @@
     const st = iso ? CV.dayStats(S.cur.tracks.filter((x) => x.day_date === iso)) : null;
     const dayPhotos = iso ? S.cur.media.filter((x) => x.day_date === iso) : [];
     const routeTrack = iso ? S.cur.tracks.find((t) => t.day_date === iso && t.source === "route") : null;
+    const legs = iso ? BVMAP.estimatedLegs(S.cur.media, iso) : null;
     const canRoute = iso && !routeTrack && !S.cur.tracks.some((t) => t.day_date === iso && (t.points || []).length >= 2) && dayPhotos.filter((x) => x.lat != null).length >= 2;
     const dl0 = allDays();
     const statsHtml = st && st.distance_m ? `<div class="day-stats">
@@ -441,7 +452,6 @@
       ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
       ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
       ${d?.place ? `<div class="kicker" style="margin:-4px 0 10px">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}
-      ${statsHtml}
       <form id="f">
         <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
         <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands"></div></div>
@@ -452,6 +462,11 @@
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
         <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
         <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
+        ${statsHtml}
+        ${legs ? `<div class="field"><label>Moyen de locomotion, tronçon par tronçon</label>
+          <div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
+            <select data-to="${l.to.id}" class="leg-mode"><option value="">↩︎ idem${i === 0 ? " (à pied)" : ""}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.to.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div>
+          <p class="help">Chaque ligne = le trajet jusqu'à la photo de droite. « idem » reprend le moyen du tronçon précédent. Se règle aussi dans la fiche de chaque photo (« Arrivé ici… »).</p></div>` : ""}
         ${iso ? `${canRoute ? `<div class="field"><label>Trajet</label><p class="small muted" style="margin:-2px 0 8px">Pas de trace GPS ce jour-là : la carte relie les photos en pointillés, dans l'ordre de l'heure, selon le moyen de locomotion choisi sur chaque photo. « Tracer l'itinéraire » fait suivre les vraies routes aux tronçons en voiture, bus ou vélo.</p>
           <button type="button" class="btn sm" id="day-route">${ic("route", "sm")} Tracer l'itinéraire par la route</button></div>` : ""}
         ${routeTrack ? `<div class="field"><label>Trajet</label><div class="row between"><span class="small">${ic("route", "sm")} Itinéraire par la route · <b>${fmtDistance(routeTrack.distance_m)}</b> · ${routeTrack.points.length} points</span><button type="button" class="btn sm ghost danger" id="day-route-del">Retirer</button></div>
@@ -507,6 +522,11 @@
         S.cur.tracks.push(tr); saveLocal(); redraw(); toast(`Itinéraire tracé · ${fmtDistance(tr.distance_m)}`, "ok"); m.close(); dayForm(iso);
       } catch (err) { errToast(err, 6000); busy(routeBtn, false); }
     };
+    $$(".leg-mode", m.el).forEach((sel) => sel.onchange = async () => {
+      const x = S.cur.media.find((y) => y.id === sel.dataset.to); if (!x) return;
+      try { const u = await API.updateMedia(x.id, { transport: sel.value || null }); Object.assign(x, u); saveLocal(); redraw(); toast(sel.value ? `Tronçon ${BVMAP.MODES[sel.value].label}` : "Tronçon : comme le précédent", "ok", 1800); }
+      catch (err) { errToast(err); }
+    });
     const routeDel = $("#day-route-del", m.el);
     if (routeDel) routeDel.onclick = async () => {
       try { await API.deleteTrack(routeTrack.id); S.cur.tracks = S.cur.tracks.filter((t) => t.id !== routeTrack.id); saveLocal(); redraw(); toast("Itinéraire retiré", "ok"); m.close(); dayForm(iso); }
