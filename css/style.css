@@ -283,7 +283,7 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
 @keyframes up { from { transform: translateY(40px); opacity: 0; } }
 .modal h2 { font-size: 26px; margin-bottom: 14px; }
 .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; align-items: center; }
-.modal .actions.sticky { position: sticky; bottom: calc(-20px - var(--safe-b)); background: var(--glass-strong); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding: 12px 0; margin: 8px 0 0; z-index: 2; border-top: 1px solid var(--line); flex-wrap: nowrap; }
+.modal .actions.sticky { position: sticky; bottom: calc(-20px - var(--safe-b)); background: var(--glass-strong); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding: 12px 0; margin: 8px 0 0; z-index: 2; border-top: 1px solid var(--line); flex-wrap: wrap; row-gap: 8px; }
 .modal-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 .modal-head .grow h2 { margin-bottom: 2px; }
 @media (min-width: 640px) { .modal-back { align-items: center; padding: 20px; } .modal { border-radius: var(--r-lg); } }
@@ -409,7 +409,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-photo .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; text-shadow: 0 1px 4px #000; }
 .bv-photo.cluster { width: 52px; height: 52px; }
 .bv-photo.cluster::before { content: ""; position: absolute; inset: -6px -2px 2px 2px; border-radius: 50%; border: 3px solid #fff; opacity: .55; z-index: -1; background: var(--cream); box-shadow: 0 4px 10px rgba(18,63,102,.25); transform: rotate(-8deg); }
-.bv-photo .n { position: absolute; top: -8px; right: -8px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: var(--mandarine); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: var(--sh-1); }
+.bv-photo .n { display: none; position: absolute; top: -8px; right: -8px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: var(--mandarine); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; box-shadow: var(--sh-1); }
 .bv-photo.hidden { opacity: 0; transform: scale(.3); pointer-events: none; }
 .bv-photo.pop { animation: photo-pop .55s var(--ease); }
 @keyframes photo-pop { 0% { transform: scale(.3); opacity: 0; } 60% { transform: scale(1.18); opacity: 1; } 100% { transform: scale(1); } }

@@ -205,7 +205,7 @@
   }
 
   function draw(fit) {
-    drawn = BVMAP.draw(map, D, { dayFilter, thumbUrl: thumb, onMediaClick: viewer, dayNumber: (iso) => dayNumber(D.trip, iso),
+    drawn = BVMAP.draw(map, D, { dayFilter, dayList: dayList(), thumbUrl: thumb, onMediaClick: viewer, dayNumber: (iso) => dayNumber(D.trip, iso),
       onDayClick: (iso) => { $(`#day-${iso}`)?.scrollIntoView({ behavior: "smooth" }); } });
     if (fit && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 });
   }

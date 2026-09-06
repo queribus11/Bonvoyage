@@ -421,7 +421,7 @@
         ${canRoute ? `<div class="field"><label>Trajet</label><p class="small muted" style="margin:-2px 0 8px">Pas de trace GPS ce jour-là : la carte relie les photos en pointillés, dans l'ordre de l'heure. Tu peux aussi faire suivre les vraies routes.</p>
           <button type="button" class="btn sm" id="day-route">${ic("route", "sm")} Tracer l'itinéraire par la route</button></div>` : ""}` : ""}
         <div class="actions sticky">
-          ${d ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer le récit">${ic("trash")}</button>` : ""}${d?.published && !isLive() ? `<button type="button" class="btn sm ghost" id="unpub">Repasser en brouillon</button>` : ""}<span class="grow"></span>
+          ${d ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer le récit">${ic("trash")}</button>` : ""}${d?.published && !isLive() ? `<button type="button" class="btn sm ghost" id="unpub" title="Repasser en brouillon">Brouillon</button>` : ""}<span class="grow"></span>
           <button class="btn secondary" type="submit">Enregistrer</button>
           ${iso && !isLive() && !d?.published ? `<button type="button" class="btn secondary" id="pub-quiet" title="Rend la journée visible sans envoyer de message">${ic("check")} Publier</button>` : ""}
           ${iso ? `<button type="button" class="btn primary" id="pub" title="Enregistre aussi les modifications">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier et prévenir"}</button>` : ""}

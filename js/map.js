@@ -54,8 +54,8 @@ window.BVMAP = (() => {
         { id: "b-topo", type: "raster", source: "topo", layout: vis("relief"), paint: dark ? { "raster-brightness-max": .8, "raster-saturation": -.2 } : {} },
         { id: "b-osm", type: "raster", source: "osm", layout: vis("plan"), paint: dark ? { "raster-brightness-max": .72, "raster-saturation": -.35, "raster-contrast": .1 } : {} },
         { id: "b-hill", type: "hillshade", source: "demhill", layout: vis("plan"), paint: { "hillshade-exaggeration": .35, "hillshade-shadow-color": "#123F66", "hillshade-highlight-color": "#ffffff", "hillshade-accent-color": "#123F66" } },
-        { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4, 14, 6], "line-opacity": .7 } },
-        { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 14, 3.5], "line-dasharray": [1.5, 2], "line-opacity": .95 } },
+        { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 8, 14, 12], "line-opacity": .45, "line-blur": 4 } },
+        { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 5.5], "line-dasharray": [1.6, 1.4], "line-opacity": 1 } },
         { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 12], "line-opacity": .35, "line-blur": 3 } },
         { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4.5, 14, 7], "line-opacity": .9 } },
         { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 14, 4.5], "line-opacity": 1 } },
@@ -266,7 +266,7 @@ window.BVMAP = (() => {
         el.className = "bv-photo" + (M.replaying ? " hidden" : "");
         if (p.cluster) {
           el.classList.add("cluster");
-          el.innerHTML = `<img alt=""><span class="n">${p.point_count_abbreviated}</span>`;
+          el.innerHTML = `<img alt="">`; el.title = `${p.point_count} photos`;
           src.getClusterLeaves(p.cluster_id, 1, 0).then((leaves) => { const m = leaves && leaves[0] && M.mediaById.get(leaves[0].properties.id); const img = el.querySelector("img"); if (m && img) img.src = thumbOf(M, m); }).catch(() => { });
           el.addEventListener("click", (e) => { e.stopPropagation(); src.getClusterExpansionZoom(p.cluster_id).then((z) => map.easeTo({ center: [lng, lat], zoom: Math.min(z + .3, 18), duration: 600 })).catch(() => { }); });
         } else {
@@ -390,11 +390,12 @@ window.BVMAP = (() => {
         // Cumul des distances le long du tracé
         const cum = [0]; for (let i = 1; i < d.coords.length; i++) cum.push(cum[i - 1] + dist(d.coords[i - 1], d.coords[i]));
         const total = cum[cum.length - 1];
-        const zoom = total < 12000 ? 14.2 : total < 40000 ? 13 : total < 120000 ? 11.8 : 10.5;
+        // Trajet estimé (photos reliées à vol d'oiseau) : on prend du recul, les tuiles ont le temps d'arriver
+        const zoom = (total < 12000 ? 14.2 : total < 40000 ? 13 : total < 120000 ? 11.8 : 10.5) - (d.est ? 1.6 : 0);
         const duration = Math.max(4000, Math.min(16000, total / 1000 * 450));
         // Position de la caméra sur le départ
         const bearing0 = heading(d.coords[0], d.coords[Math.min(5, d.coords.length - 1)]);
-        map.easeTo({ center: d.coords[0], zoom, pitch: 60, bearing: bearing0, duration: 1800, easing: (t) => 1 - Math.pow(1 - t, 2) });
+        map.easeTo({ center: d.coords[0], zoom, pitch: d.est ? 50 : 60, bearing: bearing0, duration: 1800, easing: (t) => 1 - Math.pow(1 - t, 2) });
         await moveEnd(); if (stopped) return;
         walkTo(d.coords[0], 0); wEl.classList.add("walking");
 
