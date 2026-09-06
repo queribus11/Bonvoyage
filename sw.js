@@ -1,5 +1,5 @@
 // Service worker : l'app s'ouvre même sans réseau (les données, elles, viennent de Supabase).
-const CACHE = "bonvoyage-v2";
+const CACHE = "bonvoyage-v3";
 const SHELL = ["./", "./index.html", "./share.html", "./css/style.css", "./js/config.js", "./js/common.js", "./js/offline.js", "./js/theme.js", "./js/api.js", "./js/app.js", "./js/share.js", "./vapid.html", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-192.png", "./icons/valdo.svg", "./icons/apple-touch-icon.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -7,7 +7,7 @@ self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) =
 self.addEventListener("push", (e) => {
   let d = {}; try { d = e.data.json(); } catch { d = { title: "Bonvoyage", body: e.data ? e.data.text() : "" }; }
   e.waitUntil(self.registration.showNotification(d.title || "Bonvoyage", {
-    body: d.body || "", icon: "./icons/icon-192.png", "./icons/valdo.svg", "./icons/apple-touch-icon.png", badge: "./icons/icon-192.png", "./icons/valdo.svg", "./icons/apple-touch-icon.png", data: { url: d.url || "./" }, tag: "carnet-" + (d.url || ""),
+    body: d.body || "", icon: "./icons/icon-192.png", badge: "./icons/icon-192.png", data: { url: d.url || "./" }, tag: "carnet-" + (d.url || ""),
   }));
 });
 self.addEventListener("notificationclick", (e) => {
