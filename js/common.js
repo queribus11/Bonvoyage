@@ -1,5 +1,5 @@
 // ============================================================
-//  Fonctions partagées : carte, traces, GPX, dates, images
+//  Fonctions partagées : traces, GPX, statistiques, lieux, dates, images, audio
 // ============================================================
 (function () {
   const cfg = window.CARNET_CONFIG || {};
@@ -84,79 +84,94 @@
     return out + "</gpx>\n";
   }
 
-  // ---------- Carte ----------
-  // Fonds de carte gratuits, sans clé d'accès
-  const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-  const TILES = {
-    osm:      { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr: OSM_ATTR, max: 19, subdomains: "" },
-    voyager:  { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr: OSM_ATTR, max: 19, subdomains: "" },   // ancien nom, même carte
-    positron: { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr: OSM_ATTR, max: 19, subdomains: "" },
-    outdoors: { url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", attr: OSM_ATTR + ', SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a>', max: 17, subdomains: "abc" },
-    dark:     { url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attr: OSM_ATTR, max: 19, subdomains: "", className: "tiles-dark" },
-  };
-  const DAY_COLORS = ["#F97316", "#0D8FE0", "#7CB518", "#F5B301", "#123F66", "#3AA0F5", "#9ACD1E", "#5E6142", "#E05A8A", "#8B5CF6"];
-
-  function createMap(el, opts = {}) {
-    const map = L.map(el, { zoomControl: false, attributionControl: true, ...opts });
-    L.control.zoom({ position: "bottomright" }).addTo(map);
-    let tiles = null;
-    const setTiles = () => {
-      const dark = window.THEME && THEME.isDark() && cfg.MAP_STYLE !== "outdoors";
-      const style = dark ? TILES.dark : (TILES[cfg.MAP_STYLE] || TILES.voyager);
-      if (tiles) map.removeLayer(tiles);
-      tiles = L.tileLayer(style.url, { attribution: style.attr, maxZoom: style.max, subdomains: style.subdomains || "abc", className: style.className || "" }).addTo(map);
-      if (tiles.bringToBack) tiles.bringToBack();
-    };
-    setTiles();
-    document.addEventListener("themechange", setTiles);
-    map.setView([46.6, 2.5], 5);
-    return map;
-  }
-
+  // ---------- Carte : moteur dans js/map.js (BVMAP) ; on garde ici les couleurs par journée et les statistiques ----------
+  const DAY_COLORS = (window.BVMAP && BVMAP.DAY_COLORS) || ["#F97316", "#0D8FE0", "#7CB518", "#F5B301", "#3AA0F5", "#9ACD1E", "#E05A8A", "#8B5CF6"];
   function colorForDay(dayList, iso) {
     const i = dayList.indexOf(iso);
     return DAY_COLORS[(i < 0 ? 0 : i) % DAY_COLORS.length];
   }
 
-  // Dessine traces + photos. Renvoie { layer, bounds, markers:{mediaId:marker} }
-  function drawTrip(map, data, options = {}) {
-    const { tracks = [], media = [] } = data;
-    const dayList = options.dayList || [...new Set([...tracks.map((t) => t.day_date), ...media.map((m) => m.day_date)].filter(Boolean))].sort();
-    const layer = L.featureGroup();
-    const markers = {};
-    const filter = options.dayFilter;
-
-    for (const tr of tracks) {
-      if (filter && tr.day_date !== filter) continue;
-      const latlngs = (tr.points || []).map((p) => [p.lat, p.lng]);
-      if (latlngs.length < 2) {
-        if (latlngs.length === 1) L.circleMarker(latlngs[0], { radius: 5, color: colorForDay(dayList, tr.day_date), fillOpacity: 0.9 }).addTo(layer);
-        continue;
+  // Statistiques d'une journée (ou d'un voyage) à partir de ses traces :
+  // distance, durée, dénivelé + / -, altitude min / max, profil d'altitude (échantillonné)
+  function dayStats(tracks) {
+    const trs = (tracks || []).filter((t) => (t.points || []).length);
+    const out = { distance_m: trs.reduce((a, t) => a + (t.distance_m || 0), 0), gain: 0, loss: 0, minAlt: null, maxAlt: null, duration_s: 0, profile: [], hasAlt: false, moving: false };
+    if (!trs.length) return out;
+    const sorted = trs.slice().sort((a, b) => ((a.points[0] || {}).t || 0) - ((b.points[0] || {}).t || 0));
+    let cum = 0, prev = null, tStart = null, tEnd = null;
+    const samples = [];
+    for (const t of sorted) {
+      for (const p of t.points) {
+        if (!p || p.lat == null) continue;
+        if (prev) cum += haversine(prev, p);
+        prev = p;
+        if (p.t) { if (tStart == null || p.t < tStart) tStart = p.t; if (tEnd == null || p.t > tEnd) tEnd = p.t; }
+        if (p.alt != null && isFinite(p.alt)) samples.push({ d: cum, alt: +p.alt });
       }
-      const color = colorForDay(dayList, tr.day_date);
-      L.polyline(latlngs, { color: "#fff", weight: 7, opacity: 0.8, lineJoin: "round" }).addTo(layer);
-      const line = L.polyline(latlngs, { color, weight: 4, opacity: 0.95, lineJoin: "round" }).addTo(layer);
-      line.bindTooltip(`${tr.name || "Trace"}${tr.day_date ? " · " + fmtDate(tr.day_date, false) : ""} · ${fmtDistance(tr.distance_m)}`, { sticky: true });
-      if (options.onTrackClick) line.on("click", () => options.onTrackClick(tr));
+      prev = null; // pas de distance entre deux traces différentes
     }
-
-    for (const m of media) {
-      if (filter && m.day_date !== filter) continue;
-      if (m.lat == null || m.lng == null) continue;
-      const url = options.thumbUrl ? options.thumbUrl(m) : "";
-      const icon = L.divIcon({
-        className: "photo-pin",
-        html: `<div class="photo-pin-inner${m.kind === "video" ? " is-video" : ""}"${url ? ` style="background-image:url('${url}')"` : ""}></div>`,
-        iconSize: [44, 44], iconAnchor: [22, 44], popupAnchor: [0, -40],
-      });
-      const mk = L.marker([m.lat, m.lng], { icon, riseOnHover: true }).addTo(layer);
-      if (options.onMediaClick) mk.on("click", () => options.onMediaClick(m));
-      markers[m.id] = mk;
+    if (tStart != null && tEnd != null) out.duration_s = Math.round((tEnd - tStart) / 1000);
+    if (samples.length >= 2) {
+      out.hasAlt = true;
+      // Lissage (moyenne glissante sur 5 points) puis seuil de 4 m pour ignorer le bruit du GPS
+      const sm = samples.map((s, i) => { const w = samples.slice(Math.max(0, i - 2), i + 3); return { d: s.d, alt: w.reduce((a, x) => a + x.alt, 0) / w.length }; });
+      let ref = sm[0].alt;
+      for (const s of sm) {
+        const diff = s.alt - ref;
+        if (diff >= 4) { out.gain += diff; ref = s.alt; } else if (diff <= -4) { out.loss += -diff; ref = s.alt; }
+      }
+      out.gain = Math.round(out.gain); out.loss = Math.round(out.loss);
+      out.minAlt = Math.round(Math.min(...sm.map((s) => s.alt))); out.maxAlt = Math.round(Math.max(...sm.map((s) => s.alt)));
+      // Profil : 80 points max
+      const step = Math.max(1, Math.floor(sm.length / 80));
+      out.profile = sm.filter((_, i) => i % step === 0 || i === sm.length - 1);
     }
+    return out;
+  }
+  function fmtDuration(s) { if (!s) return ""; const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`; }
+  // Petit profil d'altitude en SVG (couleur de la journée)
+  function profileSvg(profile, color = "#F97316", w = 320, h = 64) {
+    if (!profile || profile.length < 2) return "";
+    const dmax = profile[profile.length - 1].d || 1, amin = Math.min(...profile.map((p) => p.alt)), amax = Math.max(...profile.map((p) => p.alt)), span = Math.max(20, amax - amin);
+    const x = (p) => (p.d / dmax * (w - 2) + 1).toFixed(1), y = (p) => (h - 4 - (p.alt - amin) / span * (h - 12)).toFixed(1);
+    const pts = profile.map((p) => `${x(p)},${y(p)}`).join(" ");
+    return `<svg class="alt-profile" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Profil d'altitude de ${Math.round(amin)} à ${Math.round(amax)} m">
+      <path d="M1,${h} L${pts.replace(/ /g, " L")} L${w - 1},${h} Z" fill="${color}" fill-opacity=".18"/>
+      <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+  }
 
-    layer.addTo(map);
-    const bounds = layer.getBounds();
-    return { layer, bounds, markers, dayList };
+  // Nom du lieu (commune, région, pays) d'après une position — Nominatim / OpenStreetMap, avec cache local
+  const GEO_CACHE_KEY = "bv_places";
+  async function placeName(lat, lng) {
+    if (lat == null || lng == null) return "";
+    const key = lat.toFixed(2) + "," + lng.toFixed(2);
+    let cache = {}; try { cache = JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || "{}"); } catch { }
+    if (cache[key] != null) return cache[key];
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=10&accept-language=fr`, { headers: { "Accept": "application/json" } });
+      if (!r.ok) return "";
+      const j = await r.json(), a = j.address || {};
+      const town = a.city || a.town || a.village || a.municipality || a.hamlet || a.county || "";
+      const region = a.state || a.region || a.province || "";
+      const country = a.country || "";
+      const name = [town, country && country !== "France" ? country : region].filter(Boolean).join(", ");
+      cache[key] = name; try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache)); } catch { }
+      return name;
+    } catch { return ""; }
+  }
+  // Complète le nom du lieu des journées qui n'en ont pas (une requête par seconde, en douceur)
+  async function fillPlaces(cur, save) {
+    const dayList = [...new Set([...cur.days.map((d) => d.day_date), ...cur.tracks.map((t) => t.day_date), ...cur.media.map((m) => m.day_date)].filter(Boolean))].sort();
+    for (const iso of dayList) {
+      const d = cur.days.find((x) => x.day_date === iso);
+      if (!d || d.place) continue;
+      const tr = cur.tracks.find((t) => t.day_date === iso && (t.points || []).length), m = cur.media.find((x) => x.day_date === iso && x.lat != null);
+      const p = tr ? tr.points[Math.floor(tr.points.length / 2)] : (m ? { lat: m.lat, lng: m.lng } : null);
+      if (!p) continue;
+      const name = await placeName(p.lat, p.lng);
+      if (name) { d.place = name; try { await save(d, name); } catch { } }
+      await new Promise((r) => setTimeout(r, 1100));
+    }
   }
 
   // ---------- Images ----------
@@ -357,6 +372,6 @@
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
-    parseGPX, toGPX, createMap, drawTrip, colorForDay, DAY_COLORS, resizeImage, readExif, esc, nl2p, toast, download,
+    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, resizeImage, readExif, esc, nl2p, toast, download,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio };
 })();

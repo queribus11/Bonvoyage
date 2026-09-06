@@ -22,7 +22,7 @@
   function show(id) {
     $$(".screen").forEach((s) => s.classList.toggle("active", s.id === id));
     window.scrollTo(0, 0);
-    if (id === "screen-trip") setTimeout(() => S.map && S.map.invalidateSize(), 50);
+    if (id === "screen-trip") setTimeout(() => S.map && BVMAP.resize(S.map), 50);
   }
 
   // ---------------------------------------------------------------
@@ -188,6 +188,11 @@
     S.pendingMedia = await OFF.listPendingMedia(id).catch(() => []);
     if (S.pendingMedia.length && S.tab === "photos") renderPanel();
     OFF.cacheTrip(S.cur);
+    // Nom des lieux (commune, pays) des journées, complété en douceur et gardé en base
+    if (navigator.onLine && !S.offline) CV.fillPlaces(S.cur, async (d, name) => {
+      const u = await API.upsertDay(S.user, S.cur.trip.id, d.day_date, { place: name });
+      Object.assign(d, u); if (S.tab === "days") renderPanel();
+    }).catch(() => { });
     syncAll();
   }
   function saveLocal() { if (S.cur) OFF.cacheTrip(S.cur); }
@@ -252,12 +257,12 @@
   // ---------- Carte ----------
   function ensureMap() {
     if (S.map) return;
-    S.map = CV.createMap("map");
-    S.map.on("click", (e) => {
+    S.map = BVMAP.create("map", { controlsPos: "bottom-right", switcherClass: "in-app" });
+    BVMAP.onClick(S.map, (e) => {
       if (!S.placing) return;
       const m = S.placing; S.placing = null;
-      $("#map").style.cursor = "";
-      API.updateMedia(m.id, { lat: e.latlng.lat, lng: e.latlng.lng }).then((u) => {
+      BVMAP.setCursor(S.map, "");
+      API.updateMedia(m.id, { lat: e.lat, lng: e.lng }).then((u) => {
         Object.assign(m, u); redraw(); toast("Photo placée sur la carte", "ok"); renderPanel();
       }).catch((err) => errToast(err));
     });
@@ -266,28 +271,26 @@
     $("#btn-beacon").onclick = () => addBeacon();
   }
   function redraw(fitAfter = false) {
-    if (S.drawn) S.map.removeLayer(S.drawn.layer);
-    S.drawn = CV.drawTrip(S.map, S.cur, {
+    S.drawn = BVMAP.draw(S.map, S.cur, {
       dayFilter: S.dayFilter, dayList: allDays(),
       thumbUrl: (m) => API.publicUrl(m.thumb_path || (m.kind === "photo" ? m.path : "")),
+      dayNumber: (iso) => dayNumber(S.cur.trip, iso),
       onMediaClick: (m) => mediaViewer(m),
       onTrackClick: (tr) => trackForm(tr),
+      onDayClick: (iso) => { if (navigator.vibrate) navigator.vibrate(8); S.dayFilter = S.dayFilter === iso ? null : iso; redraw(true); renderPanel(); },
     });
     if (fitAfter) fit();
   }
   function fit() {
-    if (S.drawn && S.drawn.bounds.isValid()) S.map.fitBounds(S.drawn.bounds, { padding: [40, 40], maxZoom: 15 });
-    else if (S.meMarker) S.map.setView(S.meMarker.getLatLng(), 13);
+    if (S.drawn && S.drawn.bounds) BVMAP.fitBounds(S.map, S.drawn.bounds, { padding: 48, maxZoom: 15 });
+    else { const me = BVMAP.meLngLat(S.map); if (me) BVMAP.easeTo(S.map, me.lat, me.lng, 13); }
   }
-  function showMe(lat, lng) {
-    if (!S.meMarker) S.meMarker = L.marker([lat, lng], { icon: L.divIcon({ className: "", html: '<div class="me-marker"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 1000 }).addTo(S.map);
-    else S.meMarker.setLatLng([lat, lng]);
-  }
+  function showMe(lat, lng) { BVMAP.showMe(S.map, lat, lng); }
   function locateMe(center) {
     if (!navigator.geolocation) return toast("Géolocalisation indisponible", "error");
     navigator.geolocation.getCurrentPosition((p) => {
       showMe(p.coords.latitude, p.coords.longitude);
-      if (center) S.map.setView([p.coords.latitude, p.coords.longitude], Math.max(S.map.getZoom(), 14));
+      if (center) BVMAP.easeTo(S.map, p.coords.latitude, p.coords.longitude, Math.max(BVMAP.getZoom(S.map), 14));
     }, (e) => toast(e.code === 1 ? "Localisation refusée : autorise-la dans les réglages du téléphone" : "Position introuvable pour l'instant", "error"), { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
   }
 
@@ -310,7 +313,7 @@
       if (dy < -40) { if (panel.classList.contains("collapsed")) panel.classList.remove("collapsed"); else panel.classList.add("expanded"); }
       else if (dy > 40) { if (panel.classList.contains("expanded")) panel.classList.remove("expanded"); else panel.classList.add("collapsed"); }
       else panel.classList.toggle("collapsed");
-      setTimeout(() => S.map && S.map.invalidateSize(), 280);
+      setTimeout(() => S.map && BVMAP.resize(S.map), 280);
     };
     grip.addEventListener("touchstart", start, { passive: true }); grip.addEventListener("touchend", end);
     grip.addEventListener("mousedown", start); grip.addEventListener("mouseup", end);
@@ -361,12 +364,16 @@
         const km = S.cur.tracks.filter((x) => x.day_date === iso).reduce((a, x) => a + (x.distance_m || 0), 0);
         const ph = S.cur.media.filter((x) => x.day_date === iso);
         const color = CV.colorForDay(dl, iso);
+        const st = CV.dayStats(S.cur.tracks.filter((x) => x.day_date === iso));
+        const cover = ph.find((x) => x.kind === "photo") || ph[0];
         return `<div class="day-item${S.dayFilter === iso ? " active" : ""}" data-iso="${iso}">
           <div class="num" style="background:${color}" title="Voir cette journée sur la carte"><small>${n ? "Jour" : ""}</small>${n || fmtDateShort(iso)}</div>
           <div class="info"><b>${esc(d?.title || fmtDate(iso))}</b>
-            <span>${d?.title ? fmtDate(iso, false) : ""}${km ? ` · ${ic("route", "sm")} ${fmtDistance(km)}` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
+            <span>${d?.title ? fmtDate(iso, false) : ""}${d?.place ? ` · ${ic("pin", "sm")} ${esc(d.place)}` : ""}</span>
+            <span>${km ? `${ic("route", "sm")} ${fmtDistance(km)}` : ""}${st.hasAlt && st.gain ? ` · ↗ ${st.gain} m` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
+            ${cover ? `<div class="day-cover" style="background-image:url('${API.publicUrl(cover.thumb_path || cover.path)}')"></div>` : ""}
             ${(km || ph.length || d) ? `<div class="status">${isLive() ? (d?.published ? `<span class="chip pub">Annoncée</span>` : "") : (d?.published ? `<span class="chip pub">Publiée</span>` : `<span class="chip draft">Brouillon</span>`)}</div>` : ""}
-            ${ph.length ? `<div class="thumbs">${ph.slice(0, 5).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`).join("")}</div>` : ""}
+            ${ph.length > 1 ? `<div class="thumbs">${ph.slice(1, 6).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`).join("")}</div>` : ""}
           </div></div>`; }).join("")}</div>`;
     $("#add-day").onclick = () => dayForm(null);
     const cf = $("#clear-filter"); if (cf) cf.onclick = () => { S.dayFilter = null; redraw(true); renderPanel(); };
@@ -387,9 +394,18 @@
       : d?.published ? `<span class="chip pub">Publiée</span> <span class="small muted">Visible par tes proches, modifiable à tout moment.</span>`
       : `<span class="chip draft">Brouillon</span> <span class="small muted">Invisible pour tes proches tant que tu n'as pas publié.</span>`;
     const n0 = iso ? dayNumber(S.cur.trip, iso) : null;
+    const st = iso ? CV.dayStats(S.cur.tracks.filter((x) => x.day_date === iso)) : null;
+    const dl0 = allDays();
+    const statsHtml = st && st.distance_m ? `<div class="day-stats">
+        <div><b>${fmtDistance(st.distance_m)}</b><small>distance</small></div>
+        ${st.duration_s ? `<div><b>${CV.fmtDuration(st.duration_s)}</b><small>durée</small></div>` : ""}
+        ${st.hasAlt ? `<div><b>↗ ${st.gain} m</b><small>montée</small></div><div><b>↘ ${st.loss} m</b><small>descente</small></div><div><b>${st.maxAlt} m</b><small>alt. max</small></div>` : ""}
+      </div>${st.hasAlt ? CV.profileSvg(st.profile, CV.colorForDay(dl0, iso)) : ""}` : "";
     const m = openModal(`<div class="modal-head"><div class="grow">${iso ? `<div class="kicker">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)}</div>` : ""}<h2>${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div><button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
       ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
       ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
+      ${d?.place ? `<div class="kicker" style="margin:-4px 0 10px">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}
+      ${statsHtml}
       <form id="f">
         <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
         <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands"></div></div>
@@ -618,12 +634,12 @@
       try { await API.deleteMedia(m); S.cur.media = S.cur.media.filter((x) => x.id !== m.id); saveLocal(); modal.close(); renderTripHeader(); redraw(); renderPanel(); }
       catch (err) { errToast(err); }
     };
-    $("#place", el).onclick = () => { S.placing = m; modal.close(); $("#panel").classList.add("collapsed"); $("#map").style.cursor = "crosshair"; toast("Touche la carte à l'endroit de la photo"); setTimeout(() => S.map.invalidateSize(), 280); };
+    $("#place", el).onclick = () => { S.placing = m; modal.close(); $("#panel").classList.add("collapsed"); BVMAP.setCursor(S.map, "crosshair"); toast("Touche la carte à l'endroit de la photo"); setTimeout(() => BVMAP.resize(S.map), 280); };
     $("#here", el).onclick = () => navigator.geolocation.getCurrentPosition(async (p) => {
       try { Object.assign(m, await API.updateMedia(m.id, { lat: p.coords.latitude, lng: p.coords.longitude })); saveLocal(); modal.close(); redraw(); renderPanel(); toast("Position enregistrée", "ok"); }
       catch (err) { errToast(err); }
     }, (e) => toast("Position introuvable", "error"), { enableHighAccuracy: true, timeout: 15000 });
-    const gt = $("#goto", el); if (gt) gt.onclick = () => { modal.close(); S.map.setView([m.lat, m.lng], 16); };
+    const gt = $("#goto", el); if (gt) gt.onclick = () => { modal.close(); BVMAP.easeTo(S.map, m.lat, m.lng, 16); };
     $("#cf", el).onsubmit = async (e) => {
       e.preventDefault();
       const body = e.target.body.value.trim(); const blob = crec.getBlob();
@@ -850,7 +866,7 @@
       showMe(pt.lat, pt.lng);
       if (navigator.vibrate) navigator.vibrate([12, 40, 18]);
       const bb = $("#btn-beacon"); if (bb) { bb.classList.remove("pop"); void bb.offsetWidth; bb.classList.add("pop"); }
-      try { const pm = L.marker([pt.lat, pt.lng], { icon: L.divIcon({ className: "", html: '<div class="ping"></div>', iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(S.map); setTimeout(() => S.map.removeLayer(pm), 900); } catch { }
+      try { BVMAP.ping(S.map, pt.lat, pt.lng); } catch { }
       const d = today();
       let tr = S.cur.tracks.find((t) => t.source === "manual" && t.day_date === d);
       if (tr) { tr.points = [...tr.points, pt]; tr.distance_m = CV.trackDistance(tr.points); tr._pending = true; }

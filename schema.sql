@@ -93,6 +93,8 @@ alter table public.days     add column if not exists updated_at timestamptz not 
 alter table public.media    add column if not exists audio_path text;
 alter table public.comments add column if not exists audio_path text;
 alter table public.comments alter column body set default '';
+-- v8 : nom du lieu de la journée (commune, pays), rempli automatiquement par l'app
+alter table public.days     add column if not exists place text;
 -- v5 : un téléphone peut suivre plusieurs voyages
 do $$ begin
   if exists (select 1 from pg_constraint where conname = 'push_subscriptions_endpoint_key') then
@@ -174,7 +176,7 @@ begin
       'allow_comments', t.allow_comments, 'publish_mode', t.publish_mode
     ),
     'days', coalesce((select jsonb_agg(jsonb_build_object(
-        'id', d.id, 'day_date', d.day_date, 'title', d.title, 'story', d.story, 'audio_path', d.audio_path,
+        'id', d.id, 'day_date', d.day_date, 'title', d.title, 'story', d.story, 'audio_path', d.audio_path, 'place', d.place,
         'published_at', coalesce(d.published_at, d.created_at), 'updated_at', d.updated_at)
         order by d.day_date) from public.days d where d.trip_id = t.id and d.day_date = any(vis)), '[]'::jsonb),
     'tracks', coalesce((select jsonb_agg(jsonb_build_object(
