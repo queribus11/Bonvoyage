@@ -117,24 +117,26 @@
       setTimeout(() => { BVMAP.resize(map); if (!map.replaying && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
     };
     $("#map-expand").onclick = () => setBig(!$("#map-wrap").classList.contains("big"));
-    const startReplay = () => {
+    const startReplay = (only = null) => {
       if (!drawn || map.replaying) return;
-      if (dayFilter) { dayFilter = null; draw(false); renderLegend(days); }
+      if (dayFilter && !only) { dayFilter = null; draw(false); renderLegend(days); }
+      if (only && dayFilter !== only) { dayFilter = only; draw(false); renderLegend(days); }
       if (isMobile()) setBig(true);
       $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
       const go = () => {
         $("#replay-overlay").hidden = false;
         BVMAP.replay(map, D, {
-          dayList: days, dayNumber: (iso) => dayNumber(D.trip, iso),
+          dayList: days, only, dayNumber: (iso) => dayNumber(D.trip, iso),
           onDay: (iso, info) => { const d = D.days.find((x) => x.day_date === iso) || {}; $("#replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}${info.photos ? ` · ${info.photos} photo${info.photos > 1 ? "s" : ""}` : ""}</span>` : ""}`; },
           onDone: () => { $("#replay-overlay").hidden = true; },
         });
       };
       if (introDone) setTimeout(go, isMobile() ? 400 : 700); else replayWanted = true;
     };
+    $$(".day-replay", root).forEach((b) => b.onclick = () => startReplay(b.dataset.iso));
     $("#replay-stop").onclick = () => { if (map.stopReplay) map.stopReplay(); };
-    const rb = $("#btn-replay"); if (rb) rb.onclick = startReplay;
-    const mr = $("#map-replay"); if (mr) mr.onclick = startReplay;
+    const rb = $("#btn-replay"); if (rb) rb.onclick = () => startReplay();
+    const mr = $("#map-replay"); if (mr) mr.onclick = () => startReplay();
     draw(false);
     renderLegend(days);
     // Intro : le globe tourne vers le voyage quand la carte arrive à l'écran (une seule fois)
@@ -170,18 +172,20 @@
     const color = CV.colorForDay(days, iso);
     const st = CV.dayStats(D.tracks.filter((x) => x.day_date === iso));
     const cover = media.find((m) => m.kind === "photo") || null;
+    const hasPath = D.tracks.some((t) => t.day_date === iso && (t.points || []).length >= 2) || media.filter((m) => m.lat != null).length >= 2;
     const chips = [km ? `${ic("route", "sm")} ${fmtDistance(km)}` : "", st.duration_s ? `${ic("clock", "sm")} ${CV.fmtDuration(st.duration_s)}` : "", st.hasAlt && st.gain ? `↗ ${st.gain} m` : "", st.hasAlt && st.maxAlt != null ? `⛰ ${st.maxAlt} m` : "", media.length ? `${ic("camera", "sm")} ${media.length}` : ""].filter(Boolean);
     return `<section class="day-section" data-iso="${iso}" id="day-${iso}">
       <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${n ? `Jour ${n} · ` : ""}${fmtDate(iso)}</div>
       <h2>${esc(d.title || (n ? `Jour ${n}` : fmtDate(iso, false)))}${isNew(d.published_at) ? `<span class="new-mark">nouveau</span>` : ""}</h2>
+      ${hasPath ? `<button class="btn sm day-replay" data-iso="${iso}" style="margin:-4px 0 12px">${ic("play", "sm")} Survoler cette journée</button>` : ""}
       ${cover || d.place || chips.length ? `<div class="step-card${cover ? " has-cover" : ""}" ${cover ? `style="background-image:url('${API.publicUrl(cover.path)}')"` : ""} data-id="${cover ? cover.id : ""}">
         <div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
       ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
-      ${d.audio_path ? bigAudio(API.publicUrl(d.audio_path), "Écouter le récit du jour") : ""}
-      ${d.story ? `<div class="story-text">${nl2p(d.story)}</div>` : ""}
       ${media.length ? `<div class="gallery">${media.map((m) => `<figure data-id="${m.id}" class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
           ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${thumb(m)}" alt="${esc(m.caption)}" loading="lazy">`}
-          ${m.caption || m.kind === "video" || m.audio_path ? `<figcaption>${m.kind === "video" ? "▶ " : ""}${m.audio_path ? "🎙 " : ""}${esc(m.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : ""}
+          ${m.caption || m.kind === "video" || m.audio_path || m.transport ? `<figcaption>${m.transport && BVMAP.MODES[m.transport] ? BVMAP.MODES[m.transport].icon + " " : ""}${m.kind === "video" ? "▶ " : ""}${m.audio_path ? "🎙 " : ""}${esc(m.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : ""}
+      ${d.audio_path ? bigAudio(API.publicUrl(d.audio_path), "Écouter le récit du jour") : ""}
+      ${d.story ? `<div class="story-text">${nl2p(d.story)}</div>` : ""}
       ${d.id ? `<div class="day-comments">${comments.map(commentHtml).join("")}
         ${D.trip.allow_comments ? `<button class="btn day-comment-btn" data-day="${d.id}">${ic("message")} Laisser un mot sur cette journée</button>` : ""}</div>` : ""}
     </section>`;

@@ -1,7 +1,8 @@
--- Bonvoyage v8 — mise à jour de la base (à coller dans Supabase > SQL Editor > Run)
--- Ajoute le nom du lieu des journées et l'expose sur la page des proches.
--- Sans risque : peut être relancé. Équivalent à relancer tout schema.sql.
-alter table public.days add column if not exists place text;
+-- Bonvoyage v8.3 — mise à jour de la base (Supabase > SQL Editor > Run). Sans risque, relançable.
+-- Ajoute le moyen de locomotion des photos et l'expose sur la page des proches.
+alter table public.days  add column if not exists place text;
+alter table public.media add column if not exists transport text;
+
 create or replace function public.get_shared_trip(token text)
 returns jsonb
 language plpgsql
@@ -44,7 +45,7 @@ begin
         order by tr.created_at) from public.tracks tr where tr.trip_id = t.id and tr.day_date = any(vis)), '[]'::jsonb),
     'media', coalesce((select jsonb_agg(jsonb_build_object(
         'id', m.id, 'day_date', m.day_date, 'kind', m.kind, 'path', m.path, 'thumb_path', m.thumb_path,
-        'lat', m.lat, 'lng', m.lng, 'taken_at', m.taken_at, 'caption', m.caption, 'audio_path', m.audio_path,
+        'lat', m.lat, 'lng', m.lng, 'taken_at', m.taken_at, 'caption', m.caption, 'audio_path', m.audio_path, 'transport', m.transport,
         'sort_order', m.sort_order, 'created_at', m.created_at)
         order by m.taken_at nulls last, m.created_at) from public.media m where m.trip_id = t.id and m.day_date = any(vis)), '[]'::jsonb),
     'comments', coalesce((select jsonb_agg(jsonb_build_object(

@@ -95,6 +95,8 @@ alter table public.comments add column if not exists audio_path text;
 alter table public.comments alter column body set default '';
 -- v8 : nom du lieu de la journée (commune, pays), rempli automatiquement par l'app
 alter table public.days     add column if not exists place text;
+-- v8.3 : moyen de locomotion pour arriver à une photo (walk, bike, car, bus, train, boat, plane)
+alter table public.media    add column if not exists transport text;
 -- v5 : un téléphone peut suivre plusieurs voyages
 do $$ begin
   if exists (select 1 from pg_constraint where conname = 'push_subscriptions_endpoint_key') then
@@ -185,7 +187,7 @@ begin
         order by tr.created_at) from public.tracks tr where tr.trip_id = t.id and tr.day_date = any(vis)), '[]'::jsonb),
     'media', coalesce((select jsonb_agg(jsonb_build_object(
         'id', m.id, 'day_date', m.day_date, 'kind', m.kind, 'path', m.path, 'thumb_path', m.thumb_path,
-        'lat', m.lat, 'lng', m.lng, 'taken_at', m.taken_at, 'caption', m.caption, 'audio_path', m.audio_path,
+        'lat', m.lat, 'lng', m.lng, 'taken_at', m.taken_at, 'caption', m.caption, 'audio_path', m.audio_path, 'transport', m.transport,
         'sort_order', m.sort_order, 'created_at', m.created_at)
         order by m.taken_at nulls last, m.created_at) from public.media m where m.trip_id = t.id and m.day_date = any(vis)), '[]'::jsonb),
     'comments', coalesce((select jsonb_agg(jsonb_build_object(

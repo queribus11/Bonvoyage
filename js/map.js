@@ -16,6 +16,16 @@ window.BVMAP = (() => {
     plan:      { label: "Plan",      short: "Plan" },
   };
   const LEGACY = { voyager: "satellite", positron: "plan", osm: "plan", outdoors: "relief", hybrid: "satellite" };   // « voyager » était l'ancien défaut : on passe au satellite
+  // Moyens de locomotion : icône, vitesse relative pendant le survol, tracé (route OSRM, arc, ligne droite)
+  const MODES = {
+    walk:  { label: "à pied",     icon: "🚶", speed: 1,   path: "straight" },
+    bike:  { label: "à vélo",     icon: "🚲", speed: 1.6, path: "road" },
+    car:   { label: "en voiture", icon: "🚗", speed: 3,   path: "road" },
+    bus:   { label: "en bus",     icon: "🚌", speed: 2.6, path: "road" },
+    train: { label: "en train",   icon: "🚆", speed: 3.5, path: "straight" },
+    boat:  { label: "en bateau",  icon: "⛵", speed: 1.8, path: "straight" },
+    plane: { label: "en avion",   icon: "✈️", speed: 6,   path: "arc" },
+  };
   const DAY_COLORS = ["#F97316", "#0D8FE0", "#7CB518", "#F5B301", "#3AA0F5", "#9ACD1E", "#E05A8A", "#8B5CF6", "#F97316", "#0D8FE0"];
 
   function defaultBase() {
@@ -187,8 +197,8 @@ window.BVMAP = (() => {
       if (filter && iso !== filter) continue;
       if (lines.some((l) => l.properties.day === iso && !l.properties.dash)) continue;
       if (tracks.some((t) => t.day_date === iso && t.source === "route" && (t.points || []).length >= 2)) continue;
-      const est = estimatedPath(media, iso);
-      if (est) lines.push({ type: "Feature", properties: { id: "est-" + iso, color: colorForDay(dayList, iso), day: iso, dash: true, est: true }, geometry: { type: "LineString", coordinates: est } });
+      const legs = estimatedLegs(media, iso);
+      if (legs) legs.forEach((l, i) => lines.push({ type: "Feature", properties: { id: `est-${iso}-${i}`, color: colorForDay(dayList, iso), day: iso, dash: true, est: true, mode: l.mode || "" }, geometry: { type: "LineString", coordinates: l.coords } }));
     }
     map.getSource("tracks").setData({ type: "FeatureCollection", features: lines });
     map.getSource("dots").setData({ type: "FeatureCollection", features: dots });
@@ -206,12 +216,40 @@ window.BVMAP = (() => {
     syncPhotoMarkers(M);
     return { bounds: computeBounds(data, filter), dayList };
   }
-  // Photos géolocalisées d'une journée, dans l'ordre de l'heure → liste de [lng, lat] (null si moins de deux)
-  function estimatedPath(media, iso) {
-    const ph = (media || []).filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
+  // Photos géolocalisées d'une journée, dans l'ordre de l'heure
+  function dayPhotosSorted(media, iso) {
+    return (media || []).filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
       .slice().sort((a, b) => (a.taken_at || a.created_at || "").localeCompare(b.taken_at || b.created_at || ""));
-    const coords = []; for (const m of ph) { const c = [m.lng, m.lat]; const last = coords[coords.length - 1]; if (!last || last[0] !== c[0] || last[1] !== c[1]) coords.push(c); }
-    return coords.length >= 2 ? coords : null;
+  }
+  // Tronçons estimés d'une journée : de photo en photo, avec le moyen de locomotion de la photo d'arrivée
+  // (hérité du tronçon précédent quand il n'est pas précisé). Renvoie [{ from, to, mode, coords }] ou null.
+  function estimatedLegs(media, iso) {
+    const ph = dayPhotosSorted(media, iso);
+    const legs = []; let mode = null;
+    for (let i = 1; i < ph.length; i++) {
+      const a = ph[i - 1], b = ph[i];
+      if (b.transport && MODES[b.transport]) mode = b.transport;
+      if (a.lng === b.lng && a.lat === b.lat) continue;
+      const A = [a.lng, a.lat], B = [b.lng, b.lat];
+      legs.push({ from: a, to: b, mode, coords: mode && MODES[mode].path === "arc" ? arc(A, B) : [A, B] });
+    }
+    return legs.length ? legs : null;
+  }
+  // Coordonnées d'une journée sans trace : tronçons mis bout à bout, avec le mode de chaque segment
+  function estimatedPath(media, iso) {
+    const legs = estimatedLegs(media, iso); if (!legs) return null;
+    const coords = [], modes = [];
+    for (const l of legs) for (let i = 0; i < l.coords.length; i++) { const c = l.coords[i]; const last = coords[coords.length - 1]; if (last && last[0] === c[0] && last[1] === c[1]) continue; coords.push(c); modes.push(l.mode); }
+    return coords.length >= 2 ? Object.assign(coords, { modes }) : null;
+  }
+  // Arc « vol d'avion » entre deux points (courbe bombée, 24 points)
+  function arc(A, B, n = 24) {
+    const d = dist(A, B), bulge = Math.min(.25, d / 4000000 + .04);
+    const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2, dx = B[0] - A[0], dy = B[1] - A[1];
+    const cx = mx - dy * bulge * 2, cy = my + dx * bulge * 2;  // point de contrôle perpendiculaire
+    const out = [];
+    for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; out.push([u * u * A[0] + 2 * u * t * cx + t * t * B[0], u * u * A[1] + 2 * u * t * cy + t * t * B[1]]); }
+    return out;
   }
   function dayListOf(data, options) {
     if (options.dayList) return options.dayList;
@@ -241,7 +279,7 @@ window.BVMAP = (() => {
       if (options.dayFilter && options.dayFilter !== iso) return;
       const p = dayStart(data, iso); if (!p) return;
       const n = options.dayNumber ? options.dayNumber(iso) : (dayList.indexOf(iso) + 1);
-      const el = document.createElement("div"); el.className = "bv-day"; el.style.background = colorForDay(dayList, iso); el.textContent = n || "•";
+      const el = document.createElement("div"); el.className = "bv-day"; el.style.background = colorForDay(dayList, iso); el.textContent = n ? `Jour ${n}` : iso.slice(8, 10) + "/" + iso.slice(5, 7);
       el.title = iso;
       el.addEventListener("click", (e) => { e.stopPropagation(); if (options.onDayClick) options.onDayClick(iso); });
       const mk = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(M.map);
@@ -271,7 +309,7 @@ window.BVMAP = (() => {
           el.addEventListener("click", (e) => { e.stopPropagation(); src.getClusterExpansionZoom(p.cluster_id).then((z) => map.easeTo({ center: [lng, lat], zoom: Math.min(z + .3, 18), duration: 600 })).catch(() => { }); });
         } else {
           const m = M.mediaById.get(p.id); if (!m) continue;
-          el.innerHTML = `<img alt="" src="${thumbOf(M, m)}">${m.kind === "video" ? '<span class="play">▶</span>' : ""}`;
+          el.innerHTML = `<img alt="" src="${thumbOf(M, m)}">${m.kind === "video" ? '<span class="play">▶</span>' : ""}${m.transport && MODES[m.transport] ? `<span class="mode" title="Arrivée ${MODES[m.transport].label}">${MODES[m.transport].icon}</span>` : ""}`;
           el.addEventListener("click", (e) => { e.stopPropagation(); if (M.drawOpts.onMediaClick) M.drawOpts.onMediaClick(m); });
           el.dataset.id = m.id; el.dataset.day = m.day_date || "";
         }
@@ -333,13 +371,18 @@ window.BVMAP = (() => {
   function replay(M, data, options = {}) {
     if (!M.ready || M.replaying) return;
     const map = M.map, dayList = options.dayList || dayListOf(data, {});
-    const days = dayList.map((iso) => {
+    const days = dayList.filter((iso) => !options.only || iso === options.only).map((iso) => {
       const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2).slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
       let coords = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null).map((p) => [p.lng, p.lat]));
       const photos = (data.media || []).filter((m) => m.day_date === iso && m.lat != null);
       let est = false;
-      if (coords.length < 2) { const e = estimatedPath(data.media, iso); if (e) { coords = e; est = true; } }
-      return { iso, coords, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
+      let modes = null;
+      if (coords.length < 2) { const e = estimatedPath(data.media, iso); if (e) { coords = e; modes = e.modes; est = true; } }
+      else { // trace réelle ou itinéraire par la route : le mode suit les photos rencontrées le long du tracé
+        const ph = dayPhotosSorted(data.media, iso).filter((m) => m.transport && MODES[m.transport]);
+        if (ph.length) { modes = new Array(coords.length).fill(null); let cur = null, pi = 0; const at = ph.map((m) => ({ i: nearestIndex(coords, [m.lng, m.lat]), mode: m.transport })).sort((a, b) => a.i - b.i); for (let i = 0; i < coords.length; i++) { while (pi < at.length && at[pi].i <= i) { cur = at[pi].mode; pi++; } modes[i] = cur; } }
+      }
+      return { iso, coords, modes, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
     }).filter((d) => d.coords.length >= 2 || d.photos.length);
     if (!days.length) return;
 
@@ -350,9 +393,14 @@ window.BVMAP = (() => {
     for (const mk of M.dayMarkers) mk.getElement().classList.add("hidden");
     for (const e of M.markers.values()) e.el.classList.add("hidden");
     // Valdo marche sur le trajet
-    const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<img src="icons/valdo.svg" alt="">';
+    const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<img src="icons/valdo.svg" alt=""><span class="vehicle"></span>';
     const walker = new maplibregl.Marker({ element: wEl, anchor: "bottom" });
-    const walkTo = (c, bearing) => { if (!walker._map) walker.setLngLat(c).addTo(map); else walker.setLngLat(c); wEl.classList.toggle("west", bearing > 180); };
+    let curMode = null;
+    const walkTo = (c, bearing, mode) => {
+      if (!walker._map) walker.setLngLat(c).addTo(map); else walker.setLngLat(c);
+      wEl.classList.toggle("west", bearing > 180);
+      if (mode !== curMode) { curMode = mode; const v = wEl.querySelector(".vehicle"); v.textContent = mode && MODES[mode] && mode !== "walk" ? MODES[mode].icon : ""; wEl.dataset.mode = mode || ""; }
+    };
 
     let stopped = false, raf = 0;
     const reveal = (m) => { for (const e of M.markers.values()) if (e.el.dataset.id === m.id || e.el.classList.contains("cluster")) { e.el.classList.remove("hidden"); e.el.classList.add("pop"); } };
@@ -366,7 +414,7 @@ window.BVMAP = (() => {
       for (const e of M.markers.values()) e.el.classList.remove("hidden", "pop");
       if (!wasTerrain) setTerrain(M, false, true);
       if (wasBase !== M.base) setBase(M, wasBase);
-      const b = computeBounds(data, null); if (b) fitBounds(M, b, { maxZoom: 13, duration: 1600 });
+      const b = computeBounds(data, options.only || null); if (b) fitBounds(M, b, { maxZoom: options.only ? 14 : 13, duration: 1600 });
       if (options.onDone) options.onDone();
     };
     M.stopReplay = finish;
@@ -387,17 +435,19 @@ window.BVMAP = (() => {
           d.photos.forEach((m, i) => setTimeout(() => reveal(m), i * 350)); revealDay(d.iso);
           await wait(Math.min(4000, 1500 + d.photos.length * 400)); continue;
         }
-        // Cumul des distances le long du tracé
-        const cum = [0]; for (let i = 1; i < d.coords.length; i++) cum.push(cum[i - 1] + dist(d.coords[i - 1], d.coords[i]));
+        // Cumul des distances le long du tracé, pondéré par la vitesse du moyen de locomotion (avion : 6× plus vite qu'à pied)
+        const speedAt = (i) => { const m = d.modes && d.modes[i]; return m && MODES[m] ? MODES[m].speed : 1; };
+        const cum = [0]; for (let i = 1; i < d.coords.length; i++) cum.push(cum[i - 1] + dist(d.coords[i - 1], d.coords[i]) / speedAt(i));
         const total = cum[cum.length - 1];
+        const realTotal = d.coords.reduce((a, c, i) => i ? a + dist(d.coords[i - 1], c) : 0, 0);
         // Trajet estimé (photos reliées à vol d'oiseau) : on prend du recul, les tuiles ont le temps d'arriver
-        const zoom = (total < 12000 ? 14.2 : total < 40000 ? 13 : total < 120000 ? 11.8 : 10.5) - (d.est ? 1.6 : 0);
+        const zoom = (realTotal < 12000 ? 14.2 : realTotal < 40000 ? 13 : realTotal < 120000 ? 11.8 : realTotal < 500000 ? 10.5 : 8.5) - (d.est ? 1.6 : 0);
         const duration = Math.max(4000, Math.min(16000, total / 1000 * 450));
         // Position de la caméra sur le départ
         const bearing0 = heading(d.coords[0], d.coords[Math.min(5, d.coords.length - 1)]);
         map.easeTo({ center: d.coords[0], zoom, pitch: d.est ? 50 : 60, bearing: bearing0, duration: 1800, easing: (t) => 1 - Math.pow(1 - t, 2) });
         await moveEnd(); if (stopped) return;
-        walkTo(d.coords[0], 0); wEl.classList.add("walking");
+        walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
 
         // Photos ordonnées par distance le long du tracé
         const photoAt = d.photos.map((m) => ({ m, at: nearestDist(d.coords, cum, [m.lng, m.lat]) })).sort((a, b) => a.at - b.at);
@@ -416,7 +466,7 @@ window.BVMAP = (() => {
             const look = d.coords[Math.min(seg + 8, d.coords.length - 1)];
             bearing = lerpAngle(bearing, heading(cur, look), .04);
             map.jumpTo({ center: cur, bearing, zoom: map.getZoom(), pitch: map.getPitch() });
-            walkTo(cur, heading(a, b));
+            walkTo(cur, heading(a, b), d.modes ? d.modes[seg] : null);
             while (pi < photoAt.length && photoAt[pi].at <= target) { reveal(photoAt[pi].m); pi++; }
             if (p < 1) raf = requestAnimationFrame(frame); else resolve();
           };
@@ -435,7 +485,8 @@ window.BVMAP = (() => {
   function dist(a, b) { const R = 6371000, dLat = (b[1] - a[1]) * Math.PI / 180, dLng = (b[0] - a[0]) * Math.PI / 180, s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); }
   function heading(a, b) { const y = Math.sin((b[0] - a[0]) * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180), x = Math.cos(a[1] * Math.PI / 180) * Math.sin(b[1] * Math.PI / 180) - Math.sin(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.cos((b[0] - a[0]) * Math.PI / 180); return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; }
   function lerpAngle(a, b, t) { let d = ((b - a + 540) % 360) - 180; return (a + d * t + 360) % 360; }
+  function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { maps, create, draw, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, arc, estimatedLegs, dayPhotosSorted, maps, create, draw, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

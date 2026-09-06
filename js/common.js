@@ -172,6 +172,25 @@
     return j.routes[0].geometry.coordinates.map(([lng, lat], i) => ({ lat: +lat.toFixed(6), lng: +lng.toFixed(6), t: t0 + i * 1000 }));
   }
 
+  // Itinéraire estimé d'une journée, tronçon par tronçon selon le moyen de locomotion :
+  // voiture / bus / vélo → par la route (OSRM) ; avion → arc ; le reste → ligne droite. Renvoie une liste de points.
+  async function buildRoute(media, iso) {
+    const legs = window.BVMAP ? BVMAP.estimatedLegs(media, iso) : null;
+    if (!legs) return null;
+    const pts = [];
+    const push = (lng, lat, t) => { const last = pts[pts.length - 1]; if (last && last.lng === lng && last.lat === lat) return; pts.push({ lat: +lat.toFixed(6), lng: +lng.toFixed(6), t }); };
+    let t = Date.parse(legs[0].from.taken_at || legs[0].from.created_at || "") || Date.now();
+    for (const l of legs) {
+      const mode = l.mode && BVMAP.MODES[l.mode] ? BVMAP.MODES[l.mode] : null;
+      let coords = l.coords;
+      if (mode && mode.path === "road") {
+        try { const r = await roadRoute([{ lat: l.from.lat, lng: l.from.lng }, { lat: l.to.lat, lng: l.to.lng }]); if (r && r.length >= 2) coords = r.map((p) => [p.lng, p.lat]); } catch { /* ligne droite en secours */ }
+      }
+      for (const c of coords) { t += 1000; push(c[0], c[1], t); }
+    }
+    return pts.length >= 2 ? pts : null;
+  }
+
   // Complète le nom du lieu des journées qui n'en ont pas (une requête par seconde, en douceur)
   async function fillPlaces(cur, save) {
     const dayList = [...new Set([...cur.days.map((d) => d.day_date), ...cur.tracks.map((t) => t.day_date), ...cur.media.map((m) => m.day_date)].filter(Boolean))].sort();
@@ -385,6 +404,6 @@
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
-    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, roadRoute, resizeImage, readExif, esc, nl2p, toast, download,
+    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, roadRoute, buildRoute, resizeImage, readExif, esc, nl2p, toast, download,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio };
 })();
