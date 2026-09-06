@@ -241,7 +241,13 @@ html.is-dark .chip.pub { color: #B6E36A; }
 .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .media-tile { position: relative; aspect-ratio: 4 / 3; border-radius: var(--r-sm); overflow: hidden; background: var(--cream); cursor: pointer; box-shadow: var(--sh-1); transition: transform var(--t-mid) var(--ease); }
 .media-tile:hover { transform: scale(1.02); }
-.media-tile img, .media-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.media-tile img, .media-tile video { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; pointer-events: none; }
+.media-tile.selectable::before { content: ""; position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: rgba(18,63,102,.35); z-index: 2; box-shadow: var(--sh-1); }
+.media-tile.selected { outline: 3px solid var(--azur); outline-offset: -3px; }
+.media-tile.selected::before { background: var(--azur); }
+.media-tile.selected::after { content: "✓"; position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; font-size: 14px; z-index: 3; }
+.select-bar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; margin-bottom: 10px; border-radius: 999px; background: var(--sky-soft); font-size: 13px; font-weight: 700; color: var(--azur); flex-wrap: wrap; }
+.bv-photo img, .day-item .thumbs img, .day-cover, .gallery img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .media-tile .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 10px 8px; font-size: 12px; color: #fff; background: linear-gradient(to top, rgba(18,63,102,.75), rgba(18,63,102,0) 60%); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .media-tile .badge { position: absolute; top: 6px; left: 6px; background: rgba(18,63,102,.6); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; backdrop-filter: blur(6px); }
 .media-tile .nogps { position: absolute; top: 6px; right: 6px; background: rgba(245,179,1,.95); color: var(--night); font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 6px; }

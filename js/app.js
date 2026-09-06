@@ -495,7 +495,11 @@
       <div class="upload-zone" id="uz">${ic("camera")}<b>Ajouter des photos ou vidéos</b><span class="small">Date et position sont lues automatiquement</span>
         <input type="file" id="uf" accept="image/*,video/*" multiple hidden></div>
       <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div>
-      ${S.dayFilter ? `<div class="row between" style="margin-bottom:10px"><span class="muted small">Filtre : ${fmtDate(S.dayFilter, false)}</span><button class="btn sm" id="clear-filter">Tout voir</button></div>` : ""}
+      <div class="row between" style="margin-bottom:10px">
+        <span class="muted small">${S.dayFilter ? `Filtre : ${fmtDate(S.dayFilter, false)}` : `${list.length} photo${list.length > 1 ? "s" : ""}`}</span>
+        <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout voir</button>` : ""}${list.length ? `<button class="btn sm ${S.selecting ? "secondary" : ""}" id="select-toggle">${S.selecting ? "Terminer" : `${ic("check", "sm")} Sélectionner`}</button>` : ""}</div>
+      </div>
+      ${S.selecting ? `<div class="select-bar" id="select-bar"><span id="sel-count">0 sélectionnée</span><span class="grow"></span><button class="btn sm ghost" id="sel-all">Tout</button><button class="btn sm ghost" id="sel-move" disabled>${ic("calendar", "sm")} Déplacer</button><button class="btn sm ghost danger" id="sel-del" disabled>${ic("trash", "sm")} Supprimer</button></div>` : ""}
       ${S.pendingMedia.length ? `<div class="setup-help" style="margin-bottom:10px">⏳ ${S.pendingMedia.length} photo${S.pendingMedia.length > 1 ? "s" : ""} en attente d'envoi (gardée${S.pendingMedia.length > 1 ? "s" : ""} sur le téléphone jusqu'au retour du réseau)</div>` : ""}
       ${list.length || S.pendingMedia.length ? "" : `<div class="empty">Aucune photo pour l'instant.</div>`}
       <div class="media-grid">${S.pendingMedia.map((pm) => `<div class="media-tile pending"><img src="${pm._url || (pm._url = URL.createObjectURL(pm.thumb || pm.video))}" alt=""><span class="badge">en attente</span></div>`).join("")}${list.map((x) => mediaTile(x)).join("")}</div>`;
@@ -506,7 +510,42 @@
     uz.ondragleave = () => uz.classList.remove("drag");
     uz.ondrop = (e) => { e.preventDefault(); uz.classList.remove("drag"); uploadFiles([...e.dataTransfer.files]); };
     const cf = $("#clear-filter", body); if (cf) cf.onclick = () => { S.dayFilter = null; redraw(true); renderPanel(); };
-    $$(".media-tile", body).forEach((el) => el.onclick = () => mediaViewer(S.cur.media.find((x) => x.id === el.dataset.id)));
+    const st = $("#select-toggle", body); if (st) st.onclick = () => { S.selecting = !S.selecting; S.selected = new Set(); renderPanel(); };
+    const tiles = $$(".media-tile:not(.pending)", body);
+    if (!S.selecting) { tiles.forEach((el) => el.onclick = () => mediaViewer(S.cur.media.find((x) => x.id === el.dataset.id))); return; }
+    // Mode sélection : cocher des photos, puis les supprimer ou les déplacer vers une autre journée
+    S.selected = S.selected || new Set();
+    const refresh = () => {
+      tiles.forEach((el) => el.classList.toggle("selected", S.selected.has(el.dataset.id)));
+      const n = S.selected.size;
+      $("#sel-count", body).textContent = `${n} sélectionnée${n > 1 ? "s" : ""}`;
+      $("#sel-del", body).disabled = !n; $("#sel-move", body).disabled = !n;
+    };
+    tiles.forEach((el) => { el.classList.add("selectable"); el.onclick = () => { const id = el.dataset.id; S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id); if (navigator.vibrate) navigator.vibrate(6); refresh(); }; });
+    $("#sel-all", body).onclick = () => { if (S.selected.size === list.length) S.selected.clear(); else list.forEach((x) => S.selected.add(x.id)); refresh(); };
+    $("#sel-del", body).onclick = async () => {
+      const ids = [...S.selected]; if (!ids.length) return;
+      if (!(await confirm(`Supprimer ${ids.length} photo${ids.length > 1 ? "s" : ""} définitivement ?`))) return;
+      let ok = 0;
+      for (const id of ids) { const m = S.cur.media.find((x) => x.id === id); if (!m) continue; try { await API.deleteMedia(m); S.cur.media = S.cur.media.filter((x) => x.id !== id); ok++; } catch (e) { errToast(e); break; } }
+      S.selected.clear(); S.selecting = S.cur.media.some((x) => !S.dayFilter || x.day_date === S.dayFilter);
+      saveLocal(); renderTripHeader(); redraw(); renderPanel(); toast(`${ok} photo${ok > 1 ? "s" : ""} supprimée${ok > 1 ? "s" : ""}`, "ok");
+    };
+    $("#sel-move", body).onclick = () => {
+      const ids = [...S.selected]; if (!ids.length) return;
+      const days = allDays();
+      const m = openModal(`<h2>Déplacer ${ids.length} photo${ids.length > 1 ? "s" : ""}</h2><form id="f">
+        <div class="field"><label>Vers la journée</label><select name="day_date">${days.map((d) => `<option value="${d}">${fmtDate(d)}</option>`).join("")}</select></div>
+        <div class="field"><label>Ou une autre date</label><input type="date" name="other"></div>
+        <div class="actions"><button type="button" class="btn" data-close>Annuler</button><span class="grow"></span><button class="btn primary">Déplacer</button></div></form>`);
+      $("#f", m.el).onsubmit = async (e) => {
+        e.preventDefault(); const fd = Object.fromEntries(new FormData(e.target)); const target = fd.other || fd.day_date;
+        try { for (const id of ids) { const x = S.cur.media.find((y) => y.id === id); if (!x || x.day_date === target) continue; const u = await API.updateMedia(id, { day_date: target }); Object.assign(x, u); } }
+        catch (err) { errToast(err); }
+        S.selected.clear(); S.selecting = false; m.close(); saveLocal(); redraw(); renderPanel(); toast("Photos déplacées", "ok");
+      };
+    };
+    refresh();
   }
   function mediaTile(x) {
     const src = API.publicUrl(x.thumb_path || (x.kind === "photo" ? x.path : ""));
