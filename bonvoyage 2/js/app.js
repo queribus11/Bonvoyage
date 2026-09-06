@@ -1,0 +1,1029 @@
+// ============================================================
+//  Carnet de Voyage — application principale (côté propriétaire)
+// ============================================================
+(function () {
+  const { cfg, esc, nl2p, toast, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, today, isoDate, ic } = CV;
+  const { friendly, isNetworkError } = OFF;
+  const errToast = (err, ms) => toast(friendly(err), "error", ms);
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  const S = {
+    user: null, trips: [], cur: null,      // cur = { trip, days, tracks, media, comments }
+    map: null, drawn: null, meMarker: null,
+    tab: "days", dayFilter: null, placing: null,
+    gps: { watchId: null, track: null, points: [], lastSaved: 0, dirty: false, startedAt: null, wakeLock: null, lastFix: 0, watchdog: null, errAt: 0 },
+    offline: false, syncing: false, pendingMedia: [],
+  };
+
+  // ---------------------------------------------------------------
+  //  Navigation entre écrans
+  // ---------------------------------------------------------------
+  function show(id) {
+    $$(".screen").forEach((s) => s.classList.toggle("active", s.id === id));
+    window.scrollTo(0, 0);
+    if (id === "screen-trip") setTimeout(() => S.map && S.map.invalidateSize(), 50);
+  }
+
+  // ---------------------------------------------------------------
+  //  Modales génériques
+  // ---------------------------------------------------------------
+  // guard() : renvoie true si des modifications non enregistrées existent → on demande confirmation avant de fermer
+  function openModal(html, { wide = false, onClose, guard } = {}) {
+    const host = $("#modal-host");
+    const back = document.createElement("div");
+    back.className = "modal-back";
+    back.innerHTML = `<div class="modal${wide ? " wide" : ""}">${html}</div>`;
+    host.appendChild(back);
+    const close = () => { back.remove(); document.removeEventListener("keydown", onKey); onClose && onClose(); };
+    const tryClose = async () => {
+      if (guard && guard() && !(await confirm("Tu as des modifications non enregistrées. Fermer quand même ?", "Fermer sans enregistrer"))) return;
+      close();
+    };
+    back.addEventListener("click", (e) => { if (e.target === back) tryClose(); });
+    back.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", tryClose));
+    const onKey = (e) => { if (e.key === "Escape" && host.lastElementChild === back) tryClose(); };
+    document.addEventListener("keydown", onKey);
+    return { el: back.firstElementChild, close };
+  }
+  function confirm(msg, okLabel = "Supprimer") {
+    return new Promise((res) => {
+      const m = openModal(`<h2>Confirmer</h2><p>${esc(msg)}</p>
+        <div class="actions"><button class="btn" data-close>Annuler</button><button class="btn danger" id="ok">${esc(okLabel)}</button></div>`,
+        { onClose: () => res(false) });
+      $("#ok", m.el).onclick = () => { res(true); m.close(); };
+    });
+  }
+  function busy(el, on) { el.disabled = on; el.dataset.txt ??= el.textContent; el.textContent = on ? "…" : el.dataset.txt; }
+
+  // ---------------------------------------------------------------
+  //  Authentification
+  // ---------------------------------------------------------------
+  let authMode = "login";
+  $$(".tabs button", $("#auth-card")).forEach((b) => b.onclick = () => {
+    authMode = b.dataset.mode;
+    $$(".tabs button", $("#auth-card")).forEach((x) => x.classList.toggle("active", x === b));
+    $("#auth-submit").textContent = authMode === "login" ? "Se connecter" : "Créer mon compte";
+    $("#auth-password").autocomplete = authMode === "login" ? "current-password" : "new-password";
+  });
+  $("#auth-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = $("#auth-submit"); busy(btn, true);
+    try {
+      const email = $("#auth-email").value.trim(), password = $("#auth-password").value;
+      if (authMode === "login") await API.signIn(email, password);
+      else {
+        const r = await API.signUp(email, password);
+        if (r && r.user && !r.session) toast("Compte créé ! Vérifie ta boîte mail pour confirmer, puis connecte-toi.", "ok", 6000);
+      }
+    } catch (err) { errToast(err); }
+    busy(btn, false);
+  };
+  $("#auth-forgot").onclick = async (e) => {
+    e.preventDefault();
+    const email = $("#auth-email").value.trim();
+    if (!email) return toast("Indique ton email d'abord", "error");
+    try { await API.resetPassword(email); toast("Email de réinitialisation envoyé", "ok"); } catch (err) { errToast(err); }
+  };
+  if (cfg.ALLOW_SIGNUP === false) $('.tabs button[data-mode="signup"]', $("#auth-card")).hidden = true;
+  $("#btn-logout").onclick = async () => { await API.signOut(); };
+
+  // ---------------------------------------------------------------
+  //  Liste des voyages
+  // ---------------------------------------------------------------
+  async function loadTrips() {
+    try {
+      S.trips = await API.listTrips();
+      const all = await API.listAllComments();
+      for (const t of S.trips) t._new = all.filter((c) => c.trip_id === t.id && Date.parse(c.created_at) > Date.parse(t.comments_seen_at || 0)).length;
+      OFF.cacheTrips(S.trips);
+    } catch (e) {
+      const c = OFF.getCachedTrips();
+      if (c) { S.trips = c.list; toast("Hors ligne : liste des voyages telle qu'à la dernière connexion"); }
+      else { errToast(e); S.trips = []; }
+    }
+    renderTrips();
+  }
+  function tripDays(t) {
+    if (!t.start_date) return 0;
+    const p = (x) => { const [y, m, d] = x.split("-").map(Number); return new Date(y, m - 1, d); };
+    return Math.round((p(t.end_date || t.start_date) - p(t.start_date)) / 86400000) + 1;
+  }
+  function renderTrips() {
+    const g = $("#trip-grid");
+    g.innerHTML = S.trips.length ? S.trips.map((t) => { const n = tripDays(t); return `
+      <div class="trip-card" data-id="${t.id}">
+        ${t._new ? `<span class="badge-count" title="Nouveaux commentaires">${t._new}</span>` : ""}
+        <div class="cover${t.cover_path ? "" : " fallback"}" ${t.cover_path ? `style="background-image:url('${API.publicUrl(t.cover_path)}')"` : ""}>
+          ${t.subtitle ? `<div class="sub">${esc(t.subtitle)}</div>` : ""}<h3>${esc(t.title)}</h3></div>
+        <div class="meta"><span>${ic("calendar")} ${t.start_date ? fmtDate(t.start_date, false) : "dates à définir"}</span>${n ? `<span>${ic("clock")} ${n} jour${n > 1 ? "s" : ""}</span>` : ""}</div>
+      </div>`; }).join("")
+      : `<div class="empty valdo-empty"><img src="icons/valdo.svg" alt=""><b>Ton premier voyage commence ici</b><span class="small">Appuie sur « Nouveau voyage » pour créer le carnet.</span></div>`;
+    $$(".trip-card[data-id]", g).forEach((c) => c.onclick = () => openTrip(c.dataset.id));
+  }
+  $("#new-trip").onclick = () => tripForm();
+
+  function tripForm(trip) {
+    const isNew = !trip;
+    const m = openModal(`<h2>${isNew ? "Nouveau voyage" : "Réglages du voyage"}</h2>
+      <form id="f">
+        <div class="field"><label>Titre</label><input name="title" required value="${esc(trip?.title || "")}" placeholder="Road-trip en Écosse"></div>
+        <div class="field"><label>Sous-titre</label><input name="subtitle" value="${esc(trip?.subtitle || "")}" placeholder="Trois semaines de lochs et de moutons"></div>
+        <div class="row"><div class="field grow"><label>Début</label><input type="date" name="start_date" value="${trip?.start_date || (isNew ? today() : "")}"></div>
+        <div class="field grow"><label>Fin</label><input type="date" name="end_date" value="${trip?.end_date || ""}"></div></div>
+        ${!isNew ? `<div class="field"><label>Ce que voient tes proches</label><select name="publish_mode">
+          <option value="manual" ${trip.publish_mode !== "live" ? "selected" : ""}>Une journée n'apparaît que lorsque je la publie (brouillon avant)</option>
+          <option value="live" ${trip.publish_mode === "live" ? "selected" : ""}>Tout apparaît en direct, « Publier » sert seulement à prévenir</option></select></div>` : ""}
+        <div class="field"><label>Introduction (affichée en haut du récit)</label><textarea name="description" placeholder="Pourquoi ce voyage, avec qui, l'état d'esprit du départ…">${esc(trip?.description || "")}</textarea></div>
+        ${!isNew ? `<div class="field"><label>Photo de couverture</label><select name="cover_path"><option value="">— aucune —</option>
+          ${(S.cur?.media || []).filter((x) => x.kind === "photo").map((x) => `<option value="${esc(x.path)}" ${x.path === trip.cover_path ? "selected" : ""}>${esc(x.caption || fmtDate(x.day_date, false) || "photo")}</option>`).join("")}</select></div>` : ""}
+        ${!isNew ? `<div class="field"><label>Sauvegarde</label><div class="row"><button type="button" class="btn sm" id="backup">${ic("download", "sm")} Sauvegarde complète</button><button type="button" class="btn sm ghost" id="backup-light">Texte et traces seulement</button></div>
+          <span class="small muted">Télécharge un fichier .zip avec ton récit, tes traces (GPX), tes photos, audios et les commentaires. À faire de temps en temps, et à la fin du voyage.</span></div>` : ""}
+        <div class="actions">
+          ${!isNew ? `<button type="button" class="btn ghost danger sm" id="del">${ic("trash", "sm")} Supprimer le voyage</button><span class="grow"></span>` : ""}
+          <button type="button" class="btn ghost" data-close>Annuler</button>
+          <button class="btn primary" type="submit">${isNew ? "Créer le voyage" : "Enregistrer"}</button>
+        </div></form>`);
+    $("#f", m.el).onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target));
+      for (const k of ["start_date", "end_date", "cover_path"]) if (fd[k] === "") fd[k] = null;
+      try {
+        if (isNew) { const t = await API.createTrip(S.user, fd); m.close(); await loadTrips(); openTrip(t.id); }
+        else { S.cur.trip = await API.updateTrip(trip.id, fd); m.close(); renderTripHeader(); renderPanel(); }
+      } catch (err) { errToast(err); }
+    };
+    const bk = $("#backup", m.el); if (bk) bk.onclick = () => backup(true, bk);
+    const bkl = $("#backup-light", m.el); if (bkl) bkl.onclick = () => backup(false, bkl);
+    const del = $("#del", m.el);
+    if (del) del.onclick = async () => {
+      if (!(await confirm("Supprimer définitivement ce voyage, ses traces, ses photos et son récit ?"))) return;
+      try { await API.deleteTrip(trip.id); OFF.LS.del("cv_trip_" + trip.id); m.close(); backToTrips(); } catch (err) { errToast(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------
+  //  Écran voyage
+  // ---------------------------------------------------------------
+  async function openTrip(id) {
+    show("screen-trip");
+    $("#panel-body").innerHTML = `<div class="spinner"></div>`;
+    const cached = OFF.getCachedTrip(id);
+    try {
+      S.cur = OFF.mergePending(await API.loadTrip(id), cached);
+      S.offline = false;
+    } catch (e) {
+      if (cached) { S.cur = cached; S.offline = true; toast("Hors ligne : voyage tel qu'à la dernière connexion. Balises et photos seront envoyées au retour du réseau.", "info", 6000); }
+      else { errToast(e); return backToTrips(); }
+    }
+    S.dayFilter = null; S.tab = "days";
+    $$(".panel-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === "days"));
+    ensureMap();
+    renderTripHeader();
+    redraw(true);
+    updateCommentBadge();
+    renderPanel();
+    location.hash = "trip=" + id;
+    resumeRecordingIfAny();
+    S.pendingMedia = await OFF.listPendingMedia(id).catch(() => []);
+    if (S.pendingMedia.length && S.tab === "photos") renderPanel();
+    OFF.cacheTrip(S.cur);
+    syncAll();
+  }
+  function saveLocal() { if (S.cur) OFF.cacheTrip(S.cur); }
+
+  // Envoie tout ce qui attend (traces/balises hors ligne, photos) dès que le réseau est là
+  async function syncAll() {
+    if (!S.cur || !navigator.onLine || S.syncing) return;
+    S.syncing = true;
+    const wasOffline = S.offline;
+    let sent = 0;
+    try {
+      for (const tr of [...S.cur.tracks]) {
+        if (!tr._pending) continue;
+        if (S.gps.track && S.gps.track.id === tr.id && S.gps.watchId != null && !S.gps.dirty) continue;
+        try {
+          const fields = { name: tr.name, day_date: tr.day_date, source: tr.source, points: tr.points, distance_m: CV.trackDistance(tr.points) };
+          const saved = OFF.isLocalId(tr.id) ? await API.createTrack(S.user, S.cur.trip.id, fields) : await API.updateTrack(tr.id, { points: tr.points, distance_m: fields.distance_m });
+          const i = S.cur.tracks.indexOf(tr);
+          if (i >= 0) S.cur.tracks[i] = saved;
+          if (S.gps.track === tr) { S.gps.track = saved; S.gps.dirty = false; S.gps.lastSaved = Date.now(); persistRecording(); }
+          sent++;
+        } catch (e) { if (isNetworkError(e)) break; else { console.warn("sync trace", e); tr._pending = false; } }
+      }
+      for (const pm of [...S.pendingMedia]) {
+        try {
+          const fields = { ...pm.fields };
+          if (pm.video) fields.path = await API.uploadFile(S.user, S.cur.trip.id, pm.video, pm.ext || "mp4");
+          else { fields.path = await API.uploadFile(S.user, S.cur.trip.id, pm.big, "jpg"); fields.thumb_path = await API.uploadFile(S.user, S.cur.trip.id, pm.thumb, "jpg"); }
+          if (fields.lat == null) { const g = positionFromTracks(Date.parse(fields.taken_at)); if (g) { fields.lat = g.lat; fields.lng = g.lng; } }
+          const m = await API.createMedia(S.user, S.cur.trip.id, fields);
+          S.cur.media.push(m); await OFF.removePendingMedia(pm.id); S.pendingMedia = S.pendingMedia.filter((x) => x.id !== pm.id); sent++;
+        } catch (e) { if (isNetworkError(e)) break; else { toast("Photo en attente refusée : " + friendly(e), "error", 6000); await OFF.removePendingMedia(pm.id); S.pendingMedia = S.pendingMedia.filter((x) => x.id !== pm.id); } }
+      }
+      S.cur.media.sort((a, b) => (a.taken_at || "").localeCompare(b.taken_at || ""));
+    } finally { S.syncing = false; }
+    saveLocal();
+    if (sent) { S.offline = false; if (wasOffline) toast(`${sent} élément${sent > 1 ? "s" : ""} envoyé${sent > 1 ? "s" : ""} au retour du réseau`, "ok"); renderTripHeader(); redraw(); renderPanel(); }
+    updatePendingChip();
+  }
+  function pendingCount() { return (S.cur ? S.cur.tracks.filter((t) => t._pending).length : 0) + S.pendingMedia.length; }
+  function updatePendingChip() {
+    const n = pendingCount(); const el = $("#pending-chip");
+    if (!el) return;
+    el.hidden = !n; el.textContent = `⏳ ${n} en attente d'envoi`;
+    el.onclick = () => navigator.onLine ? syncAll() : toast("Toujours hors ligne — l'envoi se fera automatiquement", "info");
+  }
+  function backToTrips() {
+    if (S.gps.watchId != null) { toast("Arrête d'abord l'enregistrement GPS", "error"); return; }
+    S.cur = null; location.hash = ""; show("screen-trips"); loadTrips();
+  }
+  $("#btn-back").onclick = backToTrips;
+  $("#btn-trip-settings").onclick = () => tripForm(S.cur.trip);
+  $("#btn-share").onclick = () => shareModal();
+
+  function renderTripHeader() {
+    const t = S.cur.trip;
+    $("#trip-title").textContent = t.title;
+    const km = S.cur.tracks.reduce((a, x) => a + (x.distance_m || 0), 0);
+    $("#trip-sub").textContent = [t.start_date ? fmtDate(t.start_date, false) : "", km ? fmtDistance(km) : "", S.cur.media.length ? S.cur.media.length + " photos" : ""].filter(Boolean).join(" · ");
+  }
+
+  // ---------- Carte ----------
+  function ensureMap() {
+    if (S.map) return;
+    S.map = CV.createMap("map");
+    S.map.on("click", (e) => {
+      if (!S.placing) return;
+      const m = S.placing; S.placing = null;
+      $("#map").style.cursor = "";
+      API.updateMedia(m.id, { lat: e.latlng.lat, lng: e.latlng.lng }).then((u) => {
+        Object.assign(m, u); redraw(); toast("Photo placée sur la carte", "ok"); renderPanel();
+      }).catch((err) => errToast(err));
+    });
+    $("#btn-fit").onclick = () => fit();
+    $("#btn-locate").onclick = () => locateMe(true);
+    $("#btn-beacon").onclick = () => addBeacon();
+  }
+  function redraw(fitAfter = false) {
+    if (S.drawn) S.map.removeLayer(S.drawn.layer);
+    S.drawn = CV.drawTrip(S.map, S.cur, {
+      dayFilter: S.dayFilter, dayList: allDays(),
+      thumbUrl: (m) => API.publicUrl(m.thumb_path || (m.kind === "photo" ? m.path : "")),
+      onMediaClick: (m) => mediaViewer(m),
+      onTrackClick: (tr) => trackForm(tr),
+    });
+    if (fitAfter) fit();
+  }
+  function fit() {
+    if (S.drawn && S.drawn.bounds.isValid()) S.map.fitBounds(S.drawn.bounds, { padding: [40, 40], maxZoom: 15 });
+    else if (S.meMarker) S.map.setView(S.meMarker.getLatLng(), 13);
+  }
+  function showMe(lat, lng) {
+    if (!S.meMarker) S.meMarker = L.marker([lat, lng], { icon: L.divIcon({ className: "", html: '<div class="me-marker"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 1000 }).addTo(S.map);
+    else S.meMarker.setLatLng([lat, lng]);
+  }
+  function locateMe(center) {
+    if (!navigator.geolocation) return toast("Géolocalisation indisponible", "error");
+    navigator.geolocation.getCurrentPosition((p) => {
+      showMe(p.coords.latitude, p.coords.longitude);
+      if (center) S.map.setView([p.coords.latitude, p.coords.longitude], Math.max(S.map.getZoom(), 14));
+    }, (e) => toast(e.code === 1 ? "Localisation refusée : autorise-la dans les réglages du téléphone" : "Position introuvable pour l'instant", "error"), { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+  }
+
+  // ---------- Panneau ----------
+  $$(".panel-tabs button").forEach((b) => b.onclick = () => {
+    S.tab = b.dataset.tab;
+    $$(".panel-tabs button").forEach((x) => x.classList.toggle("active", x === b));
+    $("#panel").classList.remove("collapsed");
+    renderPanel(); renderRecBar();
+  });
+  // Glisser le panneau (mobile)
+  (() => {
+    const panel = $("#panel"), grip = $("#grip");
+    let y0 = null;
+    const start = (e) => { y0 = (e.touches ? e.touches[0] : e).clientY; };
+    const end = (e) => {
+      if (y0 == null) return;
+      const y1 = (e.changedTouches ? e.changedTouches[0] : e).clientY;
+      const dy = y1 - y0; y0 = null;
+      if (dy < -40) { if (panel.classList.contains("collapsed")) panel.classList.remove("collapsed"); else panel.classList.add("expanded"); }
+      else if (dy > 40) { if (panel.classList.contains("expanded")) panel.classList.remove("expanded"); else panel.classList.add("collapsed"); }
+      else panel.classList.toggle("collapsed");
+      setTimeout(() => S.map && S.map.invalidateSize(), 280);
+    };
+    grip.addEventListener("touchstart", start, { passive: true }); grip.addEventListener("touchend", end);
+    grip.addEventListener("mousedown", start); grip.addEventListener("mouseup", end);
+  })();
+
+  function renderPanel() {
+    const body = $("#panel-body");
+    if (!S.cur) return;
+    body.scrollTop = 0;
+    ({ days: renderDays, photos: renderPhotos, gps: renderGps, comments: renderComments })[S.tab](body);
+  }
+
+  // Liste des dates du voyage : plage start→end + toute date qui a du contenu
+  function allDays() {
+    const set = new Set();
+    const t = S.cur.trip;
+    if (t.start_date) {
+      const parse = (x) => { const [y, m, d] = x.split("-").map(Number); return new Date(y, m - 1, d); };
+      const end = parse(t.end_date || t.start_date);
+      for (let d = parse(t.start_date); d <= end && set.size < 120; d.setDate(d.getDate() + 1)) set.add(isoDate(d));
+    }
+    S.cur.days.forEach((d) => set.add(d.day_date));
+    S.cur.tracks.forEach((x) => x.day_date && set.add(x.day_date));
+    S.cur.media.forEach((x) => x.day_date && set.add(x.day_date));
+    return [...set].sort();
+  }
+  function dayInfo(iso) { return S.cur.days.find((d) => d.day_date === iso); }
+
+  // ---------- Onglet Journées ----------
+  function isLive() { return S.cur.trip.publish_mode === "live"; }
+  const seenTs = () => Date.parse(S.cur.trip.comments_seen_at || 0) || 0;
+  function newCommentCount() { return S.cur.comments.filter((c) => Date.parse(c.created_at) > seenTs()).length; }
+  function updateCommentBadge() {
+    const b = $(".panel-tabs button[data-tab=comments]"); const n = newCommentCount();
+    b.innerHTML = `Commentaires${n ? `<span class="badge-count">${n}</span>` : ""}`;
+  }
+  function renderDays(body) {
+    const days = allDays();
+    const dl = S.drawn ? S.drawn.dayList : days;
+    body.innerHTML = `
+      <div class="row between" style="margin-bottom:12px">
+        <span class="kicker">${days.length} journée${days.length > 1 ? "s" : ""}${S.dayFilter ? " · " + fmtDate(S.dayFilter, false) : ""}</span>
+        <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout voir</button>` : ""}<button class="btn sm" id="add-day">${ic("plus")} Journée</button></div>
+      </div>
+      ${days.length ? "" : `<div class="empty valdo-empty"><img src="icons/valdo.svg" alt="">Ajoute une journée pour commencer ton récit.</div>`}
+      <div class="day-list">${days.map((iso) => {
+        const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso);
+        const km = S.cur.tracks.filter((x) => x.day_date === iso).reduce((a, x) => a + (x.distance_m || 0), 0);
+        const ph = S.cur.media.filter((x) => x.day_date === iso);
+        const color = CV.colorForDay(dl, iso);
+        return `<div class="day-item${S.dayFilter === iso ? " active" : ""}" data-iso="${iso}">
+          <div class="num" style="background:${color}" title="Voir cette journée sur la carte"><small>${n ? "Jour" : ""}</small>${n || fmtDateShort(iso)}</div>
+          <div class="info"><b>${esc(d?.title || fmtDate(iso))}</b>
+            <span>${d?.title ? fmtDate(iso, false) : ""}${km ? ` · ${ic("route", "sm")} ${fmtDistance(km)}` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
+            ${(km || ph.length || d) ? `<div class="status">${isLive() ? (d?.published ? `<span class="chip pub">Annoncée</span>` : "") : (d?.published ? `<span class="chip pub">Publiée</span>` : `<span class="chip draft">Brouillon</span>`)}</div>` : ""}
+            ${ph.length ? `<div class="thumbs">${ph.slice(0, 5).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`).join("")}</div>` : ""}
+          </div></div>`; }).join("")}</div>`;
+    $("#add-day").onclick = () => dayForm(null);
+    const cf = $("#clear-filter"); if (cf) cf.onclick = () => { S.dayFilter = null; redraw(true); renderPanel(); };
+    $$(".day-item", body).forEach((el) => {
+      const iso = el.dataset.iso;
+      el.onclick = () => dayForm(iso);
+      $(".num", el).onclick = (e) => { e.stopPropagation(); if (navigator.vibrate) navigator.vibrate(8); S.dayFilter = S.dayFilter === iso ? null : iso; redraw(true); renderPanel(); };
+    });
+  }
+
+  const draftKey = (iso) => `cv_draft_${S.cur.trip.id}_${iso || "new"}`;
+  function dayForm(iso) {
+    const d = iso ? dayInfo(iso) : null;
+    const draft = OFF.LS.get(draftKey(iso));
+    const useDraft = draft && (draft.story !== (d?.story || "") || draft.title !== (d?.title || ""));
+    const status = !iso ? "" : isLive()
+      ? `<span class="chip pub">En direct</span> <span class="small muted">Tout est déjà visible ; « Envoyer le lien » prévient tes proches.</span>`
+      : d?.published ? `<span class="chip pub">Publiée</span> <span class="small muted">Visible par tes proches, modifiable à tout moment.</span>`
+      : `<span class="chip draft">Brouillon</span> <span class="small muted">Invisible pour tes proches tant que tu n'as pas publié.</span>`;
+    const n0 = iso ? dayNumber(S.cur.trip, iso) : null;
+    const m = openModal(`<div class="modal-head"><div class="grow">${iso ? `<div class="kicker">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)}</div>` : ""}<h2>${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div><button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+      ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
+      ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
+      <form id="f">
+        <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
+        <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands"></div></div>
+        <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
+        <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
+        <div class="actions sticky">
+          ${d ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer le récit">${ic("trash")}</button>` : ""}${d?.published && !isLive() ? `<button type="button" class="btn sm ghost" id="unpub">Repasser en brouillon</button>` : ""}<span class="grow"></span>
+          <button class="btn secondary" type="submit">Enregistrer</button>
+          ${iso ? `<button type="button" class="btn primary" id="pub" title="Enregistre aussi les modifications">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier"}</button>` : ""}
+        </div></form>`,
+      { guard: () => dirty() });
+    const form = $("#f", m.el);
+    const rec = CV.audioRecorder($("#day-rec", m.el), { existingUrl: d?.audio_path ? API.publicUrl(d.audio_path) : null, label: "Enregistrer le récit du jour" });
+    const dirty = () => form.title.value !== (d?.title || "") || form.story.value !== (d?.story || "") || !!rec.getBlob() || rec.isRemoved();
+    // Brouillon sauvé à chaque frappe : un tap malheureux ne perd plus rien
+    const saveDraft = () => { if (dirty()) OFF.LS.set(draftKey(iso), { title: form.title.value, story: form.story.value, at: Date.now() }); else OFF.LS.del(draftKey(iso)); };
+    form.title.addEventListener("input", saveDraft); form.story.addEventListener("input", saveDraft);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target));
+      try {
+        const fields = { title: fd.title, story: fd.story };
+        const blob = rec.getBlob();
+        if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
+        else if (rec.isRemoved()) fields.audio_path = null;
+        const oldAudio = d?.audio_path;
+        const saved = await API.upsertDay(S.user, S.cur.trip.id, fd.day_date, fields);
+        if (oldAudio && oldAudio !== saved.audio_path) API.removeFiles([oldAudio]).catch(() => {});
+        const i = S.cur.days.findIndex((x) => x.id === saved.id);
+        if (i >= 0) S.cur.days[i] = saved; else S.cur.days.push(saved);
+        S.cur.days.sort((a, b) => a.day_date.localeCompare(b.day_date));
+        OFF.LS.del(draftKey(iso)); saveLocal();
+        m.close(); renderPanel(); toast("Journée enregistrée", "ok");
+      } catch (err) { errToast(err, 6000); if (isNetworkError(err)) toast("Ton texte est gardé sur le téléphone : réessaie quand tu auras du réseau", "info", 6000); }
+    };
+    const del = $("#del", m.el);
+    if (del) del.onclick = async () => {
+      if (!(await confirm("Supprimer le titre et le récit de cette journée ? (les photos et traces restent)"))) return;
+      if (d.audio_path) API.removeFiles([d.audio_path]).catch(() => {});
+      await API.deleteDay(d.id); S.cur.days = S.cur.days.filter((x) => x.id !== d.id); m.close(); renderPanel();
+    };
+    const pub = $("#pub", m.el);
+    if (pub) pub.onclick = async () => {
+      // On enregistre d'abord les modifications en cours, puis on publie
+      const f = $("#f", m.el); const fd = Object.fromEntries(new FormData(f));
+      try {
+        const fields = { title: fd.title, story: fd.story };
+        const blob = rec.getBlob();
+        if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
+        else if (rec.isRemoved()) fields.audio_path = null;
+        if (!d?.published) { fields.published = true; fields.published_at = new Date().toISOString(); }
+        const saved = await API.upsertDay(S.user, S.cur.trip.id, iso, fields);
+        const i = S.cur.days.findIndex((x) => x.id === saved.id); if (i >= 0) S.cur.days[i] = saved; else S.cur.days.push(saved);
+        OFF.LS.del(draftKey(iso)); saveLocal();
+        m.close(); renderPanel();
+        announceDay(saved);
+      } catch (err) { errToast(err, 6000); }
+    };
+    const unpub = $("#unpub", m.el);
+    if (unpub) unpub.onclick = async () => {
+      try { const saved = await API.upsertDay(S.user, S.cur.trip.id, iso, { published: false });
+        const i = S.cur.days.findIndex((x) => x.id === saved.id); S.cur.days[i] = saved; saveLocal(); m.close(); renderPanel(); toast("Journée repassée en brouillon"); }
+      catch (err) { errToast(err); }
+    };
+  }
+  // Ouvre la feuille de partage du téléphone avec un message prêt à envoyer
+  async function announceDay(d) {
+    const n = dayNumber(S.cur.trip, d.day_date);
+    const url = shareUrl() + "#day-" + d.day_date;
+    const label = `${n ? "Jour " + n : fmtDate(d.day_date, false)}${d.title ? " · " + d.title : ""}`;
+    const text = `${S.cur.trip.title} — ${label} est en ligne ! Carte, photos et récit ici : ${url}`;
+    // Notifications aux proches abonnés (si configurées)
+    if (cfg.VAPID_PUBLIC_KEY) {
+      API.notify(S.cur.trip.id, S.cur.trip.title, `${label} est en ligne 🧳`, url)
+        .then((r) => { if (r && r.total) toast(`Notification envoyée à ${r.sent} proche${r.sent > 1 ? "s" : ""}`, "ok"); })
+        .catch((e) => toast("Notifications non envoyées : " + friendly(e), "error", 6000));
+    }
+    if (navigator.share) { try { await navigator.share({ title: S.cur.trip.title, text, url }); toast("Journée publiée", "ok"); return; } catch { /* annulé */ } }
+    try { await navigator.clipboard.writeText(text); toast("Journée publiée · message copié, colle-le dans WhatsApp, SMS ou email", "ok", 6000); }
+    catch { toast("Journée publiée", "ok"); }
+  }
+
+  // ---------- Onglet Photos ----------
+  function renderPhotos(body) {
+    const list = S.cur.media.filter((x) => !S.dayFilter || x.day_date === S.dayFilter);
+    body.innerHTML = `
+      <div class="upload-zone" id="uz">${ic("camera")}<b>Ajouter des photos ou vidéos</b><span class="small">Date et position sont lues automatiquement</span>
+        <input type="file" id="uf" accept="image/*,video/*" multiple hidden></div>
+      <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div>
+      ${S.dayFilter ? `<div class="row between" style="margin-bottom:10px"><span class="muted small">Filtre : ${fmtDate(S.dayFilter, false)}</span><button class="btn sm" id="clear-filter">Tout voir</button></div>` : ""}
+      ${S.pendingMedia.length ? `<div class="setup-help" style="margin-bottom:10px">⏳ ${S.pendingMedia.length} photo${S.pendingMedia.length > 1 ? "s" : ""} en attente d'envoi (gardée${S.pendingMedia.length > 1 ? "s" : ""} sur le téléphone jusqu'au retour du réseau)</div>` : ""}
+      ${list.length || S.pendingMedia.length ? "" : `<div class="empty">Aucune photo pour l'instant.</div>`}
+      <div class="media-grid">${S.pendingMedia.map((pm) => `<div class="media-tile pending"><img src="${pm._url || (pm._url = URL.createObjectURL(pm.thumb || pm.video))}" alt=""><span class="badge">en attente</span></div>`).join("")}${list.map((x) => mediaTile(x)).join("")}</div>`;
+    const uz = $("#uz", body), uf = $("#uf", body);
+    uz.onclick = () => uf.click();
+    uf.onchange = () => uploadFiles([...uf.files]);
+    uz.ondragover = (e) => { e.preventDefault(); uz.classList.add("drag"); };
+    uz.ondragleave = () => uz.classList.remove("drag");
+    uz.ondrop = (e) => { e.preventDefault(); uz.classList.remove("drag"); uploadFiles([...e.dataTransfer.files]); };
+    const cf = $("#clear-filter", body); if (cf) cf.onclick = () => { S.dayFilter = null; redraw(true); renderPanel(); };
+    $$(".media-tile", body).forEach((el) => el.onclick = () => mediaViewer(S.cur.media.find((x) => x.id === el.dataset.id)));
+  }
+  function mediaTile(x) {
+    const src = API.publicUrl(x.thumb_path || (x.kind === "photo" ? x.path : ""));
+    return `<div class="media-tile" data-id="${x.id}">
+      ${x.kind === "video" && !x.thumb_path ? `<video src="${API.publicUrl(x.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${src}" alt="" loading="lazy">`}
+      ${x.kind === "video" ? `<span class="badge">vidéo</span>` : ""}
+      ${x.lat == null ? `<span class="nogps">sans position</span>` : ""}
+      ${x.caption ? `<div class="cap">${esc(x.caption)}</div>` : ""}</div>`;
+  }
+
+  const VIDEO_MAX = 50 * 1024 * 1024;   // limite de l'offre gratuite Supabase
+  async function uploadFiles(files) {
+    if (!files.length) return;
+    const prog = $("#uprog"), bar = $("#upbar"), txt = $("#uptxt");
+    if (prog) prog.hidden = false;
+    let done = 0, ok = 0, queued = 0;
+    for (const f of files) {
+      if (txt) txt.textContent = `${navigator.onLine ? "Envoi" : "Préparation"} ${done + 1}/${files.length} — ${f.name}`;
+      let prepared = null;
+      try {
+        const isVideo = f.type.startsWith("video/");
+        const exif = isVideo ? {} : await CV.readExif(f);
+        const takenAt = exif.takenAt || (f.lastModified ? new Date(f.lastModified) : new Date());
+        const fields = { kind: isVideo ? "video" : "photo", taken_at: takenAt.toISOString(),
+          day_date: S.dayFilter || isoDate(takenAt), lat: exif.lat ?? null, lng: exif.lng ?? null, caption: "" };
+        if (isVideo) {
+          if (f.size > VIDEO_MAX) throw new Error("Vidéo trop lourde (max 50 Mo)");
+          prepared = { tripId: S.cur.trip.id, fields, video: f, ext: (f.name.split(".").pop() || "mp4").toLowerCase() };
+        } else {
+          prepared = { tripId: S.cur.trip.id, fields, big: await CV.resizeImage(f, cfg.PHOTO_MAX_SIZE || 1600, 0.85), thumb: await CV.resizeImage(f, 320, 0.75) };
+        }
+        if (!navigator.onLine) throw new Error("Failed to fetch");
+        if (isVideo) fields.path = await API.uploadFile(S.user, S.cur.trip.id, f, prepared.ext);
+        else { fields.path = await API.uploadFile(S.user, S.cur.trip.id, prepared.big, "jpg"); fields.thumb_path = await API.uploadFile(S.user, S.cur.trip.id, prepared.thumb, "jpg"); }
+        // Pas de GPS dans la photo ? On tente la position d'après la trace du jour.
+        if (fields.lat == null) {
+          const guess = positionFromTracks(takenAt.getTime());
+          if (guess) { fields.lat = guess.lat; fields.lng = guess.lng; }
+        }
+        const m = await API.createMedia(S.user, S.cur.trip.id, fields);
+        S.cur.media.push(m); ok++;
+      } catch (err) {
+        if (prepared && isNetworkError(err)) {
+          try { S.pendingMedia.push(await OFF.addPendingMedia(prepared)); queued++; S.offline = true; }
+          catch (e2) { toast(`${f.name} : impossible de garder la photo sur le téléphone (${friendly(e2)})`, "error", 6000); }
+        } else toast(`${f.name} : ${friendly(err)}`, "error", 5000);
+      }
+      done++; if (bar) bar.style.width = Math.round((done / files.length) * 100) + "%";
+    }
+    S.cur.media.sort((a, b) => (a.taken_at || "").localeCompare(b.taken_at || ""));
+    if (ok) toast(`${ok} fichier${ok > 1 ? "s" : ""} ajouté${ok > 1 ? "s" : ""}`, "ok");
+    if (queued) toast(`${queued} photo${queued > 1 ? "s" : ""} gardée${queued > 1 ? "s" : ""} sur le téléphone, envoi automatique au retour du réseau`, "info", 6000);
+    saveLocal(); renderTripHeader(); redraw(); renderPanel(); updatePendingChip();
+  }
+  // Interpole la position sur les traces GPS à un instant donné (±10 min)
+  function positionFromTracks(ts) {
+    let best = null, bestDt = 10 * 60 * 1000;
+    for (const tr of S.cur.tracks) for (const p of tr.points || []) {
+      if (!p.t) continue;
+      const dt = Math.abs(p.t - ts);
+      if (dt < bestDt) { bestDt = dt; best = p; }
+    }
+    return best;
+  }
+
+  function mediaViewer(m) {
+    if (!m) return;
+    const url = API.publicUrl(m.path);
+    const comments = S.cur.comments.filter((c) => c.media_id === m.id);
+    const days = allDays();
+    const listAll = S.cur.media.filter((x) => !S.dayFilter || x.day_date === S.dayFilter), idxAll = listAll.indexOf(m);
+    const modal = openModal(`
+      <div class="viewer-media">${m.kind === "video" ? `<video src="${url}" controls playsinline></video>` : `<img src="${url}" alt="">`}
+        <span class="count">${idxAll + 1} / ${listAll.length}</span>
+        <button type="button" class="nav prev" id="prev" title="Photo précédente (enregistre)">${ic("chevron-left")}</button>
+        <button type="button" class="nav next" id="next" title="Photo suivante (enregistre)">${ic("chevron-right")}</button>
+        <button type="button" class="close" data-close title="Fermer">${ic("close")}</button></div>
+      <form id="f">
+        <div class="field caption-field"><label>Légende</label><textarea name="caption" placeholder="Un mot sur cette photo…">${esc(m.caption || "")}</textarea></div>
+        <div class="field"><label>Commentaire audio</label><div id="media-rec"></div></div>
+        <div class="row">
+          <div class="field grow"><label>Journée</label><select name="day_date">${days.map((d) => `<option value="${d}" ${d === m.day_date ? "selected" : ""}>${fmtDate(d)}</option>`).join("")}${m.day_date && !days.includes(m.day_date) ? `<option value="${m.day_date}" selected>${fmtDate(m.day_date)}</option>` : ""}</select></div>
+          <div class="field grow"><label>Prise le</label><input type="datetime-local" name="taken_at" value="${m.taken_at ? toLocalInput(m.taken_at) : ""}"></div>
+        </div>
+        <div class="row" style="margin-bottom:14px">
+          <span class="chip tnum">${ic("pin", "sm")} ${m.lat != null ? `${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}` : "sans position"}</span>
+          <button type="button" class="btn sm ghost" id="place">Placer sur la carte</button>
+          <button type="button" class="btn sm ghost" id="here">Ma position</button>
+          ${m.lat != null ? `<button type="button" class="btn sm ghost" id="goto">Voir sur la carte</button>` : ""}
+        </div>
+        <div class="actions sticky"><button type="button" class="btn icon ghost danger" id="del" title="Supprimer">${ic("trash")}</button><span class="grow"></span>
+          <button class="btn primary" type="submit">${ic("check")} Enregistrer</button></div>
+      </form>
+      <h3 style="margin:18px 0 8px;font-size:17px">Commentaires (${comments.length})</h3>
+      <div id="clist">${comments.map(commentHtml).join("") || `<p class="muted small">Pas encore de commentaire. Tes proches pourront en laisser depuis le lien de partage.</p>`}</div>
+      <form class="comment-form" id="cf"><textarea name="body" placeholder="Ajouter ton propre commentaire…"></textarea><div id="c-rec"></div><div class="actions"><button class="btn sm" type="submit">${ic("send", "sm")} Commenter</button></div></form>
+    `, { wide: true, guard: () => dirty() });
+    const el = modal.el;
+    const form = $("#f", el);
+    const mrec = CV.audioRecorder($("#media-rec", el), { existingUrl: m.audio_path ? API.publicUrl(m.audio_path) : null, label: "Enregistrer un commentaire audio" });
+    const crec = CV.audioRecorder($("#c-rec", el), { label: "Commentaire vocal", maxSeconds: 120 });
+    const dirty = () => form.caption.value !== (m.caption || "") || form.day_date.value !== m.day_date || !!mrec.getBlob() || mrec.isRemoved();
+    async function save() {
+      if (!dirty()) return true;
+      const fd = Object.fromEntries(new FormData(form));
+      try {
+        const fields = { caption: fd.caption, day_date: fd.day_date, taken_at: fd.taken_at ? new Date(fd.taken_at).toISOString() : m.taken_at };
+        const blob = mrec.getBlob();
+        if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
+        else if (mrec.isRemoved()) fields.audio_path = null;
+        const old = m.audio_path;
+        const u = await API.updateMedia(m.id, fields);
+        if (old && old !== u.audio_path) API.removeFiles([old]).catch(() => {});
+        Object.assign(m, u); saveLocal(); return true;
+      } catch (err) { errToast(err); return false; }
+    }
+    form.onsubmit = async (e) => { e.preventDefault(); if (await save()) { modal.close(); redraw(); renderPanel(); toast("Enregistré", "ok"); } };
+    // Légender en série : ◀ ▶ enregistrent puis passent à la photo voisine (dans l'ordre affiché)
+    const list = S.cur.media.filter((x) => !S.dayFilter || x.day_date === S.dayFilter), idx = list.indexOf(m);
+    const go = async (dir) => { const nx = list[idx + dir]; if (!nx) return toast(dir > 0 ? "Dernière photo" : "Première photo"); if (await save()) { modal.close(); redraw(); renderPanel(); mediaViewer(nx); } };
+    $("#prev", el).onclick = () => go(-1); $("#next", el).onclick = () => go(1);
+    $("#prev", el).disabled = idx <= 0; $("#next", el).disabled = idx >= list.length - 1;
+    $("#del", el).onclick = async () => {
+      if (!(await confirm("Supprimer cette photo ?"))) return;
+      try { await API.deleteMedia(m); S.cur.media = S.cur.media.filter((x) => x.id !== m.id); saveLocal(); modal.close(); renderTripHeader(); redraw(); renderPanel(); }
+      catch (err) { errToast(err); }
+    };
+    $("#place", el).onclick = () => { S.placing = m; modal.close(); $("#panel").classList.add("collapsed"); $("#map").style.cursor = "crosshair"; toast("Touche la carte à l'endroit de la photo"); setTimeout(() => S.map.invalidateSize(), 280); };
+    $("#here", el).onclick = () => navigator.geolocation.getCurrentPosition(async (p) => {
+      try { Object.assign(m, await API.updateMedia(m.id, { lat: p.coords.latitude, lng: p.coords.longitude })); saveLocal(); modal.close(); redraw(); renderPanel(); toast("Position enregistrée", "ok"); }
+      catch (err) { errToast(err); }
+    }, (e) => toast("Position introuvable", "error"), { enableHighAccuracy: true, timeout: 15000 });
+    const gt = $("#goto", el); if (gt) gt.onclick = () => { modal.close(); S.map.setView([m.lat, m.lng], 16); };
+    $("#cf", el).onsubmit = async (e) => {
+      e.preventDefault();
+      const body = e.target.body.value.trim(); const blob = crec.getBlob();
+      if (!body && !blob) return toast("Écris ou enregistre un message", "error");
+      try {
+        const audio_path = blob ? await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type)) : null;
+        const c = await API.addOwnerComment(S.cur.trip.id, { media_id: m.id, author: "Moi", body, audio_path });
+        crec.reset();
+        S.cur.comments.push(c); e.target.reset();
+        $("#clist", el).insertAdjacentHTML("beforeend", commentHtml(c)); bindCommentDeletes(el); CV.bindBigAudio(el);
+      } catch (err) { errToast(err); }
+    };
+    bindCommentDeletes(el); CV.bindBigAudio(el);
+  }
+  function toLocalInput(iso) {
+    const d = new Date(iso), p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function commentHtml(c, forceNew) {
+    const isNew = forceNew != null ? forceNew : (Date.parse(c.created_at) > seenTs() && S.tab !== "comments");
+    const initial = (c.author || "?").trim().charAt(0).toUpperCase();
+    return `<div class="comment${isNew ? " is-new" : ""}" data-id="${c.id}"><span class="avatar">${esc(initial)}</span><div class="body"><b>${esc(c.author)}</b><span class="when">${new Date(c.created_at).toLocaleDateString("fr-FR")}</span>${c.body ? `<div>${esc(c.body)}</div>` : ""}${c.audio_path ? CV.bigAudio(API.publicUrl(c.audio_path), `Écouter ${esc(c.author)}`, true) : ""}</div><button class="btn icon sm ghost del" title="Supprimer">${ic("close", "sm")}</button></div>`;
+  }
+  function bindCommentDeletes(root) {
+    $$(".comment .del", root).forEach((b) => b.onclick = async () => {
+      const el = b.closest(".comment");
+      if (!(await confirm("Supprimer ce commentaire ?"))) return;
+      const c = S.cur.comments.find((x) => x.id === el.dataset.id);
+      try { await API.deleteComment(c); S.cur.comments = S.cur.comments.filter((x) => x.id !== c.id); el.remove(); }
+      catch (err) { errToast(err); }
+    });
+  }
+
+  // ---------- Onglet Commentaires ----------
+  function renderComments(body) {
+    const list = [...S.cur.comments].reverse();
+    const seenBefore = seenTs();
+    const n = list.filter((c) => Date.parse(c.created_at) > seenBefore).length;
+    if (n) { API.updateTrip(S.cur.trip.id, { comments_seen_at: new Date().toISOString() }).then((t) => { S.cur.trip = t; updateCommentBadge(); }).catch(() => {}); }
+    body.innerHTML = `<div class="comments-head"><span class="hand">Ce que disent tes proches</span>${n ? `<span class="badge-count">${n}</span>` : ""}</div>
+      ${list.length ? "" : `<div class="empty valdo-empty"><img src="icons/valdo.svg" alt="">Aucun commentaire pour l'instant.<span class="small">Tes proches peuvent en laisser depuis le lien du voyage.</span></div>`}
+      ${list.map((c) => {
+        const m = c.media_id && S.cur.media.find((x) => x.id === c.media_id);
+        const d = c.day_id && S.cur.days.find((x) => x.id === c.day_id);
+        const isNew = Date.parse(c.created_at) > seenBefore;
+        return `<div class="row" style="align-items:flex-start;margin-bottom:6px;flex-wrap:nowrap">
+          ${m ? `<img src="${API.publicUrl(m.thumb_path || m.path)}" style="width:56px;height:56px;border-radius:12px;object-fit:cover;cursor:pointer;flex:none;box-shadow:var(--sh-1)" data-media="${m.id}">` : ""}
+          <div class="grow" style="min-width:0">${commentHtml(c, isNew)}${d ? `<div class="small muted" style="margin:-4px 0 10px 12px">${ic("calendar", "sm")} ${esc(d.title || fmtDate(d.day_date))}</div>` : ""}</div></div>`; }).join("")}`;
+    bindCommentDeletes(body); CV.bindBigAudio(body);
+    $$("img[data-media]", body).forEach((i) => i.onclick = () => mediaViewer(S.cur.media.find((x) => x.id === i.dataset.media)));
+  }
+
+  // ---------- Onglet GPS ----------
+  function renderGps(body) {
+    const g = S.gps, on = g.watchId != null;
+    const dl = S.drawn ? S.drawn.dayList : [];
+    body.innerHTML = `
+      <div class="gps-box${on ? " on" : ""}">
+        <div class="row between"><b style="font-family:var(--font-title);font-weight:500;font-size:18px">${on ? `<span class="pulse"></span> Suivi en cours` : "Suivi GPS"}</b>
+          <span class="chip">${on ? fmtDate(g.track.day_date, false) : "économe en batterie"}</span></div>
+        <div class="gps-stat"><div><b id="st-dist">${fmtDistance(CV.trackDistance(g.points))}</b><span>distance</span></div>
+          <div><b id="st-pts">${g.points.length}</b><span>points</span></div>
+          <div><b id="st-time">${on ? elapsed(g.startedAt) : "–"}</b><span>durée</span></div></div>
+        ${on ? `<button class="btn danger" id="gps-stop" style="width:100%">${ic("stop")} Terminer</button>
+                <p class="help">L'app doit rester à l'écran (l'écran est maintenu allumé, baisse la luminosité). Un point est gardé tous les ${cfg.GPS_MIN_DISTANCE_M} m / ${cfg.GPS_MIN_INTERVAL_S} s.</p>
+                <label class="row" style="margin-top:10px;justify-content:space-between"><span class="small">Empêcher la mise en veille</span><input type="checkbox" class="switch" id="wake" ${g.wakeLock ? "checked" : ""}></label>`
+            : `<div class="row" style="flex-wrap:nowrap"><button class="btn secondary grow" id="gps-beacon">${ic("pin")} Balise</button>
+                <button class="btn primary grow" id="gps-start">${ic("route")} Démarrer</button></div>
+               <p class="help"><b>Balise</b> : un point maintenant, même sans réseau. <b>Suivi</b> : trace continue, écran allumé. Pour une belle trace de rando, une montre ou une appli puis « Importer un GPX » reste la meilleure option.</p>`}
+      </div>
+      <div class="row between" style="margin:18px 0 6px"><span class="kicker">Traces · ${S.cur.tracks.length}</span>
+        <div class="row"><button class="btn sm" id="gpx-import">${ic("upload", "sm")} Importer un GPX</button>${S.cur.tracks.length ? `<button class="btn sm ghost" id="gpx-export">${ic("download", "sm")}</button>` : ""}</div>
+        <input type="file" id="gpx-file" accept=".gpx,application/gpx+xml" multiple hidden></div>
+      ${S.cur.tracks.length ? "" : `<p class="help">Aucune trace pour l'instant : pose des balises, démarre un suivi ou importe un GPX (montre, Strava, Komoot…).</p>`}
+      ${[...S.cur.tracks].reverse().map((t) => `<div class="track-item" data-id="${t.id}"><span class="swatch" style="background:${CV.colorForDay(dl, t.day_date)}"></span>
+        <span class="grow" style="min-width:0"><span style="display:block;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name || "Trace")}</span><span class="small muted">${t.day_date ? fmtDate(t.day_date, false) : "sans date"} · ${t.points.length} pts · ${t.source === "gpx" ? "GPX" : t.source === "manual" ? "balises" : "suivi"}${t._pending ? ` · <span class="chip draft">à envoyer</span>` : ""}</span></span>
+        <span class="dist">${fmtDistance(t.distance_m)}</span>${ic("chevron-right", "sm")}</div>`).join("")}`;
+    const st = $("#gps-start", body); if (st) st.onclick = startRecording;
+    const sp = $("#gps-stop", body); if (sp) sp.onclick = stopRecording;
+    const bc = $("#gps-beacon", body); if (bc) bc.onclick = addBeacon;
+    const wk = $("#wake", body); if (wk) wk.onchange = () => wk.checked ? requestWake() : releaseWake();
+    $("#gpx-import", body).onclick = () => $("#gpx-file", body).click();
+    $("#gpx-file", body).onchange = (e) => importGpx([...e.target.files]);
+    const ex = $("#gpx-export", body); if (ex) ex.onclick = () => CV.download(`${S.cur.trip.title}.gpx`, CV.toGPX(S.cur.trip, S.cur.tracks), "application/gpx+xml");
+    $$(".track-item", body).forEach((el) => el.onclick = () => trackForm(S.cur.tracks.find((t) => t.id === el.dataset.id)));
+  }
+  function elapsed(t0) {
+    if (!t0) return "–";
+    const s = Math.floor((Date.now() - t0) / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? `${h}h${String(m).padStart(2, "0")}` : `${m} min`;
+  }
+
+  // --- Enregistrement continu (fonctionne sans réseau : la trace vit sur le téléphone jusqu'à l'envoi) ---
+  const REC_KEY = "cv_recording";
+  async function startRecording() {
+    if (!navigator.geolocation) return toast("Géolocalisation indisponible", "error");
+    const g = S.gps;
+    g.track = { id: OFF.localId(), trip_id: S.cur.trip.id, name: "Suivi " + fmtTime(Date.now()), day_date: today(), source: "gps", points: [], distance_m: 0, created_at: new Date().toISOString(), _pending: true };
+    S.cur.tracks.push(g.track);
+    g.points = []; g.startedAt = Date.now(); g.dirty = true; g.lastSaved = 0; g.lastFix = Date.now(); g.errAt = 0;
+    persistRecording();
+    g.watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
+    requestWake();
+    g.watchdog = setInterval(checkGpsAlive, 30000);
+    toast("Suivi démarré — garde l'app à l'écran", "ok"); renderPanel(); renderRecBar();
+    if (navigator.onLine) syncAll();
+  }
+  function onPositionError(e) {
+    const g = S.gps;
+    if (Date.now() - g.errAt < 120000) return;       // pas plus d'un message toutes les 2 min (tunnel, forêt…)
+    g.errAt = Date.now();
+    toast(e.code === 1 ? "Localisation refusée : autorise-la dans les réglages du téléphone" : "Signal GPS faible, on continue d'essayer…", "error");
+  }
+  function onPosition(p) {
+    const g = S.gps, c = p.coords;
+    g.lastFix = Date.now();
+    if (c.accuracy > 100) return;                // point trop imprécis
+    const pt = { lat: +c.latitude.toFixed(6), lng: +c.longitude.toFixed(6), t: p.timestamp || Date.now() };
+    if (c.altitude != null) pt.alt = Math.round(c.altitude);
+    showMe(pt.lat, pt.lng);
+    const last = g.points[g.points.length - 1];
+    if (last) {
+      const dist = CV.haversine(last, pt), dt = (pt.t - last.t) / 1000;
+      if (dist < (cfg.GPS_MIN_DISTANCE_M || 25) || dt < (cfg.GPS_MIN_INTERVAL_S || 20)) return;
+    }
+    g.points.push(pt); g.dirty = true;
+    g.track.points = g.points; g.track.distance_m = CV.trackDistance(g.points); g.track._pending = true;
+    persistRecording();
+    if (S.tab === "gps") { const d = $("#st-dist"), n = $("#st-pts"), t = $("#st-time"); if (d) { d.textContent = fmtDistance(g.track.distance_m); n.textContent = g.points.length; t.textContent = elapsed(g.startedAt); } }
+    renderRecBar();
+    if (g.points.length % 5 === 0) redraw();
+    if (Date.now() - g.lastSaved > 60000) flushRecording();
+  }
+  function checkGpsAlive() {
+    const g = S.gps; if (g.watchId == null) return;
+    const silent = Math.round((Date.now() - g.lastFix) / 60000);
+    const bar = $("#rec-bar");
+    if (silent >= 3) {
+      if (bar) bar.classList.add("warn");
+      if (silent % 5 === 3) toast(`⚠️ Aucune position depuis ${silent} min — l'app est-elle bien restée à l'écran ?`, "error", 8000);
+    } else if (bar) bar.classList.remove("warn");
+    if (document.visibilityState === "visible" && !g.wakeLock) requestWake();
+  }
+  // Barre d'enregistrement toujours visible, quel que soit l'onglet
+  function renderRecBar() {
+    const g = S.gps, bar = $("#rec-bar");
+    if (!bar) return;
+    if (g.watchId == null) { bar.hidden = true; return; }
+    bar.hidden = false;
+    if (S.tab === "gps") { bar.hidden = true; return; }
+    bar.innerHTML = `<span class="pulse"></span> Suivi GPS · ${fmtDistance(CV.trackDistance(g.points))} · ${elapsed(g.startedAt)} <button class="btn sm danger" id="rec-bar-stop">${ic("stop", "sm")} Terminer</button>`;
+    $("#rec-bar-stop", bar).onclick = stopRecording;
+  }
+  function persistRecording() {
+    const g = S.gps;
+    OFF.LS.set(REC_KEY, { tripId: S.cur.trip.id, trackId: g.track.id, startedAt: g.startedAt });
+    saveLocal();
+  }
+  async function flushRecording() {
+    const g = S.gps;
+    if (!g.track || !g.dirty || !navigator.onLine) return;
+    g.dirty = false;
+    try {
+      if (OFF.isLocalId(g.track.id)) { await syncAll(); return; }
+      const saved = await API.updateTrack(g.track.id, { points: g.points, distance_m: CV.trackDistance(g.points) });
+      g.track._pending = false; g.lastSaved = Date.now();
+      const i = S.cur.tracks.findIndex((t) => t.id === saved.id); if (i >= 0) { S.cur.tracks[i] = { ...saved, _pending: false }; g.track = S.cur.tracks[i]; g.track.points = g.points; }
+      saveLocal();
+    } catch { g.dirty = true; /* on réessaiera */ }
+  }
+  async function stopRecording() {
+    const g = S.gps;
+    if (g.watchId != null) navigator.geolocation.clearWatch(g.watchId);
+    g.watchId = null; releaseWake();
+    if (g.watchdog) { clearInterval(g.watchdog); g.watchdog = null; }
+    const track = g.track, n = g.points.length, dist = CV.trackDistance(g.points);
+    OFF.LS.del(REC_KEY);
+    if (n === 0) {
+      S.cur.tracks = S.cur.tracks.filter((t) => t !== track);
+      if (!OFF.isLocalId(track.id)) { try { await API.deleteTrack(track.id); } catch { } }
+      toast("Aucun point relevé : trace ignorée");
+    } else {
+      track.points = g.points; track.distance_m = dist; track._pending = true;
+      g.dirty = true;
+      if (navigator.onLine) {
+        try {
+          const saved = OFF.isLocalId(track.id)
+            ? await API.createTrack(S.user, S.cur.trip.id, { name: track.name, day_date: track.day_date, source: "gps", points: g.points, distance_m: dist })
+            : await API.updateTrack(track.id, { points: g.points, distance_m: dist });
+          const i = S.cur.tracks.indexOf(track); if (i >= 0) S.cur.tracks[i] = saved;
+          toast(`Trace enregistrée : ${fmtDistance(dist)}`, "ok");
+        } catch (err) { S.offline = true; toast(`Trace gardée sur le téléphone (${fmtDistance(dist)}) : envoi au retour du réseau`, "info", 6000); }
+      } else { S.offline = true; toast(`Trace gardée sur le téléphone (${fmtDistance(dist)}) : envoi au retour du réseau`, "info", 6000); }
+    }
+    g.track = null; g.points = []; g.startedAt = null; g.dirty = false;
+    saveLocal(); renderTripHeader(); redraw(); renderPanel(); renderRecBar(); updatePendingChip();
+  }
+  // Reprise après fermeture accidentelle de l'app pendant un suivi : la trace est dans la copie locale
+  function resumeRecordingIfAny() {
+    const saved = OFF.LS.get(REC_KEY);
+    if (!saved || saved.tripId !== S.cur.trip.id) return;
+    const track = S.cur.tracks.find((t) => t.id === saved.trackId);
+    OFF.LS.del(REC_KEY);
+    if (track && (track.points || []).length) { track._pending = true; toast(`Suivi interrompu retrouvé (${fmtDistance(track.distance_m)}) : il sera envoyé automatiquement`, "info", 6000); }
+  }
+  async function requestWake() {
+    if (!("wakeLock" in navigator) || S.gps.wakeLock) return;
+    try { S.gps.wakeLock = await navigator.wakeLock.request("screen"); S.gps.wakeLock.addEventListener("release", () => { S.gps.wakeLock = null; }); }
+    catch { /* non supporté */ }
+  }
+  function releaseWake() { if (S.gps.wakeLock) { S.gps.wakeLock.release(); S.gps.wakeLock = null; } }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") { if (S.gps.watchId != null && !S.gps.wakeLock && ($("#wake")?.checked ?? true)) requestWake(); syncAll(); }
+    if (document.visibilityState === "hidden") { flushRecording(); saveLocal(); }
+  });
+
+  // --- Balise : un seul point, relié aux balises du jour — fonctionne sans réseau ---
+  function addBeacon() {
+    if (!navigator.geolocation) return toast("Géolocalisation indisponible", "error");
+    toast("Recherche de la position…");
+    navigator.geolocation.getCurrentPosition(async (p) => {
+      const pt = { lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), t: p.timestamp || Date.now() };
+      if (p.coords.altitude != null) pt.alt = Math.round(p.coords.altitude);
+      showMe(pt.lat, pt.lng);
+      if (navigator.vibrate) navigator.vibrate([12, 40, 18]);
+      const bb = $("#btn-beacon"); if (bb) { bb.classList.remove("pop"); void bb.offsetWidth; bb.classList.add("pop"); }
+      try { const pm = L.marker([pt.lat, pt.lng], { icon: L.divIcon({ className: "", html: '<div class="ping"></div>', iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(S.map); setTimeout(() => S.map.removeLayer(pm), 900); } catch { }
+      const d = today();
+      let tr = S.cur.tracks.find((t) => t.source === "manual" && t.day_date === d);
+      if (tr) { tr.points = [...tr.points, pt]; tr.distance_m = CV.trackDistance(tr.points); tr._pending = true; }
+      else { tr = { id: OFF.localId(), trip_id: S.cur.trip.id, name: "Balises", day_date: d, source: "manual", points: [pt], distance_m: 0, created_at: new Date().toISOString(), _pending: true }; S.cur.tracks.push(tr); }
+      saveLocal(); renderTripHeader(); redraw(); renderPanel(); updatePendingChip();
+      if (navigator.onLine) { await syncAll(); const still = S.cur.tracks.some((t) => t.source === "manual" && t.day_date === d && t._pending); toast(still ? "Balise gardée sur le téléphone, envoi au retour du réseau" : "Balise posée", "ok"); }
+      else { S.offline = true; toast("Balise gardée sur le téléphone, envoi au retour du réseau", "ok"); }
+    }, (e) => toast(e.code === 1 ? "Localisation refusée : autorise-la dans les réglages du téléphone" : "Position introuvable pour l'instant, réessaie dans un instant", "error"), { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }
+
+  // --- Import GPX ---
+  async function importGpx(files) {
+    for (const f of files) {
+      try {
+        const { name, points } = CV.parseGPX(await f.text());
+        const first = points.find((p) => p.t);
+        const tr = await API.createTrack(S.user, S.cur.trip.id, { name: name || f.name.replace(/\.gpx$/i, ""), day_date: first ? isoDate(new Date(first.t)) : (S.dayFilter || today()),
+          source: "gpx", points, distance_m: CV.trackDistance(points) });
+        S.cur.tracks.push(tr); toast(`${tr.name} importée (${fmtDistance(tr.distance_m)})`, "ok");
+      } catch (err) { toast(`${f.name} : ${friendly(err)}`, "error", 5000); }
+    }
+    saveLocal(); renderTripHeader(); redraw(true); renderPanel();
+  }
+  function trackForm(tr) {
+    const m = openModal(`<h2>Trace</h2><form id="f">
+      <div class="field"><label>Nom</label><input name="name" value="${esc(tr.name || "")}"></div>
+      <div class="field"><label>Journée</label><input type="date" name="day_date" value="${tr.day_date || ""}"></div>
+      <p class="small muted">${tr.points.length} points · ${fmtDistance(tr.distance_m)} · source : ${tr.source}</p>
+      <div class="actions"><button type="button" class="btn danger" id="del">Supprimer</button><span class="grow"></span><button type="button" class="btn" data-close>Annuler</button><button class="btn primary">Enregistrer</button></div></form>`);
+    $("#f", m.el).onsubmit = async (e) => {
+      e.preventDefault(); const fd = Object.fromEntries(new FormData(e.target));
+      try {
+        if (OFF.isLocalId(tr.id)) { tr.name = fd.name; tr.day_date = fd.day_date || null; }
+        else Object.assign(tr, await API.updateTrack(tr.id, { name: fd.name, day_date: fd.day_date || null }));
+        saveLocal(); m.close(); redraw(); renderPanel();
+      } catch (err) { errToast(err); }
+    };
+    $("#del", m.el).onclick = async () => {
+      if (!(await confirm("Supprimer cette trace ?"))) return;
+      try { if (!OFF.isLocalId(tr.id)) await API.deleteTrack(tr.id); S.cur.tracks = S.cur.tracks.filter((t) => t.id !== tr.id); saveLocal(); m.close(); renderTripHeader(); redraw(); renderPanel(); updatePendingChip(); }
+      catch (err) { errToast(err); }
+    };
+  }
+
+  // ---------- Sauvegarde complète ----------
+  async function backup(withFiles, btn) {
+    if (!window.JSZip) return toast("Module de compression non chargé (pas de réseau ?)", "error");
+    const { trip, days, tracks, media, comments } = S.cur;
+    busy(btn, true);
+    try {
+      const zip = new JSZip();
+      const safe = (s) => String(s || "").replace(/[^\w\u00C0-\u024F .-]+/g, "_").trim();
+      const root = zip.folder(safe(trip.title) || "voyage");
+      root.file("voyage.json", JSON.stringify({ exporte_le: new Date().toISOString(), trip, days, tracks, media, comments }, null, 2));
+      if (tracks.length) root.file("traces.gpx", CV.toGPX(trip, tracks));
+      // Récit lisible en texte
+      let txt = `${trip.title}\n${trip.subtitle || ""}\n\n${trip.description || ""}\n\n`;
+      for (const iso of allDays()) {
+        const d = dayInfo(iso); const n = dayNumber(trip, iso);
+        txt += `\n==== ${n ? "Jour " + n + " — " : ""}${fmtDate(iso)}${d?.title ? " — " + d.title : ""} ====\n\n${d?.story || ""}\n`;
+        for (const x of media.filter((x) => x.day_date === iso)) txt += `\n[${x.kind}] ${x.path.split("/").pop()}${x.caption ? " — " + x.caption : ""}${x.lat != null ? ` (${x.lat}, ${x.lng})` : ""}\n`;
+        for (const c of comments.filter((c) => (c.day_id && c.day_id === d?.id) || media.some((x) => x.day_date === iso && x.id === c.media_id))) txt += `   💬 ${c.author} : ${c.body}${c.audio_path ? " [audio]" : ""}\n`;
+      }
+      root.file("recit.txt", txt);
+      if (withFiles) {
+        const files = [];
+        for (const x of media) { files.push([`photos/${x.day_date || "sans-date"}/${x.path.split("/").pop()}`, x.path]); if (x.audio_path) files.push([`audios/photo-${x.audio_path.split("/").pop()}`, x.audio_path]); }
+        for (const d of days) if (d.audio_path) files.push([`audios/recit-${d.day_date}-${d.audio_path.split("/").pop()}`, d.audio_path]);
+        for (const c of comments) if (c.audio_path) files.push([`audios/commentaire-${safe(c.author)}-${c.audio_path.split("/").pop()}`, c.audio_path]);
+        let i = 0;
+        for (const [name, path] of files) {
+          i++; btn.textContent = `Téléchargement ${i}/${files.length}…`;
+          try { const r = await fetch(API.publicUrl(path)); if (r.ok) root.file(name, await r.blob()); } catch { /* fichier manquant, on continue */ }
+        }
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${safe(trip.title) || "voyage"}-sauvegarde-${today()}.zip`; a.click();
+      toast("Sauvegarde téléchargée", "ok");
+    } catch (err) { toast("Sauvegarde impossible : " + friendly(err), "error"); }
+    busy(btn, false);
+  }
+
+  // ---------- Partage ----------
+  function shareUrl() {
+    const base = location.href.split("#")[0].replace(/index\.html$/, "");
+    return `${base}share.html?t=${S.cur.trip.share_token}`;
+  }
+  function shareModal() {
+    const t = S.cur.trip, url = shareUrl();
+    const m = openModal(`<h2>Partager avec tes proches</h2>
+      <p class="small muted">Ils ouvrent simplement ce lien dans leur navigateur : pas de compte, rien à installer. Le lien est secret — ne le publie pas en public.</p>
+      <div class="share-box"><input readonly value="${esc(url)}" id="su"><div class="row" style="margin-top:8px">
+        <button class="btn sm primary" id="copy">Copier le lien</button>${navigator.share ? `<button class="btn sm" id="nshare">${ic("send", "sm")} Envoyer</button>` : ""}<a class="btn sm ghost" href="${esc(url)}" target="_blank">Aperçu</a></div></div>
+      ${cfg.VAPID_PUBLIC_KEY ? `<p class="small muted" id="push-count" style="margin-top:12px">…</p>` : ""}
+      <label class="row" style="margin-top:16px"><input type="checkbox" id="is_shared" ${t.is_shared ? "checked" : ""}> Lien de partage actif</label>
+      <label class="row" style="margin-top:8px"><input type="checkbox" id="allow_comments" ${t.allow_comments ? "checked" : ""}> Autoriser les commentaires des proches</label>
+      <div class="actions" style="margin-top:16px"><button class="btn" data-close>Fermer</button></div>`);
+    $("#copy", m.el).onclick = async () => { try { await navigator.clipboard.writeText(url); toast("Lien copié", "ok"); } catch { $("#su", m.el).select(); } };
+    const pc = $("#push-count", m.el);
+    if (pc) API.countPushSubscriptions(t.id).then((n) => { pc.textContent = n ? `${n} proche${n > 1 ? "s reçoivent" : " reçoit"} une notification à chaque journée publiée.` : "Personne n'a encore activé les notifications (bouton « Me prévenir » sur la page du voyage)."; }).catch(() => { pc.textContent = ""; });
+    const ns = $("#nshare", m.el); if (ns) ns.onclick = () => navigator.share({ title: t.title, text: "Suis mon voyage : " + t.title, url }).catch(() => { });
+    for (const k of ["is_shared", "allow_comments"]) $("#" + k, m.el).onchange = async (e) => {
+      try { S.cur.trip = await API.updateTrip(t.id, { [k]: e.target.checked }); saveLocal(); toast("Réglage enregistré", "ok"); } catch (err) { errToast(err); }
+    };
+  }
+
+  // ---------------------------------------------------------------
+  //  Démarrage
+  // ---------------------------------------------------------------
+  function setOnline() { $("#offline").hidden = navigator.onLine; if (navigator.onLine) { flushRecording(); syncAll(); } }
+  window.addEventListener("online", setOnline); window.addEventListener("offline", setOnline); setOnline();
+  window.addEventListener("beforeunload", (e) => { if (S.gps.watchId != null) { e.preventDefault(); e.returnValue = ""; } });
+
+  // ---------- Onboarding (première ouverture) ----------
+  const ONB_KEY = "bv_onboarded";
+  function onboarding(force) {
+    if (!force && OFF.LS.get(ONB_KEY)) return;
+    const slides = [
+      { hand: "Bienvenue !", title: "Ton voyage sur une carte", text: "Pose une balise 📍 à chaque étape, importe la trace de ta montre (GPX), ajoute tes photos : elles se placent toutes seules grâce à leur date et leur position." },
+      { hand: "Chaque soir…", title: "Raconte ta journée", text: "Un titre, quelques lignes ou un récit dicté au micro 🎙, une légende ou un mot audio sur chaque photo. Tout reste en brouillon jusqu'à ce que tu appuies sur « Publier »." },
+      { hand: "Et tes proches ?", title: "Ils suivent sans rien installer", text: "Un lien secret, envoyé par WhatsApp à chaque journée publiée. Ils voient la carte, les photos, entendent ta voix, et te laissent un mot écrit ou vocal. Tu retrouves leurs messages ici, avec un badge." },
+    ];
+    let i = 0;
+    const m = openModal(`<div class="onb">
+      <img src="icons/valdo.svg" alt="Valdo" class="valdo-scene">
+      <div class="slides">${slides.map((s, k) => `<div class="slide${k === 0 ? " active" : ""}"><span class="hand">${esc(s.hand)}</span><h2>${esc(s.title)}</h2><p>${esc(s.text)}</p></div>`).join("")}</div>
+      <div class="dots">${slides.map((_, k) => `<i class="${k === 0 ? "on" : ""}"></i>`).join("")}</div>
+      <div class="actions"><button type="button" class="btn ghost" id="onb-skip">Passer</button><button type="button" class="btn primary" id="onb-next">Suivant →</button></div>
+    </div>`, { onClose: () => OFF.LS.set(ONB_KEY, true) });
+    const show = () => { $$(".slide", m.el).forEach((s, k) => s.classList.toggle("active", k === i)); $$(".dots i", m.el).forEach((d, k) => d.classList.toggle("on", k === i)); $("#onb-next", m.el).textContent = i === slides.length - 1 ? "C'est parti !" : "Suivant →"; };
+    $("#onb-next", m.el).onclick = () => { if (i < slides.length - 1) { i++; show(); } else m.close(); };
+    $("#onb-skip", m.el).onclick = () => m.close();
+  }
+  $("#btn-onboarding").onclick = () => onboarding(true);
+  // Bouton thème : auto → clair → sombre
+  const themeBtn = $("#btn-theme");
+  const themeLabel = () => { const p = THEME.pref(); themeBtn.innerHTML = ic(p === "dark" ? "moon" : p === "light" ? "sun" : "auto"); themeBtn.title = "Thème : " + (p === "auto" ? "automatique (suit le téléphone)" : p === "dark" ? "sombre" : "clair"); };
+  themeBtn.onclick = () => { const p = THEME.cycle(); themeLabel(); toast("Thème " + (p === "auto" ? "automatique" : p === "dark" ? "sombre" : "clair")); };
+  themeLabel();
+  function hideSplash() { const s = $("#splash"); if (s) { s.classList.add("hide"); setTimeout(() => s.remove(), 400); } }
+
+  async function boot() {
+    if (cfg.APP_NAME && cfg.APP_NAME !== "Bonvoyage") $("#auth-app-name").textContent = cfg.APP_NAME;
+    document.title = cfg.APP_NAME || "Bonvoyage";
+    if (!API.isConfigured()) { $("#setup-help").hidden = false; $("#auth-card").hidden = true; show("screen-auth"); hideSplash(); return; }
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });
+
+    const onUser = async (user) => {
+      const wasUser = S.user; S.user = user;
+      if (!user) { S.cur = null; show("screen-auth"); hideSplash(); return; }
+      if (wasUser && wasUser.id === user.id && S.cur) return;   // simple rafraîchissement de jeton
+      const hash = new URLSearchParams(location.hash.slice(1));
+      if (hash.get("trip")) openTrip(hash.get("trip")); else { show("screen-trips"); loadTrips(); }
+      hideSplash();
+      setTimeout(() => onboarding(false), 400);
+    };
+    // Lien "mot de passe oublié" : Supabase renvoie avec type=recovery
+    if (location.hash.includes("type=recovery")) {
+      history.replaceState(null, "", location.pathname);
+      const m = openModal(`<h2>Nouveau mot de passe</h2><form id="f">
+        <div class="field"><label>Mot de passe (6 caractères minimum)</label><input type="password" name="p1" minlength="6" required autocomplete="new-password"></div>
+        <div class="field"><label>Confirme-le</label><input type="password" name="p2" minlength="6" required autocomplete="new-password"></div>
+        <div class="actions"><button class="btn primary" type="submit">Changer</button></div></form>`);
+      $("#f", m.el).onsubmit = async (e) => {
+        e.preventDefault(); const f = e.target;
+        if (f.p1.value !== f.p2.value) return toast("Les deux mots de passe sont différents", "error");
+        try { await API.updatePassword(f.p1.value); toast("Mot de passe changé", "ok"); m.close(); } catch (err) { errToast(err); }
+      };
+    }
+    API.onAuthChange(onUser);
+    onUser(await API.getUser());
+  }
+  boot();
+  setTimeout(hideSplash, 6000);
+  window.__S = S; // (debug)
+})();
