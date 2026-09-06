@@ -1,5 +1,5 @@
 // Service worker : l'app s'ouvre même sans réseau (les données, elles, viennent de Supabase).
-const CACHE = "bonvoyage-v4";
+const CACHE = "bonvoyage-v5";
 const TILES = "bonvoyage-tuiles-v1"; // fonds de carte (satellite, plan, relief, altitude) : cache à part, taillé à 4 000 tuiles
 const SHELL = ["./", "./index.html", "./share.html", "./css/style.css", "./js/config.js", "./js/map.js", "./js/common.js", "./js/offline.js", "./js/theme.js", "./js/api.js", "./js/app.js", "./js/share.js", "./vapid.html", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-192.png", "./icons/valdo.svg", "./icons/apple-touch-icon.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });

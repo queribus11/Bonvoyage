@@ -453,6 +453,8 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .replay-overlay.app { position: absolute; left: 12px; right: 12px; bottom: calc(130px + var(--safe-b)); z-index: 1001; }
 @media (min-width: 900px) { .replay-overlay.app { left: 456px; bottom: 16px; } }
 .day-gallery { margin-bottom: 4px; }
+.version { text-align: center; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; padding: 24px 0 8px; opacity: .7; }
+.share-footer .version { display: block; margin-top: 6px; font-size: 12px; }
 .legs { display: flex; flex-direction: column; gap: 6px; }
 .leg { display: flex; align-items: center; gap: 8px; background: var(--cream); border-radius: 12px; padding: 6px 8px; }
 .leg img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex: none; }

@@ -1144,7 +1144,13 @@
     if (cfg.APP_NAME && cfg.APP_NAME !== "Bonvoyage") $("#auth-app-name").textContent = cfg.APP_NAME;
     document.title = cfg.APP_NAME || "Bonvoyage";
     if (!API.isConfigured()) { $("#setup-help").hidden = false; $("#auth-card").hidden = true; show("screen-auth"); hideSplash(); return; }
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });
+    const ver = $("#app-version"); if (ver) ver.textContent = `Bonvoyage v${window.BV_VERSION || "?"}`;
+    // Mise à jour automatique : quand une nouvelle version est installée, la page se recharge d'elle-même (une fois)
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js").then((reg) => { try { reg.update(); } catch { } }).catch(() => { });
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => { if (reloaded || !navigator.serviceWorker.controller) return; reloaded = true; if (S.gps.watchId == null) location.reload(); });
+    }
 
     const onUser = async (user) => {
       const wasUser = S.user; S.user = user;

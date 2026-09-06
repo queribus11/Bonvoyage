@@ -99,7 +99,7 @@
         ${days.map((iso) => daySection(iso, days)).join("")}
         ${!days.length ? `<p class="muted" style="text-align:center">Le récit n'a pas encore commencé… revenez bientôt !</p>` : ""}
       </main>
-      <footer class="share-footer"><div class="logo"><img src="icons/icon.svg" alt="Valdo"></div><span class="wordmark"><span>bon</span><b>voyage</b></span><span class="hand">tes voyages, racontés</span>
+      <footer class="share-footer"><div class="logo"><img src="icons/icon.svg" alt="Valdo"></div><span class="wordmark"><span>bon</span><b>voyage</b></span><span class="hand">tes voyages, racontés</span><span class="version">v${window.BV_VERSION || "?"}</span>
         <div class="home-tip">${homeTipHtml()}</div>
       </footer>`;
     animateKm();
