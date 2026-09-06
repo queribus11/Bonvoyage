@@ -8,7 +8,8 @@ window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
   const SPEEDS = [{ k: .5, icon: "🐢", label: "lent" }, { k: 1, icon: "▶", label: "normal" }, { k: 2, icon: "🐇", label: "rapide" }];
-  function replaySpeed() { const v = parseFloat(LS.get(SPEED_KEY)); return SPEEDS.some((s) => s.k === v) ? v : 1; }
+  const isPhone = () => window.matchMedia("(max-width: 640px)").matches;
+  function replaySpeed() { const v = parseFloat(LS.get(SPEED_KEY)); return SPEEDS.some((s) => s.k === v) ? v : (isPhone() ? .5 : 1); }   // sur téléphone : lent par défaut
   function cycleSpeed() { const i = SPEEDS.findIndex((s) => s.k === replaySpeed()); const n = SPEEDS[(i + 1) % SPEEDS.length]; LS.set(SPEED_KEY, n.k); return n; }
   const LS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { } } };
 
@@ -451,7 +452,7 @@ window.BVMAP = (() => {
         // Position de la caméra sur le départ
         // Cap de départ : direction générale de la journée (pas le premier virage), pour une caméra posée
         const bearing0 = heading(d.coords[0], d.coords[d.coords.length - 1]);
-        map.easeTo({ center: d.coords[0], zoom, pitch: d.est ? 48 : 55, bearing: bearing0, duration: 2200, easing: (t) => 1 - Math.pow(1 - t, 2) });
+        map.easeTo({ center: d.coords[0], zoom: zoom - (isPhone() ? .4 : 0), pitch: isPhone() ? 42 : (d.est ? 48 : 55), bearing: bearing0, duration: 3200, easing: (t) => 1 - Math.pow(1 - t, 3) });
         await moveEnd(); if (stopped) return;
         walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
 

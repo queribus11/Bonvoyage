@@ -460,13 +460,13 @@
           ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
           <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="day-add-photos">${ic("camera", "sm")} Ajouter des photos à cette journée</button><input type="file" id="day-files" accept="image/*,video/*" multiple hidden></div>
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
-        <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
-        <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
-        ${statsHtml}
-        ${legs ? `<div class="field"><label>Moyen de locomotion, tronçon par tronçon</label>
+        ${legs ? `<div class="field"><label>🚶🚗⛵ Moyen de locomotion entre les photos</label>
           <div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
             <select data-to="${l.to.id}" class="leg-mode"><option value="">↩︎ idem${i === 0 ? " (à pied)" : ""}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.to.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div>
           <p class="help">Chaque ligne = le trajet jusqu'à la photo de droite. « idem » reprend le moyen du tronçon précédent. Se règle aussi dans la fiche de chaque photo (« Arrivé ici… »).</p></div>` : ""}
+        <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
+        <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
+        ${statsHtml}
         ${iso ? `${canRoute ? `<div class="field"><label>Trajet</label><p class="small muted" style="margin:-2px 0 8px">Pas de trace GPS ce jour-là : la carte relie les photos en pointillés, dans l'ordre de l'heure, selon le moyen de locomotion choisi sur chaque photo. « Tracer l'itinéraire » fait suivre les vraies routes aux tronçons en voiture, bus ou vélo.</p>
           <button type="button" class="btn sm" id="day-route">${ic("route", "sm")} Tracer l'itinéraire par la route</button></div>` : ""}
         ${routeTrack ? `<div class="field"><label>Trajet</label><div class="row between"><span class="small">${ic("route", "sm")} Itinéraire par la route · <b>${fmtDistance(routeTrack.distance_m)}</b> · ${routeTrack.points.length} points</span><button type="button" class="btn sm ghost danger" id="day-route-del">Retirer</button></div>
