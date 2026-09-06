@@ -93,6 +93,9 @@ Sans cette étape, tu préviens tes proches toi-même par WhatsApp à chaque pub
 ### Sur Android
 Chrome propose automatiquement **Installer l'application** (ou menu ⋮ > *Ajouter à l'écran d'accueil*).
 
+### La carte : satellite, relief, 3D, globe
+En bas à gauche de la carte : **Sat.** (images satellite haute définition avec les noms de lieux et les routes), **Relief** (carte topographique, courbes de niveau) et **Plan** (OpenStreetMap). Le bouton **3D** ajoute le relief en trois dimensions : incline et tourne la carte avec deux doigts (ou clic droit sur Mac). Quand on dézoome, la carte devient un globe. Tes photos sont posées sur la carte en vignettes rondes ; regroupées quand on s'éloigne, un appui les déplie, un second ouvre la photo. Le numéro coloré de chaque journée marque son point de départ.
+
 ### Thème sombre et première ouverture
 À la première ouverture, Valdo te présente l'app en trois écrans (bouton **?** en haut de « Mes voyages » pour les revoir). Le bouton **◐ / ☀ / ☾** à côté choisit le thème : automatique (suit le réglage clair/sombre du téléphone), clair, ou sombre — la carte passe aussi en fond sombre. La page de tes proches suit le réglage de leur propre téléphone.
 
@@ -111,6 +114,9 @@ Une app web ne peut pas relever le GPS quand le téléphone est verrouillé (c'e
 
 Les trois se combinent librement : les balises dessinent le « squelette » de chaque journée sans effort, le GPX embellit les journées qui le méritent.
 
+### Journée sans trace GPS : le trajet estimé
+Si une journée n'a que des photos, la carte relie leurs positions **en pointillés**, dans l'ordre de l'heure de prise de vue, et Valdo suit ce trajet pendant le survol. Pour un trajet plus réaliste (par exemple une journée en voiture), ouvre la fiche de la journée et touche **Tracer l'itinéraire par la route** : l'app demande à un service d'itinéraire gratuit (OSRM) le chemin par les routes entre tes photos et l'enregistre comme une trace « itinéraire estimé » (modifiable ou supprimable dans l'onglet GPS). Ce service public est parfois lent ou indisponible : réessaie plus tard si ça échoue.
+
 ### Sans réseau, rien n'est perdu
 Tout ce que tu fais sans connexion est gardé sur le téléphone et envoyé automatiquement au retour du réseau : les balises, les traces, et même les photos (elles apparaissent avec la mention « ⏳ en attente »). Un petit compteur « ⏳ 2 en attente d'envoi » s'affiche sous les onglets tant qu'il reste quelque chose à envoyer. Le voyage lui-même s'ouvre sans réseau, tel qu'il était à ta dernière connexion. Seules l'écriture du récit et la publication demandent une connexion — mais ton texte est conservé comme brouillon sur le téléphone si l'envoi échoue, et restauré à la prochaine ouverture de la journée.
 
@@ -119,14 +125,15 @@ Tout ce que tu fais sans connexion est gardé sur le téléphone et envoyé auto
 - La **date et la position GPS** sont lues dans la photo. Sur iPhone, pour que la position soit conservée, choisis les photos depuis *Photothèque* et laisse l'option *Localisation* active dans le menu *Options* en haut du sélecteur.
 - Une photo sans position peut être placée à la main (bouton *Placer sur la carte*) ou prendre ta position actuelle. Si tu as une trace GPS ce jour-là, l'app devine la position d'après l'heure de la photo.
 - Chaque photo a une **légende** et peut recevoir des **commentaires**.
+- Pour faire du tri : onglet Photos > **Sélectionner**, coche les photos, puis **Supprimer** ou **Déplacer** vers une autre journée (pratique quand des photos ont été ajoutées par erreur ou mal datées). Une journée sans titre ni récit disparaît d'elle-même quand elle n'a plus de photo ni de trace.
 
 ### Le récit, écrit ou parlé
-Onglet **Journées** : touche une journée pour ouvrir sa fiche (titre, récit, audio, publication) ; touche son numéro coloré pour la voir seule sur la carte. Les paragraphes sont conservés. Sous le texte, **🎙 Enregistrer le récit du jour** te permet de dicter ton récit (bouton ■ Arrêter pour terminer, puis *Refaire* ou *Supprimer*). Tu peux tout modifier plus tard, même des années après.
+Onglet **Journées** : touche une journée pour ouvrir sa fiche (titre, récit, audio, **photos de la journée** avec un bouton pour en ajouter directement, trajet, publication) ; les photos ajoutées à une journée déjà publiée sont visibles tout de suite ; touche son numéro coloré pour la voir seule sur la carte. Les paragraphes sont conservés. Sous le texte, **🎙 Enregistrer le récit du jour** te permet de dicter ton récit (bouton ■ Arrêter pour terminer, puis *Refaire* ou *Supprimer*). Tu peux tout modifier plus tard, même des années après.
 
 Sur chaque photo, tu as de la même façon une légende écrite **et** un commentaire audio.
 
-### Brouillon, puis « Publier et prévenir »
-Par défaut, une journée reste un **brouillon invisible** pour tes proches tant que tu n'as pas appuyé sur **📣 Publier et prévenir** (en bas de la fiche de la journée). Tu peux donc ajouter des photos et écrire tranquillement au fil de la journée, et publier le soir, ou quand tu as du réseau.
+### Brouillon, puis « Publier » ou « Publier et prévenir »
+Par défaut, une journée reste un **brouillon invisible** pour tes proches tant que tu n'as pas appuyé sur **Publier** (elle devient visible en silence : tes proches la découvriront à leur prochaine visite grâce à la pastille « Du nouveau ») ou sur **📣 Publier et prévenir** (en bas de la fiche de la journée). Tu peux donc ajouter des photos et écrire tranquillement au fil de la journée, et publier le soir, ou quand tu as du réseau.
 
 Quand tu publies, ton téléphone ouvre sa feuille de partage (WhatsApp, SMS, Mail…) avec un message tout prêt — « *Traversée des Alpes — Jour 5 · Le grand col est en ligne ! Carte, photos et récit ici : …* » — et le lien direct vers cette journée. Tu choisis ton groupe familial et c'est envoyé : tes proches n'ont rien à installer, rien à remplir. (Sur Mac, le message est copié dans le presse-papiers : colle-le où tu veux.) Une journée publiée reste modifiable ; tu peux aussi la *repasser en brouillon*.
 
@@ -191,7 +198,13 @@ Si un point coince, envoie-moi une capture d'écran et le message affiché : on 
 
 **Supabase met mon projet en pause ?** Sur l'offre gratuite, un projet inutilisé pendant 7 jours est mis en pause. Il suffit de cliquer **Restore** dans Supabase (rien n'est perdu). Ouvrir l'app de temps en temps évite cela.
 
-**Je veux changer de fond de carte.** Dans `js/config.js`, `MAP_STYLE` : `"voyager"` (par défaut), `"positron"` (clair) ou `"outdoors"` (relief, randonnée). Puis renvoie le fichier sur GitHub (ouvre le fichier sur GitHub > icône crayon > modifie > *Commit changes*).
+**Je veux changer de fond de carte.** Directement sur la carte : boutons **Sat.** (satellite avec noms et routes), **Relief** (carte topographique) et **Plan** (OpenStreetMap), plus **3D** pour le relief en trois dimensions (glisse avec deux doigts ou clic droit pour incliner et tourner). Le choix est mémorisé sur chaque appareil. `MAP_STYLE` dans `js/config.js` ne fixe que le fond du premier lancement.
+
+**Le relief 3D est lent sur mon téléphone ?** Désactive le bouton **3D** : la carte repasse à plat (et en globe quand on dézoome). Le satellite seul reste fluide.
+
+**« Revoir le voyage » ?** Sur la page des proches, le bouton ▶ de l'en-tête (ou « Survol » sur la carte) fait suivre le parcours à la caméra, jour après jour, en dessinant l'itinéraire et en faisant apparaître les photos. « Arrêter » revient à la vue d'ensemble. Les journées sans trace GPS mais avec des photos sont survolées aussi.
+
+**D'où viennent le lieu, le dénivelé et le profil d'altitude ?** Le lieu (commune, pays) est déduit de la position de la journée grâce à OpenStreetMap (Nominatim) et enregistré une fois pour toutes. Le dénivelé et le profil viennent de l'altitude des points GPS : les fichiers GPX de montre ou d'appli en ont toujours, les balises et le suivi de l'app aussi quand le téléphone la fournit.
 
 **Comment mettre à jour l'app ?** Il suffit de remplacer les fichiers sur GitHub (glisser-déposer à nouveau, ou modifier un fichier avec l'icône crayon). Le site se met à jour en une minute.
 
@@ -221,7 +234,8 @@ bonvoyage/
 ├── share.html          la page publique que voient tes proches
 ├── css/style.css       l'apparence
 ├── js/config.js        ★ le seul fichier à modifier (tes clés Supabase)
-├── js/common.js        carte, traces, GPX, lecture des photos, enregistreur audio
+├── js/map.js           la carte immersive : satellite, relief 3D, globe, photos, survol du voyage
+├── js/common.js        traces, GPX, statistiques et profil d'altitude, lieux, lecture des photos, enregistreur audio
 ├── js/offline.js       copie locale et file d'attente hors ligne
 ├── js/api.js           dialogue avec Supabase
 ├── js/app.js           logique de l'app

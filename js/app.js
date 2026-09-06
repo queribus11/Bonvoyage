@@ -395,6 +395,8 @@
       : `<span class="chip draft">Brouillon</span> <span class="small muted">Invisible pour tes proches tant que tu n'as pas publié.</span>`;
     const n0 = iso ? dayNumber(S.cur.trip, iso) : null;
     const st = iso ? CV.dayStats(S.cur.tracks.filter((x) => x.day_date === iso)) : null;
+    const dayPhotos = iso ? S.cur.media.filter((x) => x.day_date === iso) : [];
+    const canRoute = iso && !S.cur.tracks.some((t) => t.day_date === iso && (t.points || []).length >= 2) && dayPhotos.filter((x) => x.lat != null).length >= 2;
     const dl0 = allDays();
     const statsHtml = st && st.distance_m ? `<div class="day-stats">
         <div><b>${fmtDistance(st.distance_m)}</b><small>distance</small></div>
@@ -411,10 +413,18 @@
         <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands"></div></div>
         <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
         <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
+        ${iso ? `<div class="field"><label>Photos de la journée${dayPhotos.length ? ` (${dayPhotos.length})` : ""}</label>
+          ${d?.published && !isLive() ? `<p class="small muted" style="margin:-2px 0 8px">Journée publiée : les photos ajoutées ici sont <b>déjà visibles</b> par tes proches. « Envoyer le lien » sert seulement à les prévenir.</p>` : ""}
+          ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
+          <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="day-add-photos">${ic("camera", "sm")} Ajouter des photos à cette journée</button><input type="file" id="day-files" accept="image/*,video/*" multiple hidden></div>
+          <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>
+        ${canRoute ? `<div class="field"><label>Trajet</label><p class="small muted" style="margin:-2px 0 8px">Pas de trace GPS ce jour-là : la carte relie les photos en pointillés, dans l'ordre de l'heure. Tu peux aussi faire suivre les vraies routes.</p>
+          <button type="button" class="btn sm" id="day-route">${ic("route", "sm")} Tracer l'itinéraire par la route</button></div>` : ""}` : ""}
         <div class="actions sticky">
           ${d ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer le récit">${ic("trash")}</button>` : ""}${d?.published && !isLive() ? `<button type="button" class="btn sm ghost" id="unpub">Repasser en brouillon</button>` : ""}<span class="grow"></span>
           <button class="btn secondary" type="submit">Enregistrer</button>
-          ${iso ? `<button type="button" class="btn primary" id="pub" title="Enregistre aussi les modifications">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier"}</button>` : ""}
+          ${iso && !isLive() && !d?.published ? `<button type="button" class="btn secondary" id="pub-quiet" title="Rend la journée visible sans envoyer de message">${ic("check")} Publier</button>` : ""}
+          ${iso ? `<button type="button" class="btn primary" id="pub" title="Enregistre aussi les modifications">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier et prévenir"}</button>` : ""}
         </div></form>`,
       { guard: () => dirty() });
     const form = $("#f", m.el);
@@ -447,8 +457,22 @@
       if (d.audio_path) API.removeFiles([d.audio_path]).catch(() => {});
       await API.deleteDay(d.id); S.cur.days = S.cur.days.filter((x) => x.id !== d.id); m.close(); renderPanel();
     };
-    const pub = $("#pub", m.el);
-    if (pub) pub.onclick = async () => {
+    // Galerie de la journée
+    $$("#day-gallery .media-tile", m.el).forEach((el) => el.onclick = () => mediaViewer(S.cur.media.find((x) => x.id === el.dataset.id)));
+    const addBtn = $("#day-add-photos", m.el), dayFiles = $("#day-files", m.el);
+    if (addBtn) { addBtn.onclick = () => dayFiles.click(); dayFiles.onchange = async () => { await uploadFiles([...dayFiles.files], iso); saveLocal(); redraw(); const keep = { title: form.title.value, story: form.story.value }; m.close(); dayForm(iso); const f2 = $("#modal-host form#f"); if (f2) { f2.title.value = keep.title; f2.story.value = keep.story; } }; }
+    const routeBtn = $("#day-route", m.el);
+    if (routeBtn) routeBtn.onclick = async () => {
+      busy(routeBtn, true);
+      try {
+        const pts = dayPhotos.filter((x) => x.lat != null).slice().sort((a, b) => (a.taken_at || a.created_at || "").localeCompare(b.taken_at || b.created_at || ""));
+        const route = await CV.roadRoute(pts.map((x) => ({ lat: x.lat, lng: x.lng })));
+        if (!route || route.length < 2) throw new Error("Itinéraire introuvable pour ces points");
+        const tr = await API.createTrack(S.user, S.cur.trip.id, { name: "Itinéraire estimé (route)", day_date: iso, source: "route", points: route, distance_m: CV.trackDistance(route) });
+        S.cur.tracks.push(tr); saveLocal(); redraw(); toast(`Itinéraire tracé · ${fmtDistance(tr.distance_m)}`, "ok"); m.close(); dayForm(iso);
+      } catch (err) { errToast(err, 6000); busy(routeBtn, false); }
+    };
+    const publish = async (notify) => {
       // On enregistre d'abord les modifications en cours, puis on publie
       const f = $("#f", m.el); const fd = Object.fromEntries(new FormData(f));
       try {
@@ -461,9 +485,11 @@
         const i = S.cur.days.findIndex((x) => x.id === saved.id); if (i >= 0) S.cur.days[i] = saved; else S.cur.days.push(saved);
         OFF.LS.del(draftKey(iso)); saveLocal();
         m.close(); renderPanel();
-        announceDay(saved);
+        if (notify) announceDay(saved); else toast("Journée publiée — tes proches la verront à leur prochaine visite", "ok", 5000);
       } catch (err) { errToast(err, 6000); }
     };
+    const pub = $("#pub", m.el); if (pub) pub.onclick = () => publish(true);
+    const pubQ = $("#pub-quiet", m.el); if (pubQ) pubQ.onclick = () => publish(false);
     const unpub = $("#unpub", m.el);
     if (unpub) unpub.onclick = async () => {
       try { const saved = await API.upsertDay(S.user, S.cur.trip.id, iso, { published: false });
@@ -557,9 +583,10 @@
   }
 
   const VIDEO_MAX = 50 * 1024 * 1024;   // limite de l'offre gratuite Supabase
-  async function uploadFiles(files) {
+  async function uploadFiles(files, forceDay = null) {
     if (!files.length) return;
-    const prog = $("#uprog"), bar = $("#upbar"), txt = $("#uptxt");
+    const host = $("#modal-host #uprog") ? $("#modal-host") : document;
+    const prog = $("#uprog", host), bar = $("#upbar", host), txt = $("#uptxt", host);
     if (prog) prog.hidden = false;
     let done = 0, ok = 0, queued = 0;
     for (const f of files) {
@@ -570,7 +597,7 @@
         const exif = isVideo ? {} : await CV.readExif(f);
         const takenAt = exif.takenAt || (f.lastModified ? new Date(f.lastModified) : new Date());
         const fields = { kind: isVideo ? "video" : "photo", taken_at: takenAt.toISOString(),
-          day_date: S.dayFilter || isoDate(takenAt), lat: exif.lat ?? null, lng: exif.lng ?? null, caption: "" };
+          day_date: forceDay || S.dayFilter || isoDate(takenAt), lat: exif.lat ?? null, lng: exif.lng ?? null, caption: "" };
         if (isVideo) {
           if (f.size > VIDEO_MAX) throw new Error("Vidéo trop lourde (max 50 Mo)");
           prepared = { tripId: S.cur.trip.id, fields, video: f, ext: (f.name.split(".").pop() || "mp4").toLowerCase() };
@@ -754,7 +781,7 @@
         <input type="file" id="gpx-file" accept=".gpx,application/gpx+xml" multiple hidden></div>
       ${S.cur.tracks.length ? "" : `<p class="help">Aucune trace pour l'instant : pose des balises, démarre un suivi ou importe un GPX (montre, Strava, Komoot…).</p>`}
       ${[...S.cur.tracks].reverse().map((t) => `<div class="track-item" data-id="${t.id}"><span class="swatch" style="background:${CV.colorForDay(dl, t.day_date)}"></span>
-        <span class="grow" style="min-width:0"><span style="display:block;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name || "Trace")}</span><span class="small muted">${t.day_date ? fmtDate(t.day_date, false) : "sans date"} · ${t.points.length} pts · ${t.source === "gpx" ? "GPX" : t.source === "manual" ? "balises" : "suivi"}${t._pending ? ` · <span class="chip draft">à envoyer</span>` : ""}</span></span>
+        <span class="grow" style="min-width:0"><span style="display:block;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name || "Trace")}</span><span class="small muted">${t.day_date ? fmtDate(t.day_date, false) : "sans date"} · ${t.points.length} pts · ${t.source === "gpx" ? "GPX" : t.source === "manual" ? "balises" : t.source === "route" ? "itinéraire estimé" : "suivi"}${t._pending ? ` · <span class="chip draft">à envoyer</span>` : ""}</span></span>
         <span class="dist">${fmtDistance(t.distance_m)}</span>${ic("chevron-right", "sm")}</div>`).join("")}`;
     const st = $("#gps-start", body); if (st) st.onclick = startRecording;
     const sp = $("#gps-stop", body); if (sp) sp.onclick = stopRecording;

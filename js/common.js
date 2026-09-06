@@ -159,6 +159,19 @@
       return name;
     } catch { return ""; }
   }
+  // Itinéraire par la route entre des points (OSRM, serveur de démonstration public : gratuit, parfois lent, 100 points max)
+  async function roadRoute(points) {
+    const pts = points.filter((p) => p && p.lat != null).slice(0, 100);
+    if (pts.length < 2) return null;
+    const coords = pts.map((p) => `${(+p.lng).toFixed(5)},${(+p.lat).toFixed(5)}`).join(";");
+    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`);
+    if (!r.ok) throw new Error("Service d'itinéraire indisponible (" + r.status + ")");
+    const j = await r.json();
+    if (j.code !== "Ok" || !j.routes || !j.routes[0]) throw new Error("Itinéraire introuvable");
+    const t0 = pts[0].t || Date.parse(pts[0].taken_at || "") || Date.now();
+    return j.routes[0].geometry.coordinates.map(([lng, lat], i) => ({ lat: +lat.toFixed(6), lng: +lng.toFixed(6), t: t0 + i * 1000 }));
+  }
+
   // Complète le nom du lieu des journées qui n'en ont pas (une requête par seconde, en douceur)
   async function fillPlaces(cur, save) {
     const dayList = [...new Set([...cur.days.map((d) => d.day_date), ...cur.tracks.map((t) => t.day_date), ...cur.media.map((m) => m.day_date)].filter(Boolean))].sort();
@@ -372,6 +385,6 @@
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
-    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, resizeImage, readExif, esc, nl2p, toast, download,
+    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, roadRoute, resizeImage, readExif, esc, nl2p, toast, download,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio };
 })();

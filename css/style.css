@@ -417,7 +417,14 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-day:hover { transform: scale(1.15); }
 .bv-day.hidden { opacity: 0; pointer-events: none; }
 .maplibregl-marker { z-index: 1; } .maplibregl-marker:has(.bv-day) { z-index: 2; }
-.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .legend { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
+.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .legend, .replaying .map-actions { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
+/* Valdo qui marche sur le trajet pendant le survol */
+.bv-walker { width: 44px; height: 44px; filter: drop-shadow(0 6px 8px rgba(18,63,102,.45)); pointer-events: none; transition: transform var(--t-fast); }
+.bv-walker img { width: 100%; height: 100%; display: block; }
+.bv-walker.west img { transform: scaleX(-1); }
+.bv-walker.walking { animation: walk .5s ease-in-out infinite; }
+@keyframes walk { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-5px) rotate(3deg); } }
+.day-gallery { margin-bottom: 4px; }
 /* Survol du voyage : légende et bouton Arrêter */
 .map-actions { position: absolute; right: 12px; top: 12px; z-index: 6; display: flex; gap: 8px; }
 .replay-overlay { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 7; display: flex; align-items: center; gap: 12px; pointer-events: none; }

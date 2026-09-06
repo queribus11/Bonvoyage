@@ -54,9 +54,11 @@ window.BVMAP = (() => {
         { id: "b-topo", type: "raster", source: "topo", layout: vis("relief"), paint: dark ? { "raster-brightness-max": .8, "raster-saturation": -.2 } : {} },
         { id: "b-osm", type: "raster", source: "osm", layout: vis("plan"), paint: dark ? { "raster-brightness-max": .72, "raster-saturation": -.35, "raster-contrast": .1 } : {} },
         { id: "b-hill", type: "hillshade", source: "demhill", layout: vis("plan"), paint: { "hillshade-exaggeration": .35, "hillshade-shadow-color": "#123F66", "hillshade-highlight-color": "#ffffff", "hillshade-accent-color": "#123F66" } },
-        { id: "track-halo", type: "line", source: "tracks", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 12], "line-opacity": .35, "line-blur": 3 } },
-        { id: "track-edge", type: "line", source: "tracks", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4.5, 14, 7], "line-opacity": .9 } },
-        { id: "track-line", type: "line", source: "tracks", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 14, 4.5], "line-opacity": 1 } },
+        { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4, 14, 6], "line-opacity": .7 } },
+        { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 14, 3.5], "line-dasharray": [1.5, 2], "line-opacity": .95 } },
+        { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 12], "line-opacity": .35, "line-blur": 3 } },
+        { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4.5, 14, 7], "line-opacity": .9 } },
+        { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 14, 4.5], "line-opacity": 1 } },
         { id: "progress-halo", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 14, "line-opacity": .45, "line-blur": 4 } },
         { id: "progress-line", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5 } },
         { id: "dots", type: "circle", source: "dots", paint: { "circle-radius": 6, "circle-color": ["get", "color"], "circle-stroke-color": "#fff", "circle-stroke-width": 2.5 } },
@@ -172,13 +174,21 @@ window.BVMAP = (() => {
       if (filter && tr.day_date !== filter) continue;
       const pts = (tr.points || []).filter((p) => p && p.lat != null && p.lng != null);
       const color = colorForDay(dayList, tr.day_date);
-      if (pts.length >= 2) lines.push({ type: "Feature", properties: { id: tr.id, color, day: tr.day_date || "" }, geometry: { type: "LineString", coordinates: pts.map((p) => [p.lng, p.lat]) } });
+      if (pts.length >= 2) lines.push({ type: "Feature", properties: { id: tr.id, color, day: tr.day_date || "", dash: tr.source === "route" }, geometry: { type: "LineString", coordinates: pts.map((p) => [p.lng, p.lat]) } });
       else if (pts.length === 1) dots.push({ type: "Feature", properties: { id: tr.id, color }, geometry: { type: "Point", coordinates: [pts[0].lng, pts[0].lat] } });
     }
     for (const m of media) {
       if (filter && m.day_date !== filter) continue;
       if (m.lat == null || m.lng == null) continue;
       photos.push({ type: "Feature", properties: { id: m.id }, geometry: { type: "Point", coordinates: [m.lng, m.lat] } });
+    }
+    // Journées sans trace : on relie les photos dans l'ordre de l'heure (trajet estimé, en pointillés)
+    for (const iso of dayList) {
+      if (filter && iso !== filter) continue;
+      if (lines.some((l) => l.properties.day === iso && !l.properties.dash)) continue;
+      if (tracks.some((t) => t.day_date === iso && t.source === "route" && (t.points || []).length >= 2)) continue;
+      const est = estimatedPath(media, iso);
+      if (est) lines.push({ type: "Feature", properties: { id: "est-" + iso, color: colorForDay(dayList, iso), day: iso, dash: true, est: true }, geometry: { type: "LineString", coordinates: est } });
     }
     map.getSource("tracks").setData({ type: "FeatureCollection", features: lines });
     map.getSource("dots").setData({ type: "FeatureCollection", features: dots });
@@ -195,6 +205,13 @@ window.BVMAP = (() => {
     for (const mk of M.markers.values()) mk.marker.remove(); M.markers.clear();
     syncPhotoMarkers(M);
     return { bounds: computeBounds(data, filter), dayList };
+  }
+  // Photos géolocalisées d'une journée, dans l'ordre de l'heure → liste de [lng, lat] (null si moins de deux)
+  function estimatedPath(media, iso) {
+    const ph = (media || []).filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
+      .slice().sort((a, b) => (a.taken_at || a.created_at || "").localeCompare(b.taken_at || b.created_at || ""));
+    const coords = []; for (const m of ph) { const c = [m.lng, m.lat]; const last = coords[coords.length - 1]; if (!last || last[0] !== c[0] || last[1] !== c[1]) coords.push(c); }
+    return coords.length >= 2 ? coords : null;
   }
   function dayListOf(data, options) {
     if (options.dayList) return options.dayList;
@@ -318,26 +335,32 @@ window.BVMAP = (() => {
     const map = M.map, dayList = options.dayList || dayListOf(data, {});
     const days = dayList.map((iso) => {
       const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2).slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
-      const coords = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null).map((p) => [p.lng, p.lat]));
+      let coords = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null).map((p) => [p.lng, p.lat]));
       const photos = (data.media || []).filter((m) => m.day_date === iso && m.lat != null);
-      return { iso, coords, photos, color: colorForDay(dayList, iso), km: trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
+      let est = false;
+      if (coords.length < 2) { const e = estimatedPath(data.media, iso); if (e) { coords = e; est = true; } }
+      return { iso, coords, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
     }).filter((d) => d.coords.length >= 2 || d.photos.length);
     if (!days.length) return;
 
     const wasTerrain = M.terrain, wasBase = M.base;
-    M.replaying = true; M.container.classList.add("replaying");
+    M.replaying = true; M.container.classList.add("replaying"); M.container.parentElement && M.container.parentElement.classList.add("replaying");
     if (!M.terrain) setTerrain(M, true, false);
     map.setPaintProperty("track-line", "line-opacity", .25); map.setPaintProperty("track-halo", "line-opacity", .1); map.setPaintProperty("track-edge", "line-opacity", .25);
     for (const mk of M.dayMarkers) mk.getElement().classList.add("hidden");
     for (const e of M.markers.values()) e.el.classList.add("hidden");
+    // Valdo marche sur le trajet
+    const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<img src="icons/valdo.svg" alt="">';
+    const walker = new maplibregl.Marker({ element: wEl, anchor: "bottom" });
+    const walkTo = (c, bearing) => { if (!walker._map) walker.setLngLat(c).addTo(map); else walker.setLngLat(c); wEl.classList.toggle("west", bearing > 180); };
 
     let stopped = false, raf = 0;
     const reveal = (m) => { for (const e of M.markers.values()) if (e.el.dataset.id === m.id || e.el.classList.contains("cluster")) { e.el.classList.remove("hidden"); e.el.classList.add("pop"); } };
     const revealDay = (iso) => { for (const e of M.markers.values()) if (e.el.dataset.day === iso || e.el.classList.contains("cluster")) e.el.classList.remove("hidden"); };
     const finish = () => {
       stopped = true; cancelAnimationFrame(raf);
-      M.replaying = false; M.container.classList.remove("replaying");
-      map.getSource("progress").setData(empty());
+      M.replaying = false; M.container.classList.remove("replaying"); M.container.parentElement && M.container.parentElement.classList.remove("replaying");
+      map.getSource("progress").setData(empty()); walker.remove();
       map.setPaintProperty("track-line", "line-opacity", 1); map.setPaintProperty("track-halo", "line-opacity", .35); map.setPaintProperty("track-edge", "line-opacity", .9);
       for (const mk of M.dayMarkers) mk.getElement().classList.remove("hidden");
       for (const e of M.markers.values()) e.el.classList.remove("hidden", "pop");
@@ -373,6 +396,7 @@ window.BVMAP = (() => {
         const bearing0 = heading(d.coords[0], d.coords[Math.min(5, d.coords.length - 1)]);
         map.easeTo({ center: d.coords[0], zoom, pitch: 60, bearing: bearing0, duration: 1800, easing: (t) => 1 - Math.pow(1 - t, 2) });
         await moveEnd(); if (stopped) return;
+        walkTo(d.coords[0], 0); wEl.classList.add("walking");
 
         // Photos ordonnées par distance le long du tracé
         const photoAt = d.photos.map((m) => ({ m, at: nearestDist(d.coords, cum, [m.lng, m.lat]) })).sort((a, b) => a.at - b.at);
@@ -391,6 +415,7 @@ window.BVMAP = (() => {
             const look = d.coords[Math.min(seg + 8, d.coords.length - 1)];
             bearing = lerpAngle(bearing, heading(cur, look), .04);
             map.jumpTo({ center: cur, bearing, zoom: map.getZoom(), pitch: map.getPitch() });
+            walkTo(cur, heading(a, b));
             while (pi < photoAt.length && photoAt[pi].at <= target) { reveal(photoAt[pi].m); pi++; }
             if (p < 1) raf = requestAnimationFrame(frame); else resolve();
           };
@@ -399,6 +424,7 @@ window.BVMAP = (() => {
         if (stopped) return;
         while (pi < photoAt.length) { reveal(photoAt[pi].m); pi++; } revealDay(d.iso);
         // La journée est dessinée : elle rejoint le tracé complet
+        wEl.classList.remove("walking");
         map.setPaintProperty("track-line", "line-opacity", ["case", ["==", ["get", "day"], d.iso], 1, .25]);
         await wait(1200);
       }
