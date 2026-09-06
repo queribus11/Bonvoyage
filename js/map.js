@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "8.4";
+window.BV_VERSION = "8.5";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -30,6 +30,18 @@ window.BVMAP = (() => {
     train: { label: "en train",   icon: "🚆", speed: 3.5, path: "straight" },
     boat:  { label: "en bateau",  icon: "⛵", speed: 1.8, path: "straight" },
     plane: { label: "en avion",   icon: "✈️", speed: 6,   path: "arc" },
+  };
+
+  // Valdo en véhicule : dessins SVG (vue de profil, orientés vers la droite ; retournés vers l'ouest)
+  const VALDO_HEAD = (x, y, s) => `<g transform="translate(${x} ${y}) scale(${s})"><rect x="0" y="0" width="30" height="24" rx="6" fill="#F97316"/><circle cx="10" cy="10" r="3.2" fill="#FFF7E8"/><circle cx="20" cy="10" r="3.2" fill="#FFF7E8"/><circle cx="10.8" cy="10.4" r="1.5" fill="#123F66"/><circle cx="20.8" cy="10.4" r="1.5" fill="#123F66"/><path d="M10 16.5 Q15 21 20 16.5" stroke="#FFF7E8" stroke-width="2.4" stroke-linecap="round" fill="none"/></g>`;
+  const SVG = (inner) => `<svg viewBox="0 0 96 56" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+  const VEHICLES = {
+    car: SVG(`<path d="M8 40 L8 30 Q8 24 16 22 L26 12 Q28 10 32 10 L62 10 Q66 10 69 13 L80 22 Q90 24 90 32 L90 40 Q90 43 87 43 L11 43 Q8 43 8 40Z" fill="#0D8FE0"/><path d="M30 14 L60 14 L60 23 L22 23Z" fill="#DCEBF7"/><path d="M64 14 L76 23 L64 23Z" fill="#DCEBF7"/><circle cx="26" cy="43" r="8" fill="#123F66"/><circle cx="26" cy="43" r="3.5" fill="#DCEBF7"/><circle cx="72" cy="43" r="8" fill="#123F66"/><circle cx="72" cy="43" r="3.5" fill="#DCEBF7"/><rect x="84" y="30" width="6" height="4" rx="2" fill="#F5B301"/>${VALDO_HEAD(40, 6, .62)}`),
+    bus: SVG(`<rect x="6" y="8" width="84" height="36" rx="7" fill="#0D8FE0"/><rect x="12" y="14" width="16" height="13" rx="3" fill="#DCEBF7"/><rect x="32" y="14" width="16" height="13" rx="3" fill="#DCEBF7"/><rect x="52" y="14" width="16" height="13" rx="3" fill="#DCEBF7"/><rect x="72" y="14" width="13" height="13" rx="3" fill="#DCEBF7"/><rect x="6" y="32" width="84" height="4" fill="#123F66" opacity=".25"/><circle cx="24" cy="44" r="7.5" fill="#123F66"/><circle cx="24" cy="44" r="3" fill="#DCEBF7"/><circle cx="72" cy="44" r="7.5" fill="#123F66"/><circle cx="72" cy="44" r="3" fill="#DCEBF7"/><rect x="86" y="36" width="4" height="4" rx="1.5" fill="#F5B301"/>${VALDO_HEAD(54, 8, .6)}`),
+    train: SVG(`<path d="M8 16 Q8 8 16 8 L66 8 L84 20 L90 20 L90 42 L8 42Z" fill="#0D8FE0"/><rect x="14" y="14" width="14" height="12" rx="3" fill="#DCEBF7"/><rect x="34" y="14" width="14" height="12" rx="3" fill="#DCEBF7"/><path d="M56 14 L66 14 L78 24 L56 24Z" fill="#DCEBF7"/><rect x="8" y="34" width="82" height="4" fill="#123F66" opacity=".3"/><circle cx="22" cy="44" r="6" fill="#123F66"/><circle cx="40" cy="44" r="6" fill="#123F66"/><circle cx="62" cy="44" r="6" fill="#123F66"/><circle cx="80" cy="44" r="6" fill="#123F66"/><rect x="88" y="30" width="4" height="5" rx="1.5" fill="#F5B301"/>${VALDO_HEAD(36, 8, .6)}`),
+    boat: SVG(`<path d="M6 34 L90 34 L80 48 Q78 50 74 50 L22 50 Q18 50 16 48Z" fill="#123F66"/><rect x="6" y="30" width="84" height="5" rx="2.5" fill="#0D8FE0"/><rect x="47" y="4" width="3" height="28" fill="#123F66"/><path d="M50 6 L82 30 L50 30Z" fill="#FFF7E8"/><path d="M46 8 L20 30 L46 30Z" fill="#F5B301"/>${VALDO_HEAD(54, 12, .55)}`),
+    plane: SVG(`<path d="M6 30 Q6 22 16 22 L70 22 Q84 22 92 28 Q84 34 70 34 L16 34 Q6 34 6 30Z" fill="#0D8FE0"/><path d="M34 22 L22 6 L32 6 L50 22Z" fill="#123F66"/><path d="M34 34 L22 50 L32 50 L50 34Z" fill="#123F66"/><path d="M8 22 L4 10 L14 10 L20 22Z" fill="#123F66"/><rect x="70" y="25" width="10" height="6" rx="3" fill="#DCEBF7"/><rect x="40" y="25" width="8" height="6" rx="3" fill="#DCEBF7"/>${VALDO_HEAD(52, 21, .45)}`),
+    bike: SVG(`<circle cx="22" cy="42" r="12" fill="none" stroke="#123F66" stroke-width="4"/><circle cx="74" cy="42" r="12" fill="none" stroke="#123F66" stroke-width="4"/><path d="M22 42 L38 20 L60 20 L74 42 L48 42Z" fill="none" stroke="#0D8FE0" stroke-width="4" stroke-linejoin="round"/><path d="M48 42 L40 20" stroke="#0D8FE0" stroke-width="4"/><rect x="34" y="15" width="12" height="4" rx="2" fill="#123F66"/><path d="M60 20 L66 14" stroke="#123F66" stroke-width="4" stroke-linecap="round"/>${VALDO_HEAD(30, -6, .62)}`),
   };
   const DAY_COLORS = ["#F97316", "#0D8FE0", "#7CB518", "#F5B301", "#3AA0F5", "#9ACD1E", "#E05A8A", "#8B5CF6", "#F97316", "#0D8FE0"];
 
@@ -203,6 +215,7 @@ window.BVMAP = (() => {
       if (lines.some((l) => l.properties.day === iso && !l.properties.dash)) continue;
       if (tracks.some((t) => t.day_date === iso && t.source === "route" && (t.points || []).length >= 2)) continue;
       const legs = estimatedLegs(media, iso);
+      if (legs && !M._roadRedraw) { M._roadRedraw = true; applyRoads(legs, () => { M._roadRedraw = false; if (M.data && !M.replaying) draw(M, M.data, M.drawOpts); }); }
       if (legs) legs.forEach((l, i) => lines.push({ type: "Feature", properties: { id: `est-${iso}-${i}`, color: colorForDay(dayList, iso), day: iso, dash: true, est: true, mode: l.mode || "" }, geometry: { type: "LineString", coordinates: l.coords } }));
     }
     map.getSource("tracks").setData({ type: "FeatureCollection", features: lines });
@@ -238,7 +251,9 @@ window.BVMAP = (() => {
       const A = [a.lng, a.lat], B = [b.lng, b.lat];
       legs.push({ from: a, to: b, mode, coords: mode && MODES[mode].path === "arc" ? arc(A, B) : [A, B] });
     }
-    return legs.length ? legs : null;
+    if (!legs.length) return null;
+    applyRoads(legs, null);
+    return legs;
   }
   // Coordonnées d'une journée sans trace : tronçons mis bout à bout, avec le mode de chaque segment
   function estimatedPath(media, iso) {
@@ -246,6 +261,35 @@ window.BVMAP = (() => {
     const coords = [], modes = [];
     for (const l of legs) for (let i = 0; i < l.coords.length; i++) { const c = l.coords[i]; const last = coords[coords.length - 1]; if (last && last[0] === c[0] && last[1] === c[1]) continue; coords.push(c); modes.push(l.mode); }
     return coords.length >= 2 ? Object.assign(coords, { modes }) : null;
+  }
+  // Tronçons par la route : géométrie OSRM cherchée automatiquement et gardée en mémoire (localStorage « bv_roads »)
+  let roadCache = null;
+  function roads() { if (!roadCache) { try { roadCache = JSON.parse(localStorage.getItem("bv_roads") || "{}"); } catch { roadCache = {}; } } return roadCache; }
+  function roadKey(A, B) { return `${A[0].toFixed(4)},${A[1].toFixed(4)}>${B[0].toFixed(4)},${B[1].toFixed(4)}`; }
+  const roadPending = new Map();
+  function fetchRoad(A, B) {
+    const key = roadKey(A, B), c = roads();
+    if (c[key]) return Promise.resolve(c[key]);
+    if (roadPending.has(key)) return roadPending.get(key);
+    const p = fetch(`https://router.project-osrm.org/route/v1/driving/${A[0].toFixed(5)},${A[1].toFixed(5)};${B[0].toFixed(5)},${B[1].toFixed(5)}?overview=full&geometries=geojson`)
+      .then((r) => r.json()).then((j) => {
+        if (j.code !== "Ok" || !j.routes || !j.routes[0]) throw new Error("no route");
+        const coords = j.routes[0].geometry.coordinates.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]);
+        c[key] = coords; try { const ks = Object.keys(c); if (ks.length > 400) for (const k of ks.slice(0, 100)) delete c[k]; localStorage.setItem("bv_roads", JSON.stringify(c)); } catch { }
+        return coords;
+      }).finally(() => roadPending.delete(key));
+    roadPending.set(key, p); return p;
+  }
+  // Applique les routes connues aux tronçons ; lance les recherches manquantes et prévient quand tout est prêt
+  function applyRoads(legs, onReady) {
+    let missing = 0;
+    for (const l of legs) {
+      if (!l.mode || !MODES[l.mode] || MODES[l.mode].path !== "road") continue;
+      const A = [l.from.lng, l.from.lat], B = [l.to.lng, l.to.lat], known = roads()[roadKey(A, B)];
+      if (known) { l.coords = known; l.road = true; }
+      else { missing++; fetchRoad(A, B).then(() => { if (onReady) onReady(); }).catch(() => { }); }
+    }
+    return missing;
   }
   // Arc « vol d'avion » entre deux points (courbe bombée, 24 points)
   function arc(A, B, n = 24) {
@@ -375,6 +419,13 @@ window.BVMAP = (() => {
   // options : { dayList, dayNumber(iso), onDay(iso, info), onDone(), speedKmh }
   function replay(M, data, options = {}) {
     if (!M.ready || M.replaying) return;
+    // Routes des tronçons voiture / bus / vélo encore inconnues : on les attend un peu avant de partir
+    if (!options._roadsChecked) {
+      const dl = (options.dayList || dayListOf(data, {})).filter((iso) => !options.only || iso === options.only);
+      const waits = [];
+      for (const iso of dl) { const legs = estimatedLegs(data.media, iso); if (!legs) continue; for (const l of legs) if (l.mode && MODES[l.mode] && MODES[l.mode].path === "road" && !l.road) waits.push(fetchRoad([l.from.lng, l.from.lat], [l.to.lng, l.to.lat]).catch(() => null)); }
+      if (waits.length) { M.replaying = true; Promise.race([Promise.all(waits), new Promise((r) => setTimeout(r, 5000))]).then(() => { M.replaying = false; draw(M, data, M.drawOpts); replay(M, data, { ...options, _roadsChecked: true }); }); return; }
+    }
     const map = M.map, dayList = options.dayList || dayListOf(data, {});
     const days = dayList.filter((iso) => !options.only || iso === options.only).map((iso) => {
       const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2).slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
@@ -399,12 +450,13 @@ window.BVMAP = (() => {
     for (const e of M.markers.values()) e.el.classList.add("hidden");
     // Valdo marche sur le trajet
     const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<div class="in"><img src="icons/valdo.svg" alt=""><span class="vehicle"></span></div>';
+    const vehicleEl = wEl.querySelector(".vehicle"), valdoImg = wEl.querySelector("img");
     const walker = new maplibregl.Marker({ element: wEl, anchor: "bottom" });
     let curMode = null;
     const walkTo = (c, bearing, mode) => {
       if (!walker._map) walker.setLngLat(c).addTo(map); else walker.setLngLat(c);
       wEl.classList.toggle("west", bearing > 180);
-      if (mode !== curMode) { curMode = mode; const v = wEl.querySelector(".vehicle"); v.textContent = mode && MODES[mode] && mode !== "walk" ? MODES[mode].icon : ""; wEl.dataset.mode = mode || ""; }
+      if (mode !== curMode) { curMode = mode; const ride = mode && VEHICLES[mode]; vehicleEl.innerHTML = ride ? VEHICLES[mode] : ""; valdoImg.hidden = !!ride; wEl.dataset.mode = mode || ""; }
     };
 
     let stopped = false, raf = 0;
@@ -448,12 +500,12 @@ window.BVMAP = (() => {
         // Trajet estimé (photos reliées à vol d'oiseau) : on prend du recul, les tuiles ont le temps d'arriver
         const zoom = (realTotal < 12000 ? 14.2 : realTotal < 40000 ? 13 : realTotal < 120000 ? 11.8 : realTotal < 500000 ? 10.5 : 8.5) - (d.est ? 1.6 : 0);
         const speed = replaySpeed();
-        const duration = Math.max(6000, Math.min(45000, total / 1000 * 1100)) / speed;
+        const duration = Math.max(8000, Math.min(75000, total / 1000 * 2200)) / speed;
         // Position de la caméra sur le départ
         // Cap de départ : direction générale de la journée (pas le premier virage), pour une caméra posée
         const bearing0 = heading(d.coords[0], d.coords[d.coords.length - 1]);
-        map.easeTo({ center: d.coords[0], zoom: zoom - (isPhone() ? .4 : 0), pitch: isPhone() ? 42 : (d.est ? 48 : 55), bearing: bearing0, duration: 3200, easing: (t) => 1 - Math.pow(1 - t, 3) });
-        await moveEnd(); if (stopped) return;
+        map.jumpTo({ center: d.coords[0], zoom: zoom - (isPhone() ? .4 : 0), pitch: isPhone() ? 42 : (d.est ? 48 : 55), bearing: bearing0 });
+        await wait(400); if (stopped) return;
         walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
 
         // Photos ordonnées par distance le long du tracé

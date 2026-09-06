@@ -430,13 +430,10 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-walker.west img { transform: scaleX(-1); }
 .bv-walker.walking .in { animation: walk .5s ease-in-out infinite; }
 @keyframes walk { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-5px) rotate(3deg); } }
-.bv-walker .vehicle { display: none; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); font-size: 40px; line-height: 1; filter: drop-shadow(0 3px 4px rgba(0,0,0,.35)); }
-/* En véhicule : le véhicule en grand, Valdo passe la tête */
-.bv-walker[data-mode]:not([data-mode=""]):not([data-mode="walk"]) .vehicle { display: block; }
-.bv-walker[data-mode]:not([data-mode=""]):not([data-mode="walk"]) img { width: 24px; height: 24px; position: absolute; left: 50%; top: -12px; transform: translateX(-50%); }
+.bv-walker .vehicle { position: absolute; left: 50%; bottom: -2px; width: 72px; height: 42px; transform: translateX(-50%); filter: drop-shadow(0 4px 6px rgba(18,63,102,.4)); }
+.bv-walker .vehicle svg { width: 100%; height: 100%; display: block; }
 .bv-walker.west .vehicle { transform: translateX(-50%) scaleX(-1); }
-.bv-walker.west[data-mode]:not([data-mode=""]):not([data-mode="walk"]) img { transform: translateX(-50%) scaleX(-1); }
-.bv-walker[data-mode="plane"] .in { transform: translateY(-18px); }
+.bv-walker[data-mode="plane"] .in { transform: translateY(-22px); }
 .bv-walker[data-mode="plane"].walking .in, .bv-walker[data-mode="car"].walking .in, .bv-walker[data-mode="bus"].walking .in, .bv-walker[data-mode="train"].walking .in, .bv-walker[data-mode="bike"].walking .in { animation: none; }
 .bv-walker[data-mode="boat"].walking .in { animation: float 1.4s ease-in-out infinite; }
 @keyframes float { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
@@ -450,6 +447,8 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .day-card .dc-head b { display: block; font-family: var(--font-title); font-weight: 500; font-size: 17px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .day-card .dc-num { flex: none; color: #fff; font-family: var(--font-title); font-weight: 600; font-size: 13px; padding: 4px 11px; border-radius: 999px; }
 @media (min-width: 900px) { .day-card { left: 456px; top: calc(16px + var(--safe-t)); } }
+.replay-overlay.compact .caption { display: none; }
+.replay-overlay.compact { justify-content: flex-end; }
 .replay-overlay.app { position: absolute; left: 12px; right: 12px; bottom: calc(130px + var(--safe-b)); z-index: 1001; }
 @media (min-width: 900px) { .replay-overlay.app { left: 456px; bottom: 16px; } }
 .day-gallery { margin-bottom: 4px; }

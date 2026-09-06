@@ -291,7 +291,7 @@
     if (!S.cur || S.map.replaying) return;
     if (!only && S.dayFilter) { S.dayFilter = null; redraw(); renderPanel(); }
     $("#panel").classList.add("collapsed");
-    if (!opts.silent) $("#app-replay").hidden = false;
+    $("#app-replay").hidden = false; $("#app-replay").classList.toggle("compact", !!opts.silent);
     updateSpeedBtns();
     setTimeout(() => BVMAP.replay(S.map, S.cur, {
       dayList: allDays(), only, dayNumber: (iso) => dayNumber(S.cur.trip, iso),
@@ -318,8 +318,9 @@
     const rp = $("#dc-replay");
     const dayReplay = () => {
       if (S.map.replaying) { S.map.stopReplay(); return; }
-      rp.innerHTML = `${ic("stop", "sm")} Arrêter`;
-      startReplay(iso, { silent: true, onDone: () => { if (!card.hidden) rp.innerHTML = `${ic("play", "sm")} Revoir`; } });
+      // Pendant le survol, la carte de journée s'efface pour laisser toute la place au tracé ; il reste « Arrêter » en bas
+      card.hidden = true;
+      startReplay(iso, { silent: true, onDone: () => { if (S.cur && S.dayFilter === iso) card.hidden = false; } });
     };
     if (rp) { rp.onclick = dayReplay; $$(".speed-btn", card).forEach((b) => b.onclick = cycleSpeed); updateSpeedBtns(); }
     if (hasPath) dayReplay(); else $("#panel").classList.add("collapsed");
@@ -1147,7 +1148,7 @@
     const ver = $("#app-version"); if (ver) ver.textContent = `Bonvoyage v${window.BV_VERSION || "?"}`;
     // Mise à jour automatique : quand une nouvelle version est installée, la page se recharge d'elle-même (une fois)
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js").then((reg) => { try { reg.update(); } catch { } }).catch(() => { });
+      navigator.serviceWorker.register("sw.js").then((reg) => reg.update().catch(() => { })).catch(() => { });
       let reloaded = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => { if (reloaded || !navigator.serviceWorker.controller) return; reloaded = true; if (S.gps.watchId == null) location.reload(); });
     }
