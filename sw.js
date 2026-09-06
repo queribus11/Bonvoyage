@@ -1,6 +1,6 @@
-// Service worker : l'app s'ouvre même sans réseau (les données, elles, viennent de Supabase).
+// Service worker : l'app s'ouvre mÃªme sans rÃ©seau (les donnÃ©es, elles, viennent de Supabase).
 const CACHE = "bonvoyage-v5";
-const TILES = "bonvoyage-tuiles-v1"; // fonds de carte (satellite, plan, relief, altitude) : cache à part, taillé à 4 000 tuiles
+const TILES = "bonvoyage-tuiles-v1"; // fonds de carte (satellite, plan, relief, altitude) : cache Ã  part, taillÃ© Ã  4 000 tuiles
 const SHELL = ["./", "./index.html", "./share.html", "./css/style.css", "./js/config.js", "./js/map.js", "./js/common.js", "./js/offline.js", "./js/theme.js", "./js/api.js", "./js/app.js", "./js/share.js", "./vapid.html", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-192.png", "./icons/valdo.svg", "./icons/apple-touch-icon.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k !== TILES).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -23,21 +23,21 @@ self.addEventListener("notificationclick", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET") return;
-  // Fichiers de l'app : réseau d'abord (pour recevoir les mises à jour), cache en secours
+  // Fichiers de l'app : rÃ©seau d'abord (pour recevoir les mises Ã  jour), cache en secours
   if (url.origin === location.origin) {
-    // Réseau d'abord, mais pas plus de 4 s : sur réseau lent, le cache prend le relais
+    // RÃ©seau d'abord, mais pas plus de 4 s : sur rÃ©seau lent, le cache prend le relais
     const net = fetch(e.request).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); } return r; });
     const slow = new Promise((res) => setTimeout(() => res(null), 4000));
     e.respondWith(Promise.race([net.catch(() => null), slow]).then((r) => r || caches.match(e.request).then((hit) => hit || net)));
     return;
   }
-  // Tuiles de carte (satellite Esri, OpenStreetMap, OpenTopoMap, altitude AWS) : cache d'abord, dans un cache dédié et borné
+  // Tuiles de carte (satellite Esri, OpenStreetMap, OpenTopoMap, altitude AWS) : cache d'abord, dans un cache dÃ©diÃ© et bornÃ©
   if (/arcgisonline\.com|tile\.openstreetmap\.org|opentopomap\.org|elevation-tiles-prod|nominatim/.test(url.host)) {
     if (/nominatim/.test(url.host)) return; // les noms de lieux ne se mettent pas en cache ici (cache local dans l'app)
     e.respondWith(caches.open(TILES).then((c) => c.match(e.request).then((hit) => hit || fetch(e.request).then((r) => { if (r.ok || r.type === "opaque") { c.put(e.request, r.clone()); trimTiles(c); } return r; }))));
     return;
   }
-  // Bibliothèques et polices : cache d'abord
+  // BibliothÃ¨ques et polices : cache d'abord
   if (/unpkg\.com|jsdelivr\.net|cdnjs\.cloudflare\.com|fonts\.(googleapis|gstatic)\.com/.test(url.host)) {
     e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); } return r; })));
   }
