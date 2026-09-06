@@ -10,7 +10,7 @@ window.CARNET_CONFIG = {
 
   // Inscriptions : après avoir créé TON compte, passe à false (et ferme aussi les inscriptions
   // dans Supabase > Authentication > Sign In / Providers > "Allow new users to sign up").
-  ALLOW_SIGNUP: true,
+  ALLOW_SIGNUP: false,
 
   // Notifications aux proches (facultatif) : clé publique générée avec vapid.html.
   // Laisse vide pour désactiver le bouton « Me prévenir ».
