@@ -11,7 +11,7 @@
   const NAME_KEY = "cv_visitor_name";
   const VISIT_KEY = "cv_last_visit_" + token;
 
-  let D = null, map = null, drawn = null, dayFilter = null, lastVisit = 0, introDone = false, replayWanted = false;
+  let D = null, map = null, drawn = null, dayFilter = null, lastVisit = 0, introDone = false, introStarted = false, replayWanted = false;
   try { lastVisit = Date.parse(localStorage.getItem(VISIT_KEY) || "") || 0; } catch { }
   const isNew = (ts) => !!lastVisit && !!ts && Date.parse(ts) > lastVisit;
   const isMobile = () => window.matchMedia("(max-width: 640px)").matches;
@@ -31,7 +31,11 @@
     if (!D) return fail("Ce voyage n'existe pas ou n'est plus partagé.");
     document.title = D.trip.title + " — Bonvoyage";
     render();
-    try { localStorage.setItem(VISIT_KEY, new Date().toISOString()); } catch { }
+    const stamp = () => { try { localStorage.setItem(VISIT_KEY, new Date().toISOString()); } catch { } };
+    let stamped = false; const stampOnce = () => { if (!stamped) { stamped = true; stamp(); } };
+    window.addEventListener("scroll", () => { if (scrollY > innerHeight * .6) stampOnce(); }, { passive: true });
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") stampOnce(); });
+    setTimeout(stampOnce, 90000);
     // Lien direct vers une journée (#day-2026-09-05)
     if (location.hash.startsWith("#day-")) setTimeout(() => $(location.hash)?.scrollIntoView({ behavior: "smooth" }), 400);
   }
@@ -44,7 +48,10 @@
     requestAnimationFrame(step);
   }
   function homeTipHtml() {
-    const ios = `Sur iPhone : dans Safari, bouton <b>Partager</b> (le carré avec une flèche, en bas de l'écran) puis <b>« Sur l'écran d'accueil »</b>, puis <b>Ajouter</b>.`;
+    const inApp = /WhatsApp|FBAN|FBAV|Instagram|Messenger|Line\//i.test(navigator.userAgent);
+    const ios = inApp
+      ? `Sur iPhone : vous lisez ceci dans ${/WhatsApp/i.test(navigator.userAgent) ? "WhatsApp" : "une application"} ; touchez d'abord <b>Ouvrir dans Safari</b> (bouton en haut ou en bas de l'écran, ou l'icône « … »), puis dans Safari, bouton <b>Partager</b> (le carré avec une flèche) et <b>« Sur l'écran d'accueil »</b>.`
+      : `Sur iPhone : dans Safari, bouton <b>Partager</b> (le carré avec une flèche, en bas de l'écran) puis <b>« Sur l'écran d'accueil »</b>, puis <b>Ajouter</b>.`;
     const and = `Sur Android : dans Chrome, menu <b>⋮</b> (en haut à droite) puis <b>« Ajouter à l'écran d'accueil »</b>.`;
     return `<b>📱 Pour retrouver ce voyage facilement</b><br>${isIOS() ? ios : isAndroid() ? and : ios + "<br>" + and}<br>
       Une icône Bonvoyage (Valdo, la petite valise) apparaît sur votre téléphone : elle ouvre toujours le voyage à jour et signale les nouveautés depuis votre dernière visite.`;
@@ -86,14 +93,15 @@
             ${D.media.length ? `<span>${ic("camera", "sm")} ${D.media.length} photo${D.media.length > 1 ? "s" : ""}</span>` : ""}
             ${tripStats.hasAlt && tripStats.gain ? `<span title="Dénivelé positif cumulé">↗ ${tripStats.gain.toLocaleString("fr-FR")} m</span>` : ""}
           </div>
-          ${canReplay ? `<button class="btn replay-btn" id="btn-replay">${ic("play")} Revoir le voyage</button>` : ""}
-          <div id="notif-zone"></div></div>
-      </header>
+          ${canReplay ? `<button class="btn replay-btn" id="btn-replay">${ic("play")} Suivre le parcours</button>` : ""}
+          <div id="notif-zone"></div>
+          <a class="scroll-hint" href="#story-start" aria-label="Faire défiler pour lire le récit">${ic("chevron-right")}<span>Faire défiler pour lire</span></a></div>
+      </header><div id="story-start"></div>
       ${showTip ? `<div class="home-tip top" id="tip-top">${homeTipHtml()}<button class="btn sm" id="tip-close" style="margin-top:8px">J'ai compris</button></div>` : ""}
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
         <div class="legend" id="legend"></div>
-        <div class="map-actions"><button class="btn sm glass" id="map-expand">${ic("expand", "sm")} Agrandir</button>${canReplay ? `<button class="btn sm glass" id="map-replay">${ic("play", "sm")} Survol</button>` : ""}</div>
-        <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><button class="btn sm" id="replay-speed" title="Vitesse"></button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Arrêter</button></div></div>
+        <div class="map-actions"><button class="btn sm glass" id="map-expand">${ic("expand", "sm")} Plein écran</button>${canReplay ? `<button class="btn sm glass" id="map-replay">${ic("play", "sm")} Suivre le parcours</button>` : ""}</div>
+        <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><div class="replay-ctls"><button class="btn sm" id="replay-pause" title="Pause">${ic("pause", "sm")}</button><button class="btn sm" id="replay-next" title="Journée suivante">${ic("chevron-right", "sm")} Suivant</button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Retour au récit</button></div></div></div>
       <main class="story">
         ${t.description ? `<div class="intro">${nl2p(t.description)}</div>` : ""}
         ${days.map((iso) => daySection(iso, days)).join("")}
@@ -111,10 +119,10 @@
     map = BVMAP.create("share-map", { cooperative: true, globe: true, terrain: false, controlsPos: "bottom-right" });
     const setBig = (big) => {
       const w = $("#map-wrap"); w.classList.toggle("big", big);
-      $("#map-expand").innerHTML = big ? `${ic("close", "sm")} Réduire` : `${ic("expand", "sm")} Agrandir`;
+      $("#map-expand").innerHTML = big ? `${ic("close", "sm")} Réduire` : `${ic("expand", "sm")} Plein écran`;
       BVMAP.setCooperative(map, !big);
       document.body.classList.toggle("map-big", big);
-      setTimeout(() => { BVMAP.resize(map); if (!map.replaying && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
+      setTimeout(() => { BVMAP.resize(map); if (!map.replaying && introDone && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
     };
     $("#map-expand").onclick = () => setBig(!$("#map-wrap").classList.contains("big"));
     const startReplay = (only = null) => {
@@ -124,27 +132,49 @@
       if (isMobile()) setBig(true);
       $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
       const go = () => {
-        $("#replay-overlay").hidden = false;
+        $("#replay-overlay").hidden = false; $("#replay-next").hidden = !!only;
+        const pauseBtn = $("#replay-pause"); pauseBtn.innerHTML = ic("pause", "sm"); pauseBtn.title = "Pause";
+        const wasBig = $("#map-wrap").classList.contains("big");
         BVMAP.replay(map, D, {
-          dayList: days, only, dayNumber: (iso) => dayNumber(D.trip, iso),
+          dayList: days, only, speed: +D.trip.replay_speed || 1, dayNumber: (iso) => dayNumber(D.trip, iso),
+          onPause: (p) => { pauseBtn.innerHTML = p ? ic("play", "sm") : ic("pause", "sm"); pauseBtn.title = p ? "Reprendre" : "Pause"; },
           onDay: (iso, info) => { const d = D.days.find((x) => x.day_date === iso) || {}; $("#replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}${info.photos ? ` · ${info.photos} photo${info.photos > 1 ? "s" : ""}` : ""}</span>` : ""}`; },
-          onDone: () => { $("#replay-overlay").hidden = true; },
+          onDone: () => {
+            $("#replay-overlay").hidden = true;
+            if (isMobile() && !wasBig) setBig(false);   // on ne laisse personne enfermé dans la carte plein écran
+            if (!only) showRecap();
+          },
         });
       };
       if (introDone) setTimeout(go, isMobile() ? 400 : 700); else replayWanted = only || true;
     };
     $$(".day-replay", root).forEach((b) => b.onclick = () => startReplay(b.dataset.iso));
     $("#replay-stop").onclick = () => { if (map.stopReplay) map.stopReplay(); };
-    const speedBtn = $("#replay-speed"), showSpeed = () => { const s = BVMAP.SPEEDS.find((x) => x.k === BVMAP.replaySpeed()); speedBtn.textContent = s.icon; speedBtn.title = "Vitesse : " + s.label; };
-    showSpeed(); speedBtn.onclick = () => { const n = BVMAP.cycleSpeed(); showSpeed(); toast(`Vitesse : ${n.label} (à partir de la prochaine journée)`, "info", 2000); };
+    $("#replay-pause").onclick = () => { const c = map.replayCtl; if (!c) return; c.paused ? c.resume() : c.pause(); };
+    $("#replay-next").onclick = () => { const c = map.replayCtl; if (c) c.next(); };
+    // Carte-bilan à la fin du survol complet : chiffres du voyage et invitation à laisser un mot
+    const showRecap = () => {
+      const km = D.tracks.reduce((a, x) => a + (x.distance_m || 0), 0);
+      const back = document.createElement("div"); back.className = "modal-back recap-back";
+      back.innerHTML = `<div class="modal recap"><img src="icons/valdo.svg" alt="" class="recap-valdo"><h2>${esc(D.trip.title)}</h2>
+        <div class="recap-stats">${days.length ? `<div><b>${days.length}</b><small>jour${days.length > 1 ? "s" : ""}</small></div>` : ""}${km ? `<div><b>${fmtDistance(km)}</b><small>parcourus</small></div>` : ""}${D.media.length ? `<div><b>${D.media.length}</b><small>photo${D.media.length > 1 ? "s" : ""}</small></div>` : ""}</div>
+        <div class="actions" style="justify-content:center;flex-wrap:wrap">${D.trip.allow_comments && D.days.length ? `<button class="btn primary" id="recap-comment">${ic("message", "sm")} Laisser un mot</button>` : ""}<button class="btn" id="recap-close">Retour au récit</button></div></div>`;
+      $("#modal-host").appendChild(back);
+      const close = () => back.remove();
+      $("#recap-close", back).onclick = close; back.addEventListener("click", (e) => { if (e.target === back) close(); });
+      const rc = $("#recap-comment", back); if (rc) rc.onclick = () => { close(); const last = D.days[D.days.length - 1]; commentForm({ dayId: last.id }); };
+    };
+
     const rb = $("#btn-replay"); if (rb) rb.onclick = () => startReplay();
     const mr = $("#map-replay"); if (mr) mr.onclick = () => startReplay();
     draw(false);
     renderLegend(days);
     // Intro : le globe tourne vers le voyage quand la carte arrive à l'écran (une seule fois)
     const runIntro = () => {
-      if (introDone) return; introDone = true;
-      BVMAP.intro(map, drawn && drawn.bounds, () => { if (replayWanted) { const w = replayWanted; replayWanted = false; startReplay(w === true ? null : w); } });
+      if (introStarted) return; introStarted = true;
+      const done = () => { introDone = true; if (replayWanted) { const w = replayWanted; replayWanted = false; startReplay(w === true ? null : w); } };
+      if (BVMAP.reducedMotion()) { if (drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 13, animate: false }); done(); }
+      else BVMAP.intro(map, drawn && drawn.bounds, done);
     };
     if ("IntersectionObserver" in window) {
       const mo = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) { runIntro(); mo.disconnect(); } }, { threshold: .35 });
@@ -153,7 +183,7 @@
     bindBigAudio(root);
     $$(".gallery figure", root).forEach((f) => f.onclick = () => viewer(D.media.find((m) => m.id === f.dataset.id)));
     $$(".day-comment-btn", root).forEach((b) => b.onclick = () => commentForm({ dayId: b.dataset.day }));
-    $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); renderLegend(days); $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" }); });
+    $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { if (map.replaying) return; dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); renderLegend(days); $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" }); });
     $$(".step-card.has-cover", root).forEach((c) => c.onclick = () => viewer(D.media.find((m) => m.id === c.dataset.id)));
 
     // Quand on scrolle sur une journée, la carte la met en avant
@@ -179,7 +209,7 @@
     return `<section class="day-section" data-iso="${iso}" id="day-${iso}">
       <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${n ? `Jour ${n} · ` : ""}${fmtDate(iso)}</div>
       <h2>${esc(d.title || (n ? `Jour ${n}` : fmtDate(iso, false)))}${isNew(d.published_at) ? `<span class="new-mark">nouveau</span>` : ""}</h2>
-      ${hasPath ? `<button class="btn sm day-replay" data-iso="${iso}" style="margin:-4px 0 12px">${ic("play", "sm")} Survoler cette journée</button>` : ""}
+      ${hasPath ? `<button class="btn sm day-replay" data-iso="${iso}" style="margin:-4px 0 12px">${ic("play", "sm")} Suivre cette journée</button>` : ""}
       ${cover || d.place || chips.length ? `<div class="step-card${cover ? " has-cover" : ""}" ${cover ? `style="background-image:url('${API.publicUrl(cover.path)}')"` : ""} data-id="${cover ? cover.id : ""}">
         <div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
       ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
@@ -226,6 +256,7 @@
     const lg = $("#legend");
     lg.innerHTML = days.map((iso) => { const n = dayNumber(D.trip, iso); return `<button style="background:${CV.colorForDay(days, iso)}" class="${!dayFilter || dayFilter === iso ? "active" : ""}" data-iso="${iso}">${n ? "J" + n : CV.fmtDateShort(iso)}</button>`; }).join("");
     $$("button", lg).forEach((b) => b.onclick = () => {
+      if (map.replaying) return;
       dayFilter = dayFilter === b.dataset.iso ? null : b.dataset.iso;
       draw(introDone); renderLegend(days);
       if (dayFilter) $(`#day-${dayFilter}`)?.scrollIntoView({ behavior: "smooth" });

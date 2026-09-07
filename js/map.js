@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "8.7";
+window.BV_VERSION = "9.0";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -29,7 +29,9 @@ window.BVMAP = (() => {
     bus:   { label: "en bus",     icon: "🚌", speed: 1.4, path: "road" },
     train: { label: "en train",   icon: "🚆", speed: 1.6, path: "straight" },
     boat:  { label: "en bateau",  icon: "⛵", speed: 1.2, path: "straight" },
+    kayak: { label: "en kayak",   icon: "🛶", speed: 1.1, path: "straight" },
     plane: { label: "en avion",   icon: "✈️", speed: 2.2, path: "arc" },
+    moto:  { label: "en moto",    icon: "🛵", speed: 1.5, path: "road" },
   };
 
   const DAY_COLORS = ["#F97316", "#0D8FE0", "#7CB518", "#F5B301", "#3AA0F5", "#9ACD1E", "#E05A8A", "#8B5CF6", "#F97316", "#0D8FE0"];
@@ -102,10 +104,11 @@ window.BVMAP = (() => {
       center: [2.5, 46.6], zoom: opts.globe ? 1.4 : 4.6, pitch: 0, bearing: 0,
       maxPitch: 72, attributionControl: false, cooperativeGestures: !!opts.cooperative,
       dragRotate: true, touchPitch: true, fadeDuration: 150, hash: false,
+      locale: { "NavigationControl.ZoomIn": "Zoom avant", "NavigationControl.ZoomOut": "Zoom arrière", "NavigationControl.ResetBearing": "Remettre le nord en haut", "AttributionControl.ToggleAttribution": "Crédits des cartes", "CooperativeGesturesHandler.WindowsHelpText": "Ctrl + molette pour zoomer la carte", "CooperativeGesturesHandler.MacHelpText": "⌘ + molette pour zoomer la carte", "CooperativeGesturesHandler.MobileHelpText": "Deux doigts pour bouger la carte" },
     });
     M.map = map;
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
-    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), opts.controlsPos || "bottom-right");
+    map.addControl(new maplibregl.NavigationControl({ showCompass: !isPhone(), visualizePitch: true }), opts.controlsPos || "bottom-right");
     map.on("load", () => {
       M.ready = true;
       if (M.pendingDraw) { draw(M, M.pendingDraw.data, M.pendingDraw.options); M.pendingDraw = null; }
@@ -182,7 +185,8 @@ window.BVMAP = (() => {
   // data : { tracks, media } · options : { dayList, dayFilter, thumbUrl(m), onMediaClick(m), onTrackClick(tr), onDayClick(iso), dayNumber(iso) }
   function draw(M, data, options = {}) {
     M.data = data; M.drawOpts = options;
-    if (!M.ready) { M.pendingDraw = { data, options }; return { bounds: computeBounds(data, options.dayFilter), dayList: dayListOf(data, options) }; }
+    // Pas de redessin pendant un survol (il effacerait les vignettes révélées) : on l'applique à la fin
+    if (!M.ready || M.replaying) { M.pendingDraw = { data, options }; return { bounds: computeBounds(data, options.dayFilter), dayList: dayListOf(data, options) }; }
     const map = M.map, { tracks = [], media = [] } = data;
     const dayList = dayListOf(data, options), filter = options.dayFilter;
     const lines = [], dots = [], photos = [];
@@ -203,8 +207,8 @@ window.BVMAP = (() => {
       if (filter && iso !== filter) continue;
       if (lines.some((l) => l.properties.day === iso && !l.properties.dash)) continue;
       if (tracks.some((t) => t.day_date === iso && t.source === "route" && (t.points || []).length >= 2)) continue;
-      const legs = estimatedLegs(media, iso);
-      if (legs && !M._roadRedraw) { M._roadRedraw = true; applyRoads(legs, () => { M._roadRedraw = false; if (M.data && !M.replaying) draw(M, M.data, M.drawOpts); }); }
+      const legs = estimatedLegs(data, iso);
+      if (legs && !M._roadRedraw) { const missing = applyRoads(legs, () => { M._roadRedraw = false; if (M.data && !M.replaying) draw(M, M.data, M.drawOpts); }); if (missing) M._roadRedraw = true; }
       if (legs) legs.forEach((l, i) => lines.push({ type: "Feature", properties: { id: `est-${iso}-${i}`, color: colorForDay(dayList, iso), day: iso, dash: true, est: true, mode: l.mode || "" }, geometry: { type: "LineString", coordinates: l.coords } }));
     }
     map.getSource("tracks").setData({ type: "FeatureCollection", features: lines });
@@ -228,57 +232,63 @@ window.BVMAP = (() => {
     return (media || []).filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
       .slice().sort((a, b) => (a.taken_at || a.created_at || "").localeCompare(b.taken_at || b.created_at || ""));
   }
-  // Tronçons estimés d'une journée : de photo en photo, avec le moyen de locomotion de la photo d'arrivée
-  // (hérité du tronçon précédent quand il n'est pas précisé). Renvoie [{ from, to, mode, coords }] ou null.
-  function estimatedLegs(media, iso) {
-    const ph = dayPhotosSorted(media, iso);
-    const legs = []; let mode = null;
+  // Moyen de locomotion de la journée (réglage de la journée), sinon null
+  function dayTransport(data, iso) { const d = (data.days || []).find((x) => x.day_date === iso); return d && d.transport && MODES[d.transport] ? d.transport : null; }
+  // Tronçons estimés d'une journée : de photo en photo. Mode = celui de la journée, changé « à partir de » toute photo
+  // qui en précise un ; sans rien, l'app devine (plus de 2,5 km = voiture par la route, sinon à pied). Fonction pure (aucune requête).
+  function estimatedLegs(data, iso) {
+    const ph = dayPhotosSorted(data.media, iso);
+    const legs = []; let mode = dayTransport(data, iso);
     for (let i = 1; i < ph.length; i++) {
       const a = ph[i - 1], b = ph[i];
-      if (b.transport && MODES[b.transport]) mode = b.transport;
+      if (a.transport && MODES[a.transport]) mode = a.transport;   // « à partir de cette photo, je voyage… »
       if (a.lng === b.lng && a.lat === b.lat) continue;
       const A = [a.lng, a.lat], B = [b.lng, b.lat];
       let m = mode, auto = false;
       if (!m) { m = dist(A, B) > 2500 ? "car" : "walk"; auto = true; }
-      legs.push({ from: a, to: b, mode: m, auto, coords: MODES[m].path === "arc" ? arc(A, B) : [A, B] });
+      const leg = { from: a, to: b, mode: m, auto, coords: MODES[m].path === "arc" ? arc(A, B) : [A, B], road: false };
+      if (MODES[m].path === "road") { const known = roadKnown(A, B); if (known) { leg.coords = known; leg.road = true; } }
+      legs.push(leg);
     }
-    if (!legs.length) return null;
-    applyRoads(legs, null);
-    return legs;
+    return legs.length ? legs : null;
   }
-  // Coordonnées d'une journée sans trace : tronçons mis bout à bout, avec le mode de chaque segment
-  function estimatedPath(media, iso) {
-    const legs = estimatedLegs(media, iso); if (!legs) return null;
+  // Tronçons mis bout à bout → coordonnées avec le mode de chaque segment
+  function pathFromLegs(legs) {
     const coords = [], modes = [];
     for (const l of legs) for (let i = 0; i < l.coords.length; i++) { const c = l.coords[i]; const last = coords[coords.length - 1]; if (last && last[0] === c[0] && last[1] === c[1]) continue; coords.push(c); modes.push(l.mode); }
     return coords.length >= 2 ? Object.assign(coords, { modes }) : null;
   }
-  // Tronçons par la route : géométrie OSRM cherchée automatiquement et gardée en mémoire (localStorage « bv_roads »)
+  // Routes (OSRM, serveur public de démonstration) : cache local « bv_roads » borné (≈ 400 Ko), échecs mémorisés 24 h
   let roadCache = null;
   function roads() { if (!roadCache) { try { roadCache = JSON.parse(localStorage.getItem("bv_roads") || "{}"); } catch { roadCache = {}; } } return roadCache; }
+  function saveRoads() { try { const c = roads(); let s = JSON.stringify(c); if (s.length > 400000) { const ks = Object.keys(c); for (const k of ks.slice(0, Math.ceil(ks.length / 3))) delete c[k]; s = JSON.stringify(c); } localStorage.setItem("bv_roads", s); } catch { } }
   function roadKey(A, B) { return `${A[0].toFixed(4)},${A[1].toFixed(4)}>${B[0].toFixed(4)},${B[1].toFixed(4)}`; }
+  function roadKnown(A, B) { const v = roads()[roadKey(A, B)]; return Array.isArray(v) ? v : null; }
   const roadPending = new Map();
   function fetchRoad(A, B) {
     const key = roadKey(A, B), c = roads();
-    if (c[key]) return Promise.resolve(c[key]);
+    if (Array.isArray(c[key])) return Promise.resolve(c[key]);
+    if (c[key] && c[key].fail && Date.now() - c[key].fail < 86400000) return Promise.reject(new Error("no route (cached)"));
     if (roadPending.has(key)) return roadPending.get(key);
-    const p = fetch(`https://router.project-osrm.org/route/v1/driving/${A[0].toFixed(5)},${A[1].toFixed(5)};${B[0].toFixed(5)},${B[1].toFixed(5)}?overview=full&geometries=geojson`)
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl && setTimeout(() => ctrl.abort(), 8000);
+    const p = fetch(`https://router.project-osrm.org/route/v1/driving/${A[0].toFixed(5)},${A[1].toFixed(5)};${B[0].toFixed(5)},${B[1].toFixed(5)}?overview=full&geometries=geojson`, ctrl ? { signal: ctrl.signal } : {})
       .then((r) => r.json()).then((j) => {
         if (j.code !== "Ok" || !j.routes || !j.routes[0]) throw new Error("no route");
         const coords = j.routes[0].geometry.coordinates.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]);
-        c[key] = coords; try { const ks = Object.keys(c); if (ks.length > 400) for (const k of ks.slice(0, 100)) delete c[k]; localStorage.setItem("bv_roads", JSON.stringify(c)); } catch { }
-        return coords;
-      }).finally(() => roadPending.delete(key));
+        c[key] = coords; saveRoads(); return coords;
+      }).catch((e) => { c[key] = { fail: Date.now() }; saveRoads(); throw e; })
+      .finally(() => { if (timer) clearTimeout(timer); roadPending.delete(key); });
     roadPending.set(key, p); return p;
   }
-  // Applique les routes connues aux tronçons ; lance les recherches manquantes et prévient quand tout est prêt
+  // Applique les routes connues aux tronçons ; lance les recherches manquantes et prévient quand l'une arrive
   function applyRoads(legs, onReady) {
     let missing = 0;
     for (const l of legs) {
-      if (!l.mode || !MODES[l.mode] || MODES[l.mode].path !== "road") continue;
-      const A = [l.from.lng, l.from.lat], B = [l.to.lng, l.to.lat], known = roads()[roadKey(A, B)];
+      if (!MODES[l.mode] || MODES[l.mode].path !== "road") continue;
+      const A = [l.from.lng, l.from.lat], B = [l.to.lng, l.to.lat], known = roadKnown(A, B);
       if (known) { l.coords = known; l.road = true; }
-      else { missing++; fetchRoad(A, B).then(() => { if (onReady) onReady(); }).catch(() => { }); }
+      else { missing++; if (onReady) fetchRoad(A, B).then(() => onReady()).catch(() => { }); }
     }
     return missing;
   }
@@ -319,8 +329,7 @@ window.BVMAP = (() => {
       if (options.dayFilter && options.dayFilter !== iso) return;
       const p = dayStart(data, iso); if (!p) return;
       const n = options.dayNumber ? options.dayNumber(iso) : (dayList.indexOf(iso) + 1);
-      const el = document.createElement("div"); el.className = "bv-day"; el.innerHTML = `<span class="in" style="background:${colorForDay(dayList, iso)}">${n ? `J${n}` : iso.slice(8, 10) + "/" + iso.slice(5, 7)}</span>`; el.title = n ? `Jour ${n}` : iso;
-      el.title = iso;
+      const el = document.createElement("div"); el.className = "bv-day"; el.innerHTML = `<span class="in" style="background:${colorForDay(dayList, iso)}">${n ? `J${n}` : iso.slice(8, 10) + "/" + iso.slice(5, 7)}</span>`; el.title = iso; el.setAttribute("aria-label", n ? `Jour ${n}` : iso);
       el.addEventListener("click", (e) => { e.stopPropagation(); if (options.onDayClick) options.onDayClick(iso); });
       const mk = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(M.map);
       M.dayMarkers.push(mk);
@@ -341,7 +350,7 @@ window.BVMAP = (() => {
       let entry = M.markers.get(key);
       if (!entry) {
         const el = document.createElement("div");
-        el.className = "bv-photo" + (M.replaying ? " hidden" : "");
+        el.className = "bv-photo" + (M.replaying && !(M.revealed && !p.cluster && M.revealed.has(p.id)) ? " hidden" : "");
         if (p.cluster) {
           el.classList.add("cluster");
           el.innerHTML = `<div class="in"><img alt=""></div>`; el.title = `${p.point_count} photos`;
@@ -407,144 +416,162 @@ window.BVMAP = (() => {
   }
 
   // ---------- Survol du voyage : la caméra suit le parcours, l'itinéraire se dessine, les photos apparaissent ----------
-  // options : { dayList, dayNumber(iso), onDay(iso, info), onDone(), speedKmh }
+  // options : { dayList, only (iso), speed (nombre ou fonction), dayNumber(iso), onDay(iso, info), onDone(), onPause(paused) }
+  // Retourne un contrôleur { stop, pause, resume, next, paused } (aussi dans M.replayCtl ; M.stopReplay = stop).
+  const reducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   function replay(M, data, options = {}) {
-    if (!M.ready || M.replaying) return;
-    // Routes des tronçons voiture / bus / vélo encore inconnues : on les attend un peu avant de partir
-    if (!options._roadsChecked) {
-      const dl = (options.dayList || dayListOf(data, {})).filter((iso) => !options.only || iso === options.only);
-      const waits = [];
-      for (const iso of dl) { const legs = estimatedLegs(data.media, iso); if (!legs) continue; for (const l of legs) if (l.mode && MODES[l.mode] && MODES[l.mode].path === "road" && !l.road) waits.push(fetchRoad([l.from.lng, l.from.lat], [l.to.lng, l.to.lat]).catch(() => null)); }
-      if (waits.length) { M.replaying = true; Promise.race([Promise.all(waits), new Promise((r) => setTimeout(r, 5000))]).then(() => { M.replaying = false; draw(M, data, M.drawOpts); replay(M, data, { ...options, _roadsChecked: true }); }); return; }
-    }
+    if (!M.ready || M.replaying) return null;
     const map = M.map, dayList = options.dayList || dayListOf(data, {});
+    const ctl = { stopped: false, paused: false, skip: false, stop: null, pause: null, resume: null, next: null };
+    M.replaying = true; M.replayCtl = ctl; M.stopReplay = () => ctl.stop();
+    ctl.pause = () => { if (!ctl.paused) { ctl.paused = true; wEl && wEl.classList.remove("walking"); if (options.onPause) options.onPause(true); } };
+    ctl.resume = () => { if (ctl.paused) { ctl.paused = false; wEl && wEl.classList.add("walking"); if (options.onPause) options.onPause(false); } };
+    ctl.next = () => { ctl.skip = true; ctl.paused = false; };
+
+    // Journées à jouer : trace réelle (GPS, GPX, itinéraire enregistré) sinon tronçons estimés entre les photos
     const days = dayList.filter((iso) => !options.only || iso === options.only).map((iso) => {
       const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2).slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
       let coords = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null).map((p) => [p.lng, p.lat]));
       const photos = (data.media || []).filter((m) => m.day_date === iso && m.lat != null);
-      let est = false;
-      let modes = null;
-      if (coords.length < 2) { const e = estimatedPath(data.media, iso); if (e) { coords = e; modes = e.modes; est = true; } }
-      else { // trace réelle ou itinéraire par la route : le mode suit les photos rencontrées le long du tracé
+      let est = false, modes = null, legs = null;
+      if (coords.length < 2) { legs = estimatedLegs(data, iso); const e = legs ? pathFromLegs(legs) : null; if (e) { coords = e; modes = e.modes; est = true; } }
+      else {
+        const dayMode = dayTransport(data, iso);
         const ph = dayPhotosSorted(data.media, iso).filter((m) => m.transport && MODES[m.transport]);
-        if (ph.length) { modes = new Array(coords.length).fill(null); let cur = null, pi = 0; const at = ph.map((m) => ({ i: nearestIndex(coords, [m.lng, m.lat]), mode: m.transport })).sort((a, b) => a.i - b.i); for (let i = 0; i < coords.length; i++) { while (pi < at.length && at[pi].i <= i) { cur = at[pi].mode; pi++; } modes[i] = cur; } }
+        modes = new Array(coords.length).fill(dayMode);
+        if (ph.length) { let cur = dayMode, pi = 0; const at = ph.map((m) => ({ i: nearestIndex(coords, [m.lng, m.lat]), mode: m.transport })).sort((a, b) => a.i - b.i); for (let i = 0; i < coords.length; i++) { while (pi < at.length && at[pi].i <= i) { cur = at[pi].mode; pi++; } modes[i] = cur; } }
+        if (!modes.some(Boolean)) modes = null;
       }
-      return { iso, coords, modes, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
+      return { iso, coords, modes, legs, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
     }).filter((d) => d.coords.length >= 2 || d.photos.length);
-    if (!days.length) return;
+    if (!days.length) { M.replaying = false; return null; }
 
-    const wasTerrain = M.terrain, wasBase = M.base;
-    M.replaying = true; M.container.classList.add("replaying"); M.container.parentElement && M.container.parentElement.classList.add("replaying");
+    const wasTerrain = M.terrain, wasBase = M.base, calm = reducedMotion();
+    M.container.classList.add("replaying"); M.container.parentElement && M.container.parentElement.classList.add("replaying");
     // Le survol respecte le bouton 3D : relief seulement s'il est activé (et jamais sur téléphone, où il décale le personnage par rapport au tracé)
-    if (isPhone() || !M.terrain) { if (M.terrain) setTerrain(M, false, false); map.setProjection({ type: "mercator" }); }
+    if (isPhone() || !M.terrain || calm) { if (M.terrain) setTerrain(M, false, false); map.setProjection({ type: "mercator" }); }
     map.setPaintProperty("track-line", "line-opacity", .25); map.setPaintProperty("track-halo", "line-opacity", .1); map.setPaintProperty("track-edge", "line-opacity", .25);
+    M.revealed = new Set();
     for (const mk of M.dayMarkers) mk.getElement().classList.add("hidden");
     for (const e of M.markers.values()) e.el.classList.add("hidden");
-    // Valdo marche sur le trajet
-    const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<div class="in"><img src="icons/valdo.svg" alt=""><span class="vehicle"></span></div>';
-    const vehicleEl = wEl.querySelector(".vehicle"), valdoImg = wEl.querySelector("img");
+    // Valdo (ou son véhicule) avance sur le trajet
+    const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<div class="in"></div>';
+    const wIn = wEl.querySelector(".in");
     const walker = new maplibregl.Marker({ element: wEl, anchor: "bottom" });
-    let curMode = null;
+    let curMode = "?";
     const walkTo = (c, bearing, mode) => {
       if (!walker._map) walker.setLngLat(c).addTo(map); else walker.setLngLat(c);
-      wEl.classList.toggle("west", bearing > 180); wEl.classList.toggle("east", bearing <= 180);
-      if (mode !== curMode) { curMode = mode; const ride = mode && MODES[mode] && mode !== "walk"; vehicleEl.textContent = ride ? MODES[mode].icon : ""; wEl.dataset.mode = mode || ""; }
+      wEl.classList.toggle("west", bearing > 180);
+      const m = mode && MODES[mode] ? mode : "walk";
+      if (m !== curMode) { curMode = m; wIn.innerHTML = (window.BV_PICTOS && BV_PICTOS[m]) || (window.BV_PICTOS && BV_PICTOS.walk) || '<img src="icons/valdo.svg" alt="">'; wEl.dataset.mode = m; }
     };
-
     try { map.resize(); } catch { }
-    let stopped = false, raf = 0;
-    const reveal = (m) => { for (const e of M.markers.values()) if (e.el.dataset.id === m.id || e.el.classList.contains("cluster")) { e.el.classList.remove("hidden"); e.el.classList.add("pop"); } };
-    const revealDay = (iso) => { for (const e of M.markers.values()) if (e.el.dataset.day === iso || e.el.classList.contains("cluster")) e.el.classList.remove("hidden"); };
+    let raf = 0;
+    const reveal = (m) => { M.revealed.add(m.id); for (const e of M.markers.values()) if (e.el.dataset.id === m.id) { e.el.classList.remove("hidden"); e.el.classList.add("pop"); } };
+    const revealDay = (iso) => { for (const m of (data.media || [])) if (m.day_date === iso) M.revealed.add(m.id); for (const e of M.markers.values()) if (e.el.dataset.day === iso) e.el.classList.remove("hidden"); syncPhotoMarkers(M); };
     const finish = () => {
-      stopped = true; cancelAnimationFrame(raf);
-      M.replaying = false; M.container.classList.remove("replaying"); M.container.parentElement && M.container.parentElement.classList.remove("replaying");
-      map.getSource("progress").setData(empty()); walker.remove();
+      if (ctl.stopped) return; ctl.stopped = true; cancelAnimationFrame(raf);
+      M.replaying = false; M.replayCtl = null; M.container.classList.remove("replaying"); M.container.parentElement && M.container.parentElement.classList.remove("replaying");
+      map.getSource("progress").setData(empty()); walker.remove(); M.revealed = null;
       map.setPaintProperty("track-line", "line-opacity", 1); map.setPaintProperty("track-halo", "line-opacity", .35); map.setPaintProperty("track-edge", "line-opacity", .9);
       for (const mk of M.dayMarkers) mk.getElement().classList.remove("hidden");
       for (const e of M.markers.values()) e.el.classList.remove("hidden", "pop");
       if (wasTerrain !== M.terrain) setTerrain(M, wasTerrain, true); else if (!wasTerrain) map.setProjection({ type: "globe" });
       try { map.resize(); } catch { }
       if (wasBase !== M.base) setBase(M, wasBase);
-      const b = computeBounds(data, options.only || null); if (b) fitBounds(M, b, { maxZoom: options.only ? 14 : 13, duration: 1600 });
+      if (M.pendingDraw) { const p = M.pendingDraw; M.pendingDraw = null; draw(M, p.data, p.options); }
+      const b = computeBounds(data, options.only || null); if (b) fitBounds(M, b, { maxZoom: options.only ? 14 : 13, duration: calm ? 0 : 1600 });
       if (options.onDone) options.onDone();
     };
-    M.stopReplay = finish;
+    ctl.stop = finish;
 
-    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const moveEnd = () => new Promise((r) => map.once("moveend", r));
+    const wait = (ms) => new Promise((r) => { const t0 = performance.now(); const tick = () => { if (ctl.stopped || ctl.skip) return r(); if (!ctl.paused && performance.now() - t0 >= ms) return r(); setTimeout(tick, 60); }; tick(); });
+    const moveEnd = () => new Promise((r) => { let done = false; const f = () => { if (!done) { done = true; r(); } }; map.once("moveend", f); setTimeout(f, 12000); });
+    const speedOf = () => { const v = typeof options.speed === "function" ? options.speed() : options.speed; return SPEEDS.some((s) => s.k === v) ? v : replaySpeed(); };
+    const ease = (t) => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
     (async () => {
-      for (let di = 0; di < days.length && !stopped; di++) {
-        const d = days[di];
+      // Routes manquantes des tronçons voiture / bus / vélo / moto : on les attend un peu (5 s max), en restant interrompable
+      const waits = [];
+      for (const d of days) if (d.legs) for (const l of d.legs) if (MODES[l.mode] && MODES[l.mode].path === "road" && !l.road) waits.push(fetchRoad([l.from.lng, l.from.lat], [l.to.lng, l.to.lat]).catch(() => null));
+      if (waits.length) {
+        await Promise.race([Promise.all(waits), new Promise((r) => setTimeout(r, 5000))]);
+        if (ctl.stopped) return;
+        for (const d of days) if (d.legs) { applyRoads(d.legs, null); const e = pathFromLegs(d.legs); if (e) { d.coords = e; d.modes = e.modes; } }
+      }
+      for (let di = 0; di < days.length && !ctl.stopped; di++) {
+        const d = days[di]; ctl.skip = false;
         const n = options.dayNumber ? options.dayNumber(d.iso) : di + 1;
-        if (options.onDay) options.onDay(d.iso, { n, km: d.km, photos: d.photos.length });
+        if (options.onDay) options.onDay(d.iso, { n, km: d.km, photos: d.photos.length, index: di, count: days.length });
         for (const mk of M.dayMarkers) if (mk.getElement().title === d.iso) mk.getElement().classList.remove("hidden");
 
         if (d.coords.length < 2) {
           // Journée sans trace : on survole ses photos
-          const b = boundsOf(d.photos); if (b) { fitBounds(M, b, { maxZoom: 14, duration: 1800, keepPitch: true }); await moveEnd(); }
-          d.photos.forEach((m, i) => setTimeout(() => reveal(m), i * 350)); revealDay(d.iso);
+          const b = boundsOf(d.photos); if (b) { fitBounds(M, b, { maxZoom: 14, duration: calm ? 0 : 1800, keepPitch: true }); await moveEnd(); }
+          d.photos.forEach((m, i) => setTimeout(() => { if (!ctl.stopped) reveal(m); }, i * 350)); revealDay(d.iso);
           await wait(Math.min(4000, 1500 + d.photos.length * 400)); continue;
         }
-        // Cumul des distances le long du tracé, pondéré par la vitesse du moyen de locomotion (avion : 6× plus vite qu'à pied)
+        // Cumul des distances le long du tracé, pondéré par la vitesse du moyen de locomotion
         const speedAt = (i) => { const m = d.modes && d.modes[i]; return m && MODES[m] ? MODES[m].speed : 1; };
         const cum = [0]; for (let i = 1; i < d.coords.length; i++) cum.push(cum[i - 1] + dist(d.coords[i - 1], d.coords[i]) / speedAt(i));
         const total = cum[cum.length - 1];
         const realTotal = d.coords.reduce((a, c, i) => i ? a + dist(d.coords[i - 1], c) : 0, 0);
-        // Trajet estimé (photos reliées à vol d'oiseau) : on prend du recul, les tuiles ont le temps d'arriver
-        const zoom = (realTotal < 12000 ? 14.2 : realTotal < 40000 ? 13 : realTotal < 120000 ? 11.8 : realTotal < 500000 ? 10.5 : 8.5) - (d.est ? 1.6 : 0);
-        const speed = replaySpeed();
-        const duration = Math.max(9000, Math.min(90000, total / 1000 * 3000)) / speed;
-        // Position de la caméra sur le départ
-        // Cap de départ : direction générale de la journée (pas le premier virage), pour une caméra posée
-        const bearing0 = heading(d.coords[0], d.coords[d.coords.length - 1]);
-        // Approche : la caméra part de là où elle est (fin de la veille) et glisse lentement jusqu'au départ du jour
-        const target = { center: d.coords[0], zoom: zoom - (isPhone() ? .4 : 0), pitch: isPhone() ? 42 : (d.est ? 48 : 55), bearing: bearing0 };
-        const far = dist([map.getCenter().lng, map.getCenter().lat], d.coords[0]);
-        const approach = di === 0 ? 3500 : Math.max(4500, Math.min(10000, 3000 + far / 1000 * 60));
-        if (far > 300000 || di === 0) map.flyTo({ ...target, duration: approach, curve: 1.1, speed: .5, easing: (t) => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2 });
-        else map.easeTo({ ...target, duration: approach, easing: (t) => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2 });
-        await moveEnd(); if (stopped) return;
+        const zoom = (realTotal < 12000 ? 14.2 : realTotal < 40000 ? 13 : realTotal < 120000 ? 11.8 : realTotal < 500000 ? 10.5 : 8.5) - (d.est ? 1.4 : 0) - (isPhone() ? .4 : 0);
+        // Durée : 2,5 s par km, entre 6 et 20 s par journée (à vitesse normale) — un voyage de dix jours dure moins de trois minutes
+        const speed = speedOf();
+        const duration = Math.max(6000, Math.min(20000, total / 1000 * 2500)) / speed;
+        const bearing0 = calm ? 0 : heading(d.coords[0], d.coords[d.coords.length - 1]);
+        const pitch = calm ? 0 : (isPhone() ? 35 : (d.est ? 40 : 45));
+        // Approche : depuis là où est la caméra (fin de la veille) jusqu'au départ du jour, en douceur
+        if (calm) { const b = boundsOf(d.coords.map((c) => ({ lng: c[0], lat: c[1] }))); map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 0, pitch: 0, bearing: 0 }); }
+        else {
+          const target = { center: d.coords[0], zoom, pitch, bearing: bearing0 };
+          const far = dist([map.getCenter().lng, map.getCenter().lat], d.coords[0]);
+          const approach = di === 0 ? 3000 : Math.max(3500, Math.min(7000, 2500 + far / 1000 * 40));
+          if (far > 300000 || di === 0) map.flyTo({ ...target, duration: approach, curve: 1.1, speed: .5, easing: ease }); else map.easeTo({ ...target, duration: approach, easing: ease });
+          await moveEnd();
+        }
+        if (ctl.stopped) return;
         walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
 
-        // Photos ordonnées par distance le long du tracé
         const photoAt = d.photos.map((m) => ({ m, at: nearestDist(d.coords, cum, [m.lng, m.lat]) })).sort((a, b) => a.at - b.at);
-        let pi = 0, seg = 1, bearing = bearing0, lastT = performance.now();
-        const t0 = performance.now();
+        let pi = 0, seg = 1, bearing = bearing0, lastT = performance.now(), elapsed = 0;
         await new Promise((resolve) => {
           const frame = (now) => {
-            if (stopped) return resolve();
-            // Progression régulière avec un vrai démarrage en douceur (accélération continue sur les 12 premiers %, puis vitesse constante)
-            const p = Math.min(1, (now - t0) / duration), ea = .12;
+            if (ctl.stopped) return resolve();
+            const dt = Math.min(.1, (now - lastT) / 1000); lastT = now;
+            if (ctl.paused) { raf = requestAnimationFrame(frame); return; }
+            elapsed += dt * 1000;
+            const p = ctl.skip ? 1 : Math.min(1, elapsed / duration), ea = .12;
             const e = (p < ea ? p * p / (2 * ea) : p - ea / 2) / (1 - ea / 2);
             const target = e * total;
             while (seg < cum.length - 1 && cum[seg] < target) seg++;
             const a = d.coords[seg - 1], b = d.coords[seg], f = cum[seg] === cum[seg - 1] ? 0 : (target - cum[seg - 1]) / (cum[seg] - cum[seg - 1]);
             const cur = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
-            const line = d.coords.slice(0, seg).concat([cur]);
-            map.getSource("progress").setData({ type: "FeatureCollection", features: [{ type: "Feature", properties: { color: d.color }, geometry: { type: "LineString", coordinates: line } }] });
-            // Regard loin devant (≈ 1/6 du tracé), rotation limitée à 12°/s : pas de tournis
-            const look = d.coords[Math.min(seg + Math.max(8, Math.floor(d.coords.length / 6)), d.coords.length - 1)];
-            const dt = Math.min(.1, (now - lastT) / 1000); lastT = now;
-            const want = dist(cur, look) > 150 ? heading(cur, look) : bearing;
-            const delta = ((want - bearing + 540) % 360) - 180;
-            bearing = (bearing + Math.max(-12 * dt, Math.min(12 * dt, delta * dt * 1.5)) + 360) % 360;
-            map.jumpTo({ center: cur, bearing, zoom: map.getZoom(), pitch: map.getPitch() });
+            map.getSource("progress").setData({ type: "FeatureCollection", features: [{ type: "Feature", properties: { color: d.color }, geometry: { type: "LineString", coordinates: d.coords.slice(0, seg).concat([cur]) } }] });
+            if (!calm) {
+              // Regard loin devant (≈ 1/6 du tracé), rotation limitée à 6°/s : caméra posée
+              const look = d.coords[Math.min(seg + Math.max(8, Math.floor(d.coords.length / 6)), d.coords.length - 1)];
+              const want = dist(cur, look) > 150 ? heading(cur, look) : bearing;
+              const delta = ((want - bearing + 540) % 360) - 180;
+              bearing = (bearing + Math.max(-6 * dt, Math.min(6 * dt, delta * dt * 1.2)) + 360) % 360;
+              map.jumpTo({ center: cur, bearing, zoom: map.getZoom(), pitch: map.getPitch() });
+            }
             walkTo(cur, heading(a, b), d.modes ? d.modes[seg] : null);
             while (pi < photoAt.length && photoAt[pi].at <= target) { reveal(photoAt[pi].m); pi++; }
             if (p < 1) raf = requestAnimationFrame(frame); else resolve();
           };
           raf = requestAnimationFrame(frame);
         });
-        if (stopped) return;
+        if (ctl.stopped) return;
         while (pi < photoAt.length) { reveal(photoAt[pi].m); pi++; } revealDay(d.iso);
-        // La journée est dessinée : elle rejoint le tracé complet
         wEl.classList.remove("walking");
         map.setPaintProperty("track-line", "line-opacity", ["case", ["==", ["get", "day"], d.iso], 1, .25]);
         await wait(1200);
       }
-      if (!stopped) { await wait(600); finish(); }
+      if (!ctl.stopped) { await wait(500); finish(); }
     })();
+    return ctl;
   }
   function dist(a, b) { const R = 6371000, dLat = (b[1] - a[1]) * Math.PI / 180, dLng = (b[0] - a[0]) * Math.PI / 180, s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); }
   function heading(a, b) { const y = Math.sin((b[0] - a[0]) * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180), x = Math.cos(a[1] * Math.PI / 180) * Math.sin(b[1] * Math.PI / 180) - Math.sin(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.cos((b[0] - a[0]) * Math.PI / 180); return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; }
@@ -552,5 +579,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, dayPhotosSorted, maps, create, draw, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

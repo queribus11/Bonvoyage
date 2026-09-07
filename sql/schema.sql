@@ -97,6 +97,10 @@ alter table public.comments alter column body set default '';
 alter table public.days     add column if not exists place text;
 -- v8.3 : moyen de locomotion pour arriver à une photo (walk, bike, car, bus, train, boat, plane)
 alter table public.media    add column if not exists transport text;
+-- v8.8 : vitesse du survol choisie par le propriétaire (0.5 lent · 1 normal · 2 rapide)
+alter table public.trips    add column if not exists replay_speed real not null default 1;
+-- v9 : moyen de locomotion de la journée (walk, bike, car, bus, train, boat, kayak, plane, moto)
+alter table public.days     add column if not exists transport text;
 -- v5 : un téléphone peut suivre plusieurs voyages
 do $$ begin
   if exists (select 1 from pg_constraint where conname = 'push_subscriptions_endpoint_key') then
@@ -175,10 +179,10 @@ begin
     'trip', jsonb_build_object(
       'id', t.id, 'title', t.title, 'subtitle', t.subtitle, 'description', t.description,
       'start_date', t.start_date, 'end_date', t.end_date, 'cover_path', t.cover_path,
-      'allow_comments', t.allow_comments, 'publish_mode', t.publish_mode
+      'allow_comments', t.allow_comments, 'publish_mode', t.publish_mode, 'replay_speed', t.replay_speed
     ),
     'days', coalesce((select jsonb_agg(jsonb_build_object(
-        'id', d.id, 'day_date', d.day_date, 'title', d.title, 'story', d.story, 'audio_path', d.audio_path, 'place', d.place,
+        'id', d.id, 'day_date', d.day_date, 'title', d.title, 'story', d.story, 'audio_path', d.audio_path, 'place', d.place, 'transport', d.transport,
         'published_at', coalesce(d.published_at, d.created_at), 'updated_at', d.updated_at)
         order by d.day_date) from public.days d where d.trip_id = t.id and d.day_date = any(vis)), '[]'::jsonb),
     'tracks', coalesce((select jsonb_agg(jsonb_build_object(

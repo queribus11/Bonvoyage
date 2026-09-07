@@ -2,6 +2,11 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <meta property="og:title" content="Bonvoyage — un carnet de voyage à suivre jour après jour">
+  <meta property="og:description" content="Carte, photos et récit du voyage, mis à jour au fil des journées. Rien à installer.">
+  <meta property="og:image" content="https://queribus11.github.io/Bonvoyage/icons/icon-512.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Bonvoyage</title>
   <meta name="robots" content="noindex">
@@ -13,7 +18,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&family=Caveat:wght@700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" crossorigin="">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -59,10 +64,11 @@
   <div id="share-root"><div class="spinner"></div></div>
   <div id="modal-host"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="js/theme.js"></script>
   <script src="js/config.js"></script>
+  <script src="js/pictos.js"></script>
   <script src="js/map.js"></script>
   <script src="js/common.js"></script>
   <script src="js/offline.js"></script>

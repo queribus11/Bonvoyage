@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&family=Caveat:wght@700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.css" crossorigin="">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -126,13 +126,13 @@
 
   <div id="map"></div>
   <div class="map-tools">
-    <button class="btn icon tool" id="btn-fit" title="Voir tout le voyage"><svg class="i"><use href="#i-fit"/></svg>Tout voir</button>
+    <button class="btn icon tool" id="btn-fit" title="Recadrer sur tout le voyage"><svg class="i"><use href="#i-fit"/></svg>Tout voir</button>
     <button class="btn icon beacon" id="btn-beacon" title="Poser une balise ici"><svg class="i"><use href="#i-pin"/></svg>Balise</button>
-    <button class="btn icon tool" id="btn-locate" title="Ma position"><svg class="i"><use href="#i-locate"/></svg>Moi</button>
-    <button class="btn icon tool" id="btn-replay" title="Survol du voyage"><svg class="i"><use href="#i-play"/></svg>Survol</button>
+    <button class="btn icon tool" id="btn-locate" title="Ma position"><svg class="i"><use href="#i-locate"/></svg>Ma position</button>
+    <button class="btn icon tool" id="btn-replay" title="Revoir le voyage : Valdo parcourt le trajet"><svg class="i"><use href="#i-play"/></svg>Revoir</button>
   </div>
   <div class="day-card" id="day-card" hidden></div>
-  <div class="replay-overlay app" id="app-replay" hidden><div class="caption" id="app-replay-caption"></div><button class="btn sm speed-btn" title="Vitesse"></button><button class="btn sm" id="app-replay-stop"><svg class="i sm"><use href="#i-stop"/></svg> Arrêter</button></div>
+  <div class="replay-overlay app" id="app-replay" hidden><div class="caption" id="app-replay-caption"></div><div class="replay-ctls"><button class="btn sm speed-btn" title="Vitesse"></button><button class="btn sm" id="app-replay-pause" title="Pause"><svg class="i sm"><use href="#i-pause"/></svg></button><button class="btn sm" id="app-replay-next" title="Journée suivante"><svg class="i sm"><use href="#i-chevron-right"/></svg> Suivant</button><button class="btn sm" id="app-replay-stop"><svg class="i sm"><use href="#i-stop"/></svg> Arrêter</button></div></div>
 
   <div class="panel" id="panel">
     <div class="grip" id="grip"></div>
@@ -151,11 +151,12 @@
 <div id="modal-host"></div>
 <div id="offline" class="offline-banner" hidden>Hors ligne — les points GPS sont gardés sur le téléphone</div>
 
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5/dist/maplibre-gl.js" crossorigin=""></script>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin=""></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="js/theme.js"></script>
 <script src="js/config.js"></script>
+<script src="js/pictos.js"></script>
 <script src="js/map.js"></script>
 <script src="js/common.js"></script>
 <script src="js/offline.js"></script>

@@ -133,7 +133,9 @@
         <div class="field grow"><label>Fin</label><input type="date" name="end_date" value="${trip?.end_date || ""}"></div></div>
         ${!isNew ? `<div class="field"><label>Ce que voient tes proches</label><select name="publish_mode">
           <option value="manual" ${trip.publish_mode !== "live" ? "selected" : ""}>Une journée n'apparaît que lorsque je la publie (brouillon avant)</option>
-          <option value="live" ${trip.publish_mode === "live" ? "selected" : ""}>Tout apparaît en direct, « Publier » sert seulement à prévenir</option></select></div>` : ""}
+          <option value="live" ${trip.publish_mode === "live" ? "selected" : ""}>Tout apparaît en direct, « Publier » sert seulement à prévenir</option></select></div>
+        <div class="field"><label>Vitesse du survol (pour toi et tes proches)</label><select name="replay_speed">
+          ${BVMAP.SPEEDS.map((s) => `<option value="${s.k}" ${(+trip.replay_speed || 1) === s.k ? "selected" : ""}>${s.icon} ${s.label}</option>`).join("")}</select></div>` : ""}
         <div class="field"><label>Introduction (affichée en haut du récit)</label><textarea name="description" placeholder="Pourquoi ce voyage, avec qui, l'état d'esprit du départ…">${esc(trip?.description || "")}</textarea></div>
         ${!isNew ? `<div class="field"><label>Photo de couverture</label><select name="cover_path"><option value="">— aucune —</option>
           ${(S.cur?.media || []).filter((x) => x.kind === "photo").map((x) => `<option value="${esc(x.path)}" ${x.path === trip.cover_path ? "selected" : ""}>${esc(x.caption || fmtDate(x.day_date, false) || "photo")}</option>`).join("")}</select></div>` : ""}
@@ -148,6 +150,7 @@
       e.preventDefault();
       const fd = Object.fromEntries(new FormData(e.target));
       for (const k of ["start_date", "end_date", "cover_path"]) if (fd[k] === "") fd[k] = null;
+      if (fd.replay_speed != null) fd.replay_speed = +fd.replay_speed;
       try {
         if (isNew) { const t = await API.createTrip(S.user, fd); m.close(); await loadTrips(); openTrip(t.id); }
         else { S.cur.trip = await API.updateTrip(trip.id, fd); m.close(); renderTripHeader(); renderPanel(); }
@@ -271,6 +274,8 @@
     $("#btn-fit").onclick = () => fit();
     $("#btn-replay").onclick = () => startReplay();
     $("#app-replay-stop").onclick = () => { if (S.map.stopReplay) S.map.stopReplay(); };
+    $("#app-replay-pause").onclick = () => { const c = S.map.replayCtl; if (!c) return; c.paused ? c.resume() : c.pause(); };
+    $("#app-replay-next").onclick = () => { const c = S.map.replayCtl; if (c) c.next(); };
     $$(".speed-btn").forEach((b) => b.onclick = cycleSpeed);
     $("#btn-locate").onclick = () => locateMe(true);
     $("#btn-beacon").onclick = () => addBeacon();
@@ -289,20 +294,30 @@
   // Survol du voyage (Valdo sur le parcours), comme sur la page des proches ; `only` = une seule journée
   function startReplay(only = null, opts = {}) {
     if (!S.cur || S.map.replaying) return;
-    if (!only && S.dayFilter) { S.dayFilter = null; redraw(); renderPanel(); }
+    if (!only) { hideDayCard(); if (S.dayFilter) { S.dayFilter = null; redraw(); renderPanel(); } }
     $("#panel").classList.add("collapsed");
-    $("#app-replay").hidden = false; $("#app-replay").classList.toggle("compact", !!opts.silent);
+    const ov = $("#app-replay"); ov.hidden = false; ov.classList.toggle("compact", !!opts.silent);
+    const pauseBtn = $("#app-replay-pause"); pauseBtn.innerHTML = `${ic("pause", "sm")}`; pauseBtn.title = "Pause";
+    $("#app-replay-next").hidden = !!only;
     updateSpeedBtns();
     // Le panneau replié change la hauteur de la carte : on la recale avant de lancer l'animation, sinon Valdo est décalé du tracé
     setTimeout(() => BVMAP.resize(S.map), 300);
     setTimeout(() => BVMAP.replay(S.map, S.cur, {
-      dayList: allDays(), only, dayNumber: (iso) => dayNumber(S.cur.trip, iso),
+      dayList: allDays(), only, speed: () => tripSpeed(), dayNumber: (iso) => dayNumber(S.cur.trip, iso),
+      onPause: (p) => { pauseBtn.innerHTML = p ? `${ic("play", "sm")}` : `${ic("pause", "sm")}`; pauseBtn.title = p ? "Reprendre" : "Pause"; },
       onDay: (iso, info) => { const d = dayInfo(iso) || {}; $("#app-replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}</span>` : ""}`; },
       onDone: () => { $("#app-replay").hidden = true; if (opts.onDone) opts.onDone(); },
     }), 450);
   }
-  function updateSpeedBtns() { const s = BVMAP.SPEEDS.find((x) => x.k === BVMAP.replaySpeed()); $$(".speed-btn").forEach((b) => { b.textContent = s.icon; b.title = "Vitesse : " + s.label; }); }
-  function cycleSpeed() { const n = BVMAP.cycleSpeed(); updateSpeedBtns(); toast(`Vitesse du survol : ${n.label} (prise en compte à la prochaine journée)`, "info", 2500); }
+  // Vitesse du survol : un réglage du voyage, choisi par Sophie, appliqué aussi chez les proches
+  function tripSpeed() { const v = +(S.cur && S.cur.trip.replay_speed); return BVMAP.SPEEDS.some((s) => s.k === v) ? v : 1; }
+  function updateSpeedBtns() { const s = BVMAP.SPEEDS.find((x) => x.k === tripSpeed()); $$(".speed-btn").forEach((b) => { b.textContent = s.icon; b.title = "Vitesse du survol : " + s.label; }); }
+  async function cycleSpeed() {
+    const i = BVMAP.SPEEDS.findIndex((s) => s.k === tripSpeed()); const n = BVMAP.SPEEDS[(i + 1) % BVMAP.SPEEDS.length];
+    S.cur.trip.replay_speed = n.k; updateSpeedBtns();
+    try { S.cur.trip = await API.updateTrip(S.cur.trip.id, { replay_speed: n.k }); saveLocal(); toast(`Vitesse du survol : ${n.label} — pour toi et tes proches (à partir de la prochaine journée)`, "info", 3000); }
+    catch (err) { errToast(err); }
+  }
   // Ouvrir une journée : on la voit d'abord (survol de la journée), puis la carte flottante mène aux photos et au récit
   function openDay(iso) {
     const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso);
@@ -443,7 +458,8 @@
     const st = iso ? CV.dayStats(S.cur.tracks.filter((x) => x.day_date === iso)) : null;
     const dayPhotos = iso ? S.cur.media.filter((x) => x.day_date === iso) : [];
     const routeTrack = iso ? S.cur.tracks.find((t) => t.day_date === iso && t.source === "route") : null;
-    const legs = iso ? BVMAP.estimatedLegs(S.cur.media, iso) : null;
+    const legs = iso ? BVMAP.estimatedLegs(S.cur, iso) : null;
+    const dayMode = d?.transport && BVMAP.MODES[d.transport] ? d.transport : "";
     const canRoute = iso && !routeTrack && !S.cur.tracks.some((t) => t.day_date === iso && (t.points || []).length >= 2) && dayPhotos.filter((x) => x.lat != null).length >= 2;
     const dl0 = allDays();
     const statsHtml = st && st.distance_m ? `<div class="day-stats">
@@ -463,10 +479,11 @@
           ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
           <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="day-add-photos">${ic("camera", "sm")} Ajouter des photos à cette journée</button><input type="file" id="day-files" accept="image/*,video/*" multiple hidden></div>
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
-        ${legs ? `<div class="field"><label>🚶🚗⛵ Moyen de locomotion entre les photos</label>
-          <div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
-            <select data-to="${l.to.id}" class="leg-mode"><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : "↩︎ idem"}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.to.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div>
-          <p class="help">Chaque ligne = le trajet jusqu'à la photo de droite. Sans indication, l'app devine : voiture (par la route) au-delà de 2,5 km, à pied en dessous ; « idem » reprend le moyen du tronçon précédent.</p></div>` : ""}
+        ${iso ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
+          <div class="mode-picker" id="day-mode-picker">${[["", "🤔", "l'app devine"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, v.icon, v.label.replace(/^(à|en) /, "")])].map(([k, icon, lab]) => `<button type="button" class="mode${dayMode === k ? " active" : ""}" data-mode="${k}">${icon}<small>${lab}</small></button>`).join("")}<input type="hidden" name="transport" value="${esc(dayMode)}"></div>
+          <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
+        ${legs && legs.length > 1 ? `<details class="legs-details"><summary>Changements en cours de journée (${legs.length} tronçons)</summary><div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
+            <select data-from="${l.from.id}" class="leg-mode"><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : `comme avant (${BVMAP.MODES[l.mode].label})`}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.from.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div><p class="help">Chaque ligne = le trajet de la photo de gauche à celle de droite ; le choix vaut à partir de la photo de gauche jusqu'au prochain changement.</p></details>` : ""}` : ""}
         <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
         <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
         ${statsHtml}
@@ -491,7 +508,7 @@
       e.preventDefault();
       const fd = Object.fromEntries(new FormData(e.target));
       try {
-        const fields = { title: fd.title, story: fd.story };
+        const fields = { title: fd.title, story: fd.story, transport: fd.transport || null };
         const blob = rec.getBlob();
         if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
         else if (rec.isRemoved()) fields.audio_path = null;
@@ -519,14 +536,20 @@
     if (routeBtn) routeBtn.onclick = async () => {
       busy(routeBtn, true);
       try {
-        const route = await CV.buildRoute(S.cur.media, iso);
+        const route = await CV.buildRoute(S.cur, iso);
         if (!route || route.length < 2) throw new Error("Itinéraire introuvable pour ces points");
         const tr = await API.createTrack(S.user, S.cur.trip.id, { name: "Itinéraire estimé (route)", day_date: iso, source: "route", points: route, distance_m: CV.trackDistance(route) });
         S.cur.tracks.push(tr); saveLocal(); redraw(); toast(`Itinéraire tracé · ${fmtDistance(tr.distance_m)}`, "ok"); m.close(); dayForm(iso);
       } catch (err) { errToast(err, 6000); busy(routeBtn, false); }
     };
+    $$("#day-mode-picker .mode", m.el).forEach((b) => b.onclick = async () => {
+      $$("#day-mode-picker .mode", m.el).forEach((x) => x.classList.toggle("active", x === b)); form.transport.value = b.dataset.mode;
+      if (!d) return; // journée sans fiche : enregistré avec le formulaire
+      try { const u = await API.upsertDay(S.user, S.cur.trip.id, iso, { transport: b.dataset.mode || null }); Object.assign(d, u); saveLocal(); redraw(); toast(b.dataset.mode ? `Journée ${BVMAP.MODES[b.dataset.mode].label}` : "L'app devinera le moyen de locomotion", "ok", 1800); }
+      catch (err) { errToast(err); }
+    });
     $$(".leg-mode", m.el).forEach((sel) => sel.onchange = async () => {
-      const x = S.cur.media.find((y) => y.id === sel.dataset.to); if (!x) return;
+      const x = S.cur.media.find((y) => y.id === sel.dataset.from); if (!x) return;
       try { const u = await API.updateMedia(x.id, { transport: sel.value || null }); Object.assign(x, u); saveLocal(); redraw(); toast(sel.value ? `Tronçon ${BVMAP.MODES[sel.value].label}` : "Tronçon : comme le précédent", "ok", 1800); }
       catch (err) { errToast(err); }
     });
@@ -572,7 +595,15 @@
         .then((r) => { if (r && r.total) toast(`Notification envoyée à ${r.sent} proche${r.sent > 1 ? "s" : ""}`, "ok"); })
         .catch((e) => toast("Notifications non envoyées : " + friendly(e), "error", 6000));
     }
-    if (navigator.share) { try { await navigator.share({ title: S.cur.trip.title, text, url }); toast("Journée publiée", "ok"); return; } catch { /* annulé */ } }
+    if (navigator.share) {
+      // Avec la photo de couverture de la journée quand le téléphone sait partager un fichier (WhatsApp affiche alors l'image)
+      let files = null;
+      try {
+        const cover = S.cur.media.find((x) => x.day_date === d.day_date && x.kind === "photo");
+        if (cover && navigator.canShare) { const blob = await fetch(API.publicUrl(cover.path)).then((r) => r.blob()); const f = new File([blob], `bonvoyage-jour-${n || d.day_date}.jpg`, { type: blob.type || "image/jpeg" }); if (navigator.canShare({ files: [f] })) files = [f]; }
+      } catch { files = null; }
+      try { await navigator.share(files ? { title: S.cur.trip.title, text: text, files } : { title: S.cur.trip.title, text, url }); toast("Journée publiée", "ok"); return; } catch { /* annulé */ }
+    }
     try { await navigator.clipboard.writeText(text); toast("Journée publiée · message copié, colle-le dans WhatsApp, SMS ou email", "ok", 6000); }
     catch { toast("Journée publiée", "ok"); }
   }
@@ -668,8 +699,10 @@
           prepared = { tripId: S.cur.trip.id, fields, big: await CV.resizeImage(f, cfg.PHOTO_MAX_SIZE || 1600, 0.85), thumb: await CV.resizeImage(f, 320, 0.75) };
         }
         if (!navigator.onLine) throw new Error("Failed to fetch");
-        if (isVideo) fields.path = await API.uploadFile(S.user, S.cur.trip.id, f, prepared.ext);
-        else { fields.path = await API.uploadFile(S.user, S.cur.trip.id, prepared.big, "jpg"); fields.thumb_path = await API.uploadFile(S.user, S.cur.trip.id, prepared.thumb, "jpg"); }
+        // Envoi avec délai maximal (réseau captif, 2G) : au-delà, la photo part dans la file d'attente hors ligne
+        const up = (blob, ext) => Promise.race([API.uploadFile(S.user, S.cur.trip.id, blob, ext), new Promise((_, rej) => setTimeout(() => rej(new Error("Failed to fetch (délai dépassé)")), isVideo ? 240000 : 90000))]);
+        if (isVideo) fields.path = await up(f, prepared.ext);
+        else { fields.path = await up(prepared.big, "jpg"); fields.thumb_path = await up(prepared.thumb, "jpg"); }
         // Pas de GPS dans la photo ? On tente la position d'après la trace du jour.
         if (fields.lat == null) {
           const guess = positionFromTracks(takenAt.getTime());
@@ -720,11 +753,11 @@
           <div class="field grow"><label>Journée</label><select name="day_date">${days.map((d) => `<option value="${d}" ${d === m.day_date ? "selected" : ""}>${fmtDate(d)}</option>`).join("")}${m.day_date && !days.includes(m.day_date) ? `<option value="${m.day_date}" selected>${fmtDate(m.day_date)}</option>` : ""}</select></div>
           <div class="field grow"><label>Prise le</label><input type="datetime-local" name="taken_at" value="${m.taken_at ? toLocalInput(m.taken_at) : ""}"></div>
         </div>
-        <div class="field"><label>Arrivé ici…</label><div class="mode-picker" id="mode-picker">
-          <button type="button" class="mode${!m.transport ? " active" : ""}" data-mode="" title="Comme le tronçon précédent">↩︎ idem</button>
+        <div class="field"><label>À partir de cette photo, je voyage…</label><div class="mode-picker" id="mode-picker">
+          <button type="button" class="mode${!m.transport ? " active" : ""}" data-mode="" title="Comme avant (moyen de la journée ou du tronçon précédent)">↩︎<small>comme avant</small></button>
           ${Object.entries(BVMAP.MODES).map(([k, v]) => `<button type="button" class="mode${m.transport === k ? " active" : ""}" data-mode="${k}" title="${v.label}">${v.icon}<small>${v.label.replace(/^(à|en) /, "")}</small></button>`).join("")}
           <input type="hidden" name="transport" value="${esc(m.transport || "")}"></div>
-          <p class="help" style="margin-top:6px">Le trajet jusqu'à cette photo se dessine selon ce moyen de locomotion (voiture et bus suivent la route, l'avion trace un arc). Laisse « idem » quand rien ne change.</p></div>
+          <p class="help" style="margin-top:6px">Ne change que si le moyen de locomotion change ici (par exemple : arrivée au parking, départ de la rando). Le moyen de la journée se règle dans la fiche de la journée.</p></div>
         <div class="row" style="margin-bottom:14px">
           <span class="chip tnum">${ic("pin", "sm")} ${m.lat != null ? `${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}` : "sans position"}</span>
           <button type="button" class="btn sm ghost" id="place">Placer sur la carte</button>

@@ -174,8 +174,8 @@
 
   // Itinéraire estimé d'une journée, tronçon par tronçon selon le moyen de locomotion :
   // voiture / bus / vélo → par la route (OSRM) ; avion → arc ; le reste → ligne droite. Renvoie une liste de points.
-  async function buildRoute(media, iso) {
-    const legs = window.BVMAP ? BVMAP.estimatedLegs(media, iso) : null;
+  async function buildRoute(data, iso) {
+    const legs = window.BVMAP ? BVMAP.estimatedLegs(data, iso) : null;
     if (!legs) return null;
     const pts = [];
     const push = (lng, lat, t) => { const last = pts[pts.length - 1]; if (last && last.lng === lng && last.lat === lat) return; pts.push({ lat: +lat.toFixed(6), lng: +lng.toFixed(6), t }); };

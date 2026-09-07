@@ -1,8 +1,9 @@
 // Service worker : l'app s'ouvre même sans réseau (les données, elles, viennent de Supabase).
-const CACHE = "bonvoyage-v6";
+const CACHE = "bonvoyage-v7";
 const TILES = "bonvoyage-tuiles-v1"; // fonds de carte (satellite, plan, relief, altitude) : cache à part, taillé à 4 000 tuiles
-const SHELL = ["./", "./index.html", "./share.html", "./css/style.css", "./js/config.js", "./js/map.js", "./js/common.js", "./js/offline.js", "./js/theme.js", "./js/api.js", "./js/app.js", "./js/share.js", "./vapid.html", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-192.png", "./icons/valdo.svg", "./icons/apple-touch-icon.png"];
-self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting())); });
+const SHELL = ["./", "./index.html", "./share.html", "./css/style.css", "./js/config.js", "./js/pictos.js", "./js/map.js", "./js/common.js", "./js/offline.js", "./js/theme.js", "./js/api.js", "./js/app.js", "./js/share.js", "./vapid.html", "./manifest.webmanifest", "./icons/icon.svg", "./icons/icon-192.png", "./icons/valdo.svg", "./icons/apple-touch-icon.png"];
+self.addEventListener("install", (e) => { // Précache tolérant : un fichier manquant (config.js retiré d'un envoi, fichier renommé) ne bloque plus l'installation ni les mises à jour
+e.waitUntil(caches.open(CACHE).then((c) => Promise.allSettled(SHELL.map((u) => c.add(new Request(u, { cache: "reload" }))))).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k !== TILES).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 // ---- Notifications ----
 self.addEventListener("push", (e) => {
@@ -29,7 +30,7 @@ self.addEventListener("fetch", (e) => {
     // cache: "no-cache" = on revalide toujours auprès de GitHub (sinon les navigateurs gardent les fichiers 10 min)
     const net = fetch(e.request, { cache: "no-cache" }).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); } return r; });
     const slow = new Promise((res) => setTimeout(() => res(null), 4000));
-    e.respondWith(Promise.race([net.catch(() => null), slow]).then((r) => r || caches.match(e.request).then((hit) => hit || net)));
+    e.respondWith(Promise.race([net.catch(() => null), slow]).then((r) => r || caches.match(e.request).then((hit) => hit || net.catch(() => Response.error()))));
     return;
   }
   // Tuiles de carte (satellite Esri, OpenStreetMap, OpenTopoMap, altitude AWS) : cache d'abord, dans un cache dédié et borné
