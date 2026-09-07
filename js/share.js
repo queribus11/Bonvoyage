@@ -129,12 +129,12 @@
       if (!drawn || map.replaying) return;
       if (dayFilter && !only) { dayFilter = null; draw(false); renderLegend(days); }
       if (only && dayFilter !== only) { dayFilter = only; draw(false); renderLegend(days); }
+      const wasBig = $("#map-wrap").classList.contains("big");
       if (isMobile()) setBig(true);
       $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
       const go = () => {
         $("#replay-overlay").hidden = false; $("#replay-next").hidden = !!only;
         const pauseBtn = $("#replay-pause"); pauseBtn.innerHTML = ic("pause", "sm"); pauseBtn.title = "Pause";
-        const wasBig = $("#map-wrap").classList.contains("big");
         BVMAP.replay(map, D, {
           dayList: days, only, speed: +D.trip.replay_speed || 1, dayNumber: (iso) => dayNumber(D.trip, iso),
           onPause: (p) => { pauseBtn.innerHTML = p ? ic("play", "sm") : ic("pause", "sm"); pauseBtn.title = p ? "Reprendre" : "Pause"; },
@@ -380,6 +380,10 @@
     } catch (err) { toast(friendly(err), "error", 5000); }
     btn.disabled = false;
   }
+
+  load();
+})();
+
 
   load();
 })();
