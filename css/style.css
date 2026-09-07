@@ -129,6 +129,7 @@ html.is-dark .chip.pub { color: #B6E36A; }
 .toast { background: rgba(18,63,102,.92); color: var(--cream); padding: 12px 18px; border-radius: 14px; box-shadow: var(--sh-3); font-size: 14px; font-weight: 600; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: toast-in 220ms var(--ease); max-width: 100%; text-align: center; }
 .toast.error { background: rgba(192,57,43,.94); color: #fff; } .toast.ok { background: rgba(124,181,24,.95); color: #10240a; }
 .toast.out { opacity: 0; transform: translateY(8px); transition: opacity 180ms, transform 180ms; }
+.toast.sticky { background: rgba(249,115,22,.95); color: #fff; animation: none; }
 @keyframes toast-in { from { transform: translateY(16px); opacity: 0; } }
 
 /* ---------- Écrans ---------- */

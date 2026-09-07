@@ -226,7 +226,16 @@
     const canvas = document.createElement("canvas");
     canvas.width = cw; canvas.height = ch;
     canvas.getContext("2d").drawImage(bitmap, 0, 0, cw, ch);
-    return new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+    if (bitmap.close) bitmap.close();
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+    canvas.width = canvas.height = 0;   // libère la mémoire tout de suite (iPhone : 9 photos = plusieurs centaines de Mo décodés)
+    return blob;
+  }
+  // Grande image + vignette en ne décodant la photo d'origine qu'une seule fois (la vignette est tirée de la grande)
+  async function prepareImage(file, maxBig = 1600, maxThumb = 320) {
+    const big = await resizeImage(file, maxBig, 0.85);
+    const thumb = await resizeImage(big, maxThumb, 0.75);
+    return { big, thumb };
   }
 
   // Lecture EXIF minimale (GPS + date) dans un JPEG, sans bibliothèque
@@ -372,6 +381,16 @@
     host.appendChild(t);
     t._timer = setTimeout(() => dismiss(t), ms);
     function dismiss(el) { clearTimeout(el._timer); el.classList.add("out"); setTimeout(() => el.remove(), 200); }
+    return t;
+  }
+  // Message d'avancement unique et persistant (« Envoi 3/9… ») : progress(msg) le crée ou le met à jour, progress(null) le retire
+  function progress(msg) {
+    let host = document.getElementById("toasts");
+    if (!host) { host = document.createElement("div"); host.id = "toasts"; document.body.appendChild(host); }
+    let t = host.querySelector(".toast.sticky");
+    if (msg == null) { if (t) { t.classList.add("out"); setTimeout(() => t.remove(), 200); } return; }
+    if (!t) { t = document.createElement("div"); t.className = "toast info sticky"; host.appendChild(t); }
+    t.textContent = msg;
   }
 
   // Lecteur audio "gros bouton" : ▶ Écouter … (durée) + barre de progression ; un seul audio joue à la fois
@@ -404,6 +423,6 @@
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
-    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, roadRoute, buildRoute, resizeImage, readExif, esc, nl2p, toast, download,
+    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio };
 })();

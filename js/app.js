@@ -201,9 +201,15 @@
   function saveLocal() { if (S.cur) OFF.cacheTrip(S.cur); }
 
   // Envoie tout ce qui attend (traces/balises hors ligne, photos) dès que le réseau est là
-  async function syncAll() {
-    if (!S.cur || !navigator.onLine || S.syncing) return;
+  async function syncAll(opts = {}) {
+    if (!S.cur || !navigator.onLine) return 0;
+    // Une synchro déjà en cours (ouverture du voyage, retour du réseau) : on attend qu'elle finisse puis on repart
+    while (S.syncing) await new Promise((r) => setTimeout(r, 300));
+    if (!S.pendingMedia.length && !S.cur.tracks.some((t) => t._pending)) return 0;
     S.syncing = true;
+    // Envoi avec délai maximal (réseau captif, 2G) : au-delà on considère le réseau absent, la photo reste en attente
+    const up = (blob, ext, isVideo) => Promise.race([API.uploadFile(S.user, S.cur.trip.id, blob, ext), new Promise((_, rej) => setTimeout(() => rej(new Error("Failed to fetch (délai dépassé)")), isVideo ? 240000 : 90000))]);
+    let mediaDone = 0;
     const wasOffline = S.offline;
     let sent = 0;
     try {
@@ -219,21 +225,24 @@
           sent++;
         } catch (e) { if (isNetworkError(e)) break; else { console.warn("sync trace", e); tr._pending = false; } }
       }
+      const total = S.pendingMedia.length;
       for (const pm of [...S.pendingMedia]) {
+        if (opts.label) CV.progress(`${opts.label} ${mediaDone + 1}/${total}…`);
         try {
           const fields = { ...pm.fields };
-          if (pm.video) fields.path = await API.uploadFile(S.user, S.cur.trip.id, pm.video, pm.ext || "mp4");
-          else { fields.path = await API.uploadFile(S.user, S.cur.trip.id, pm.big, "jpg"); fields.thumb_path = await API.uploadFile(S.user, S.cur.trip.id, pm.thumb, "jpg"); }
+          if (pm.video) fields.path = await up(pm.video, pm.ext || "mp4", true);
+          else { fields.path = await up(pm.big, "jpg"); fields.thumb_path = await up(pm.thumb, "jpg"); }
           if (fields.lat == null) { const g = positionFromTracks(Date.parse(fields.taken_at)); if (g) { fields.lat = g.lat; fields.lng = g.lng; } }
           const m = await API.createMedia(S.user, S.cur.trip.id, fields);
-          S.cur.media.push(m); await OFF.removePendingMedia(pm.id); S.pendingMedia = S.pendingMedia.filter((x) => x.id !== pm.id); sent++;
-        } catch (e) { if (isNetworkError(e)) break; else { toast("Photo en attente refusée : " + friendly(e), "error", 6000); await OFF.removePendingMedia(pm.id); S.pendingMedia = S.pendingMedia.filter((x) => x.id !== pm.id); } }
+          S.cur.media.push(m); await OFF.removePendingMedia(pm.id); S.pendingMedia = S.pendingMedia.filter((x) => x.id !== pm.id); sent++; mediaDone++;
+        } catch (e) { if (isNetworkError(e)) break; else { toast("Photo refusée : " + friendly(e), "error", 6000); await OFF.removePendingMedia(pm.id); S.pendingMedia = S.pendingMedia.filter((x) => x.id !== pm.id); } }
       }
       S.cur.media.sort((a, b) => (a.taken_at || "").localeCompare(b.taken_at || ""));
     } finally { S.syncing = false; }
     saveLocal();
-    if (sent) { S.offline = false; if (wasOffline) toast(`${sent} élément${sent > 1 ? "s" : ""} envoyé${sent > 1 ? "s" : ""} au retour du réseau`, "ok"); renderTripHeader(); redraw(); renderPanel(); }
+    if (sent) { S.offline = false; if (wasOffline && !opts.label) toast(`${sent} élément${sent > 1 ? "s" : ""} envoyé${sent > 1 ? "s" : ""} au retour du réseau`, "ok"); renderTripHeader(); redraw(); renderPanel(); }
     updatePendingChip();
+    return mediaDone;
   }
   function pendingCount() { return (S.cur ? S.cur.tracks.filter((t) => t._pending).length : 0) + S.pendingMedia.length; }
   function updatePendingChip() {
@@ -677,50 +686,54 @@
   }
 
   const VIDEO_MAX = 50 * 1024 * 1024;   // limite de l'offre gratuite Supabase
+  // Ajout de photos en deux temps : 1) chaque photo est réduite puis mise en file d'attente sur le téléphone (IndexedDB),
+  // 2) la file est envoyée par syncAll. Si l'app est fermée ou redémarre (mémoire iPhone, appel…), rien n'est perdu :
+  // les photos en attente réapparaissent au retour et partent toutes seules.
   async function uploadFiles(files, forceDay = null) {
     if (!files.length) return;
     const host = $("#modal-host #uprog") ? $("#modal-host") : document;
     const prog = $("#uprog", host), bar = $("#upbar", host), txt = $("#uptxt", host);
     if (prog) prog.hidden = false;
-    let done = 0, ok = 0, queued = 0;
+    let done = 0, queued = 0;
     for (const f of files) {
-      if (txt) txt.textContent = `${navigator.onLine ? "Envoi" : "Préparation"} ${done + 1}/${files.length} — ${f.name}`;
-      let prepared = null;
+      const msg = `Préparation ${done + 1}/${files.length}…`;
+      if (txt) txt.textContent = msg; CV.progress(msg);
       try {
         const isVideo = f.type.startsWith("video/");
         const exif = isVideo ? {} : await CV.readExif(f);
         const takenAt = exif.takenAt || (f.lastModified ? new Date(f.lastModified) : new Date());
         const fields = { kind: isVideo ? "video" : "photo", taken_at: takenAt.toISOString(),
           day_date: forceDay || S.dayFilter || isoDate(takenAt), lat: exif.lat ?? null, lng: exif.lng ?? null, caption: "" };
+        let prepared;
         if (isVideo) {
           if (f.size > VIDEO_MAX) throw new Error("Vidéo trop lourde (max 50 Mo)");
           prepared = { tripId: S.cur.trip.id, fields, video: f, ext: (f.name.split(".").pop() || "mp4").toLowerCase() };
         } else {
-          prepared = { tripId: S.cur.trip.id, fields, big: await CV.resizeImage(f, cfg.PHOTO_MAX_SIZE || 1600, 0.85), thumb: await CV.resizeImage(f, 320, 0.75) };
+          const img = await CV.prepareImage(f, cfg.PHOTO_MAX_SIZE || 1600, 320);
+          prepared = { tripId: S.cur.trip.id, fields, big: img.big, thumb: img.thumb };
         }
-        if (!navigator.onLine) throw new Error("Failed to fetch");
-        // Envoi avec délai maximal (réseau captif, 2G) : au-delà, la photo part dans la file d'attente hors ligne
-        const up = (blob, ext) => Promise.race([API.uploadFile(S.user, S.cur.trip.id, blob, ext), new Promise((_, rej) => setTimeout(() => rej(new Error("Failed to fetch (délai dépassé)")), isVideo ? 240000 : 90000))]);
-        if (isVideo) fields.path = await up(f, prepared.ext);
-        else { fields.path = await up(prepared.big, "jpg"); fields.thumb_path = await up(prepared.thumb, "jpg"); }
-        // Pas de GPS dans la photo ? On tente la position d'après la trace du jour.
-        if (fields.lat == null) {
-          const guess = positionFromTracks(takenAt.getTime());
-          if (guess) { fields.lat = guess.lat; fields.lng = guess.lng; }
-        }
-        const m = await API.createMedia(S.user, S.cur.trip.id, fields);
-        S.cur.media.push(m); ok++;
+        S.pendingMedia.push(await OFF.addPendingMedia(prepared)); queued++;
+        // Laisse le téléphone respirer entre deux photos (décodage lourd) et montre la vignette « en attente »
+        if (S.tab === "photos" && !$("#modal-host #uprog")) renderPanel();
+        await new Promise((r) => setTimeout(r, 50));
       } catch (err) {
-        if (prepared && isNetworkError(err)) {
-          try { S.pendingMedia.push(await OFF.addPendingMedia(prepared)); queued++; S.offline = true; }
-          catch (e2) { toast(`${f.name} : impossible de garder la photo sur le téléphone (${friendly(e2)})`, "error", 6000); }
-        } else toast(`${f.name} : ${friendly(err)}`, "error", 5000);
+        toast(`${f.name} : ${friendly(err)}`, "error", 6000);
       }
       done++; if (bar) bar.style.width = Math.round((done / files.length) * 100) + "%";
     }
-    S.cur.media.sort((a, b) => (a.taken_at || "").localeCompare(b.taken_at || ""));
-    if (ok) toast(`${ok} fichier${ok > 1 ? "s" : ""} ajouté${ok > 1 ? "s" : ""}`, "ok");
-    if (queued) toast(`${queued} photo${queued > 1 ? "s" : ""} gardée${queued > 1 ? "s" : ""} sur le téléphone, envoi automatique au retour du réseau`, "info", 6000);
+    updatePendingChip();
+    if (!queued) { CV.progress(null); if (prog) prog.hidden = true; return; }
+    if (!navigator.onLine) {
+      CV.progress(null); S.offline = true;
+      toast(`${queued} photo${queued > 1 ? "s" : ""} gardée${queued > 1 ? "s" : ""} sur le téléphone, envoi automatique au retour du réseau`, "info", 6000);
+    } else {
+      const sent = await syncAll({ label: "Envoi", expected: queued });
+      CV.progress(null);
+      if (sent >= queued) toast(`${queued} photo${queued > 1 ? "s" : ""} ajoutée${queued > 1 ? "s" : ""} ✔`, "ok", 4000);
+      else if (sent) toast(`${sent}/${queued} envoyée${sent > 1 ? "s" : ""} — le reste partira automatiquement`, "info", 6000);
+      else toast(`Réseau indisponible : ${queued} photo${queued > 1 ? "s" : ""} gardée${queued > 1 ? "s" : ""} sur le téléphone, envoi automatique dès que possible`, "info", 7000);
+    }
+    if (prog) prog.hidden = true;
     saveLocal(); renderTripHeader(); redraw(); renderPanel(); updatePendingChip();
   }
   // Interpole la position sur les traces GPS à un instant donné (±10 min)
