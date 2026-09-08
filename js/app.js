@@ -1397,8 +1397,12 @@
       show("screen-join"); hideSplash();
       MEMBERS.joinScreen(joinToken, {
         api: API,
-        onCancel: () => { location.replace(location.pathname); },
-        onJoined: (tripId) => { location.replace(location.pathname + "#trip=" + tripId); location.reload(); },
+        // v10.2 — location.replace() puis location.reload() se marchaient dessus : la page se
+        // rechargeait AVANT que le « ?join= » ne soit retiré, et l'invitation, tout juste
+        // consommée, répondait « déjà utilisée ». history.replaceState change l'adresse
+        // immédiatement, sans naviguer ; le reload qui suit repart donc de la bonne.
+        onCancel: () => { history.replaceState(null, "", location.pathname); location.reload(); },
+        onJoined: (tripId) => { history.replaceState(null, "", location.pathname + "#trip=" + tripId); location.reload(); },
       });
       return;
     }
