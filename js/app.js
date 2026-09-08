@@ -569,7 +569,11 @@
     // Le mot du jour n'a de sens qu'à plusieurs : sur un carnet solo, le récit
     // audio suffit et ce bloc n'existe pas.
     const showVoices = !!iso && (MEMBERS.isShared() || dayVoices.length > 0);
-    const m = openModal(`<div class="modal-head"><div class="grow">${iso ? `<div class="kicker">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}<h2>${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div>
+    // La date prend toute la largeur, sur sa propre ligne : les fleches et la croix
+    // sont descendues au niveau du titre, avec qui elles vont. Sans quoi la date se
+    // casse en deux lignes pour leur laisser la place.
+    const m = openModal(`${iso ? `<div class="kicker" style="margin-bottom:6px">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}
+      <div class="modal-head" style="align-items:center"><div class="grow"><h2 style="margin-bottom:0">${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div>
       <div class="row" style="gap:6px;flex:0 0 auto;flex-wrap:nowrap">${iso ? `<button type="button" class="btn icon ghost sm" id="day-prev" title="Journée précédente (enregistre)">${ic("chevron-left")}</button><button type="button" class="btn icon ghost sm" id="day-next" title="Journée suivante (enregistre)">${ic("chevron-right")}</button>` : ""}<button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div></div>
       ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
       ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
