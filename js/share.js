@@ -29,6 +29,7 @@
     if (!API.isConfigured()) return fail("L'application n'est pas encore configurée.");
     try { D = await API.getSharedTrip(token); } catch (e) { return fail("Impossible de charger le voyage : " + e.message); }
     if (!D) return fail("Ce voyage n'existe pas ou n'est plus partagé.");
+    if (window.MEMBERS) MEMBERS.setCrew(D.authors || [], null);
     document.title = D.trip.title + " — Bonvoyage";
     render();
     const stamp = () => { try { localStorage.setItem(VISIT_KEY, new Date().toISOString()); } catch { } };
@@ -86,6 +87,7 @@
       ${newDays.length ? `<div class="news-pill"><div><i></i>Du nouveau : ${newDays.map((iso) => { const n = dayNumber(D.trip, iso); return `<a href="#day-${iso}">${n ? "Jour " + n : CV.fmtDateShort(iso)}</a>`; }).join(", ")}</div></div>` : ""}
       <header class="share-hero" ${cover ? `style="background-image:url('${cover}')"` : ""}>
         <div class="inner">${t.subtitle ? `<div class="sub">${esc(t.subtitle)}</div>` : ""}<h1>${esc(t.title)}</h1>
+          ${MEMBERS.isShared() ? `<div class="crew">${(D.authors || []).map((a) => MEMBERS.pill(a.id, { solid: true, force: true })).join("")}</div>` : ""}
           <div class="stats">
             ${t.start_date ? `<span>${ic("calendar", "sm")} ${fmtDate(t.start_date, false)}${t.end_date ? " → " + fmtDate(t.end_date, false) : ""}</span>` : ""}
             ${days.length ? `<span>${ic("clock", "sm")} ${days.length} jour${days.length > 1 ? "s" : ""}</span>` : ""}
@@ -208,16 +210,21 @@
     const chips = [km ? `${ic("route", "sm")} ${fmtDistance(km)}` : "", st.duration_s ? `${ic("clock", "sm")} ${CV.fmtDuration(st.duration_s)}` : "", st.hasAlt && st.gain ? `↗ ${st.gain} m` : "", st.hasAlt && st.maxAlt != null ? `⛰ ${st.maxAlt} m` : "", media.length ? `${ic("camera", "sm")} ${media.length}` : ""].filter(Boolean);
     return `<section class="day-section" data-iso="${iso}" id="day-${iso}">
       <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${n ? `Jour ${n} · ` : ""}${fmtDate(iso)}</div>
-      <h2>${esc(d.title || (n ? `Jour ${n}` : fmtDate(iso, false)))}${isNew(d.published_at) ? `<span class="new-mark">nouveau</span>` : ""}</h2>
+      <h2>${esc(d.title || (n ? `Jour ${n}` : fmtDate(iso, false)))}${isNew(d.published_at) ? `<span class="new-mark">nouveau</span>` : ""}${MEMBERS.pill(d.author_id)}</h2>
       ${hasPath ? `<button class="btn sm day-replay" data-iso="${iso}" style="margin:-4px 0 12px">${ic("play", "sm")} Suivre cette journée</button>` : ""}
       ${cover || d.place || chips.length ? `<div class="step-card${cover ? " has-cover" : ""}" ${cover ? `style="background-image:url('${API.publicUrl(cover.path)}')"` : ""} data-id="${cover ? cover.id : ""}">
         <div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
       ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
       ${media.length ? `<div class="gallery">${media.map((m) => `<figure data-id="${m.id}" class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
+          ${MEMBERS.dot(m.author_id)}
           ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${thumb(m)}" alt="${esc(m.caption)}" loading="lazy">`}
           ${m.caption || m.kind === "video" || m.audio_path || m.transport ? `<figcaption>${m.transport && BVMAP.MODES[m.transport] ? BVMAP.MODES[m.transport].icon + " " : ""}${m.kind === "video" ? "▶ " : ""}${m.audio_path ? "🎙 " : ""}${esc(m.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : ""}
       ${d.audio_path ? bigAudio(API.publicUrl(d.audio_path), "Écouter le récit du jour") : ""}
-      ${d.story ? `<div class="story-text">${nl2p(d.story)}</div>` : ""}
+      ${MEMBERS.signedList((D.voices || []).filter((v) => v.day_id === d.id), { label: "Le mot du jour", icon: ic("mic", "sm"),
+        render: (v) => bigAudio(API.publicUrl(v.audio_path), "Écouter " + (MEMBERS.name(v.author_id) || "le mot du jour"), true) })}
+      ${d.story ? `<div class="story-text">${nl2p(d.story)}</div>${MEMBERS.isShared() ? `<span class="story-sign">Récit de ${esc(MEMBERS.name(d.author_id))}</span>` : ""}` : ""}
+      ${MEMBERS.signedList((D.stories || []).filter((x) => x.day_id === d.id), { label: "Et de leur côté…", icon: ic("edit", "sm"),
+        render: (x) => `<div class="text">${nl2p(x.body)}</div>` })}
       ${d.id ? `<div class="day-comments">${comments.map(commentHtml).join("")}
         ${D.trip.allow_comments ? `<button class="btn day-comment-btn" data-day="${d.id}">${ic("message")} Laisser un mot sur cette journée</button>` : ""}</div>` : ""}
     </section>`;
@@ -318,7 +325,7 @@
     const back = document.createElement("div"); back.className = "modal-back";
     back.innerHTML = `<div class="modal wide">
       <div class="viewer-media">${m.kind === "video" ? `<video src="${API.publicUrl(m.path)}" controls playsinline autoplay></video>` : `<img src="${API.publicUrl(m.path)}" alt="">`}<span class="count">${i + 1} / ${list.length}</span></div>
-      <div class="row between"><div><b>${esc(m.caption || "")}</b><div class="small muted">${m.day_date ? fmtDate(m.day_date) : ""}${m.taken_at ? " · " + CV.fmtTime(m.taken_at) : ""}</div>${m.audio_path ? bigAudio(API.publicUrl(m.audio_path), "Écouter le commentaire", true) : ""}</div>
+      <div class="row between"><div><b>${esc(m.caption || "")}</b><div class="small muted">${m.day_date ? fmtDate(m.day_date) : ""}${m.taken_at ? " · " + CV.fmtTime(m.taken_at) : ""}</div>${MEMBERS.pill(m.author_id)}${m.audio_path ? bigAudio(API.publicUrl(m.audio_path), "Écouter le commentaire", true) : ""}</div>
         <div class="row" style="flex-wrap:nowrap"><button class="btn icon" id="prev" ${i <= 0 ? "disabled" : ""} title="Photo précédente">${ic("chevron-left")}</button><button class="btn icon" id="next" ${i >= list.length - 1 ? "disabled" : ""} title="Photo suivante">${ic("chevron-right")}</button><button class="btn icon" id="close" title="Fermer">${ic("close")}</button></div></div>
       <p class="small muted" style="margin:6px 0 0">${list.length > 1 ? `Photo ${i + 1} / ${list.length} · glissez pour passer à la suivante` : ""}</p>
       <h3 style="margin:16px 0 8px;font-size:17px">Commentaires</h3>

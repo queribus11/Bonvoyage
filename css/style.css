@@ -568,3 +568,115 @@ html.is-dark body { background: var(--bg); color: var(--ink); }
 .is-dark .legend button { box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .is-dark .day-section .gallery figure.is-new::after { border-color: var(--paper); }
 
+/* ============================================================
+   Bonvoyage v10 — le carnet à plusieurs
+   À COLLER À LA FIN de css/style.css (avant rien, après tout).
+   Aucune règle existante n'est modifiée : tout est additif.
+   ============================================================ */
+
+/* ---- La pastille d'auteur : un prénom, pas un bandeau ---- */
+.author-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-body); font-weight: 700; font-size: 12px;
+  line-height: 1; padding: 4px 9px 4px 7px; border-radius: 999px;
+  color: var(--pill); background: color-mix(in srgb, var(--pill) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pill) 28%, transparent);
+  white-space: nowrap; vertical-align: middle;
+}
+.author-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--pill); flex: none; }
+.author-pill.sm { font-size: 11px; padding: 3px 7px 3px 6px; }
+.author-pill.solid { color: #fff; background: var(--pill); border-color: transparent; }
+
+/* Le rond seul, pour les vignettes où le prénom ne tient pas */
+.author-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; flex: none;
+  font-family: var(--font-body); font-weight: 800; font-size: 11px; color: #fff;
+  box-shadow: 0 1px 3px rgba(18, 63, 102, .35);
+}
+.author-dot.big { width: 34px; height: 34px; font-size: 15px; }
+.author-dot.pending { background: var(--muted); }
+
+/* Sur une vignette photo : en haut à gauche, discret
+   (les deux règles position:relative sont des ceintures de sécurité :
+    si elles existent déjà plus haut dans le fichier, elles ne changent rien) */
+.media-tile { position: relative; }
+.gallery figure { position: relative; }
+.media-tile .author-dot,
+.gallery figure .author-dot {
+  position: absolute; top: 6px; left: 6px; z-index: 2;
+  border: 1.5px solid rgba(255, 255, 255, .85);
+}
+
+/* ---- Écran « Qui a accès » ---- */
+.access-tabs { display: flex; gap: 4px; margin: 4px 0 16px; border-bottom: 1px solid var(--line); }
+.access-tabs button {
+  appearance: none; border: 0; background: none; cursor: pointer;
+  font-family: var(--font-body); font-weight: 700; font-size: 14px; color: var(--muted);
+  padding: 8px 12px; border-bottom: 2px solid transparent;
+}
+.access-tabs button.active { color: var(--ink); border-bottom-color: var(--mandarine); }
+
+.member-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.member {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 14px; background: var(--paper-soft);
+  box-shadow: var(--sh-1);
+}
+.member.muted { opacity: .6; }
+.member b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.member .small { display: block; }
+.member.invite { background: transparent; box-shadow: none; border: 1px dashed var(--line); }
+
+/* Choix de la couleur de pastille */
+.color-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch-btn {
+  width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; box-shadow: var(--sh-1);
+}
+.swatch-btn.active { border-color: var(--ink); transform: scale(1.12); }
+
+/* ---- Les contributions signées : récits des co-auteurs, carnet de bord, mots du jour ----
+   Ces blocs ne sont produits que s'ils ont du contenu (voir MEMBERS.signedList) :
+   sur un carnet écrit à une seule main, aucune de ces règles ne s'applique. */
+.signed-list { margin: 14px 0; padding: 12px; border-radius: 16px; background: var(--paper-soft); box-shadow: var(--sh-1); }
+.signed-list .kicker { margin-bottom: 8px; }
+.signed { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; }
+.signed + .signed { border-top: 1px dashed var(--line); }
+.signed b { display: block; font-size: 14px; margin-bottom: 4px; }
+.signed .when { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.signed .text { white-space: pre-wrap; }
+.signed .text p { margin: 0 0 8px; }
+
+/* Le récit de l'auteur de la journée, montré en lecture seule à un co-auteur */
+.story-read { padding: 10px 12px; border-radius: 14px; background: var(--paper-soft); }
+.story-read p { margin: 0 0 8px; }
+.story-read p:last-child { margin-bottom: 0; }
+
+/* ---- Le carnet de bord privé ---- */
+.private-note { border-left: 3px solid var(--sun); padding-left: 12px; }
+/* La mention « entre nous » n'a de sens que s'il y a un « nous » :
+   la classe .shared n'est posée que quand le carnet a plusieurs auteurs. */
+.private-note.shared > label::after {
+  content: " · entre vous, jamais chez tes proches";
+  font-weight: 400; color: var(--muted); font-size: 12px;
+}
+
+/* ---- L'écran d'arrivée d'un invité ---- */
+.join-card { max-width: 460px; margin: 0 auto; }
+.join-card h2 { margin: 2px 0 4px; }
+
+/* ---- Bandeau « du nouveau chez tes co-auteurs » ---- */
+.crew-news {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 12px; padding: 9px 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--lime) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lime) 34%, transparent);
+  font-size: 13px;
+}
+.crew-news .grow { min-width: 0; }
+
+/* ---- Page des proches : la ligne d'équipage sous le titre ---- */
+.share-hero .crew { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.day-section .author-pill { margin-left: 8px; vertical-align: 2px; }
+.story-text + .story-sign { display: block; margin-top: -6px; font-size: 13px; color: var(--muted); }

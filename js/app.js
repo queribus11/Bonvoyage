@@ -14,6 +14,7 @@
     tab: "days", dayFilter: null, placing: null,
     gps: { watchId: null, track: null, points: [], lastSaved: 0, dirty: false, startedAt: null, wakeLock: null, lastFix: 0, watchdog: null, errAt: 0 },
     offline: false, syncing: false, pendingMedia: [],
+    members: [], voices: [], stories: [], notes: [],   // v10 : l'équipage et les contributions signées
   };
 
   // ---------------------------------------------------------------
@@ -95,7 +96,14 @@
     try {
       S.trips = await API.listTrips();
       const all = await API.listAllComments();
-      for (const t of S.trips) t._new = all.filter((c) => c.trip_id === t.id && Date.parse(c.created_at) > Date.parse(t.comments_seen_at || 0)).length;
+      // v10 : chacun a son propre repère « déjà vu » (trip_members), pas celui du propriétaire
+      const mine = await API.listMyMemberships().catch(() => []);
+      for (const t of S.trips) {
+        const mem = mine.find((m) => m.trip_id === t.id);
+        const seen = Date.parse((mem && mem.comments_seen_at) || t.comments_seen_at || 0) || 0;
+        t._new = all.filter((c) => c.trip_id === t.id && Date.parse(c.created_at) > seen).length;
+        t._guest = t.user_id !== S.user.id;
+      }
       OFF.cacheTrips(S.trips);
     } catch (e) {
       const c = OFF.getCachedTrips();
@@ -116,7 +124,7 @@
         ${t._new ? `<span class="badge-count" title="Nouveaux commentaires">${t._new}</span>` : ""}
         <div class="cover${t.cover_path ? "" : " fallback"}" ${t.cover_path ? `style="background-image:url('${API.publicUrl(t.cover_path)}')"` : ""}>
           ${t.subtitle ? `<div class="sub">${esc(t.subtitle)}</div>` : ""}<h3>${esc(t.title)}</h3></div>
-        <div class="meta"><span>${ic("calendar")} ${t.start_date ? fmtDate(t.start_date, false) : "dates à définir"}</span>${n ? `<span>${ic("clock")} ${n} jour${n > 1 ? "s" : ""}</span>` : ""}</div>
+        <div class="meta"><span>${ic("calendar")} ${t.start_date ? fmtDate(t.start_date, false) : "dates à définir"}</span>${n ? `<span>${ic("clock")} ${n} jour${n > 1 ? "s" : ""}</span>` : ""}${t._guest ? `<span>${ic("share")} carnet partagé</span>` : ""}</div>
       </div>`; }).join("")
       : `<div class="empty valdo-empty"><img src="icons/valdo.svg" alt=""><b>Ton premier voyage commence ici</b><span class="small">Appuie sur « Nouveau voyage » pour créer le carnet.</span></div>`;
     $$(".trip-card[data-id]", g).forEach((c) => c.onclick = () => openTrip(c.dataset.id));
@@ -139,6 +147,9 @@
         <div class="field"><label>Introduction (affichée en haut du récit)</label><textarea name="description" placeholder="Pourquoi ce voyage, avec qui, l'état d'esprit du départ…">${esc(trip?.description || "")}</textarea></div>
         ${!isNew ? `<div class="field"><label>Photo de couverture</label><select name="cover_path"><option value="">— aucune —</option>
           ${(S.cur?.media || []).filter((x) => x.kind === "photo").map((x) => `<option value="${esc(x.path)}" ${x.path === trip.cover_path ? "selected" : ""}>${esc(x.caption || fmtDate(x.day_date, false) || "photo")}</option>`).join("")}</select></div>` : ""}
+        ${!isNew ? `<div class="field"><label>Qui a accès</label>
+          <button type="button" class="btn sm" id="access">${ic("share", "sm")} Co-auteurs et liens des proches</button>
+          <span class="small muted">Inviter quelqu'un à écrire dans ce carnet, et gérer les liens envoyés aux proches.</span></div>` : ""}
         ${!isNew ? `<div class="field"><label>Sauvegarde</label><div class="row"><button type="button" class="btn sm" id="backup">${ic("download", "sm")} Sauvegarde complète</button><button type="button" class="btn sm ghost" id="backup-light">Texte et traces seulement</button></div>
           <span class="small muted">Télécharge un fichier .zip avec ton récit, tes traces (GPX), tes photos, audios et les commentaires. À faire de temps en temps, et à la fin du voyage.</span></div>` : ""}
         <div class="actions">
@@ -156,6 +167,7 @@
         else { S.cur.trip = await API.updateTrip(trip.id, fd); m.close(); renderTripHeader(); renderPanel(); }
       } catch (err) { errToast(err); }
     };
+    const acc = $("#access", m.el); if (acc) acc.onclick = () => { m.close(); openAccess(); };
     const bk = $("#backup", m.el); if (bk) bk.onclick = () => backup(true, bk);
     const bkl = $("#backup-light", m.el); if (bkl) bkl.onclick = () => backup(false, bkl);
     const del = $("#del", m.el);
@@ -180,6 +192,9 @@
       else { errToast(e); return backToTrips(); }
     }
     S.dayFilter = null; S.tab = "days";
+    S.members = S.cur.members || [];
+    S.voices = S.cur.voices || []; S.stories = S.cur.stories || []; S.notes = S.cur.notes || [];
+    if (window.MEMBERS) MEMBERS.setCrew(S.members, S.user.id);
     $$(".panel-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === "days"));
     ensureMap();
     renderTripHeader();
@@ -193,12 +208,50 @@
     OFF.cacheTrip(S.cur);
     // Nom des lieux (commune, pays) des journées, complété en douceur et gardé en base
     if (navigator.onLine && !S.offline) CV.fillPlaces(S.cur, async (d, name) => {
+      if (!canEdit(d)) return;                 // v10 : la journée d'un autre ne m'appartient pas
       const u = await API.upsertDay(S.user, S.cur.trip.id, d.day_date, { place: name });
       Object.assign(d, u); if (S.tab === "days") renderPanel();
     }).catch(() => { });
     syncAll();
   }
   function saveLocal() { if (S.cur) OFF.cacheTrip(S.cur); }
+
+  // ---------------------------------------------------------------
+  //  Le carnet à plusieurs
+  // ---------------------------------------------------------------
+  const meMember = () => S.members.find((m) => m.user_id === S.user.id) || null;
+  const isTripOwner = () => !!S.cur && S.cur.trip.user_id === S.user.id;
+  // « Ce que j'ai moi-même ajouté » — plus tout, si je suis le propriétaire du voyage.
+  // Les lignes d'avant la v10 n'ont pas d'auteur : elles appartiennent au propriétaire.
+  const canEdit = (row) => isTripOwner() || !row || !row.author_id || row.author_id === S.user.id;
+  const pill = (id, o) => (window.MEMBERS ? MEMBERS.pill(id, o) : "");
+  const dot = (id, o) => (window.MEMBERS ? MEMBERS.dot(id, o) : "");
+  async function reloadMembers() {
+    if (!S.cur) return;
+    try { S.members = await API.listMembers(S.cur.trip.id); MEMBERS.setCrew(S.members, S.user.id); } catch { }
+  }
+  function openAccess() {
+    MEMBERS.openAccess({
+      trip: S.cur.trip, user: S.user, api: API, openModal, confirm, toast,
+      shareBase: location.href.split("#")[0].split("?")[0].replace(/index\.html$/, "") + "share.html",
+      onChange: async () => { await reloadMembers(); renderTripHeader(); renderPanel(); redraw(); },
+    });
+  }
+  // Le bandeau « du nouveau chez tes co-auteurs » : un repère, pas une notification.
+  // Six photos ajoutées par le mari font une ligne ici, et zéro vibration chez les proches.
+  function crewNewsHtml() {
+    const mem = meMember();
+    if (!mem || !window.MEMBERS || !MEMBERS.isShared()) return "";
+    const since = Date.parse(mem.activity_seen_at || 0) || 0;
+    const news = [...S.cur.media, ...S.cur.days].filter((x) =>
+      x.author_id && x.author_id !== S.user.id && Date.parse(x.created_at) > since);
+    if (!news.length) return "";
+    const who = [...new Set(news.map((x) => MEMBERS.name(x.author_id)).filter(Boolean))];
+    const nPh = news.filter((x) => x.kind).length, nJ = news.length - nPh;
+    const quoi = [nPh ? `${nPh} photo${nPh > 1 ? "s" : ""}` : "", nJ ? `${nJ} journée${nJ > 1 ? "s" : ""}` : ""].filter(Boolean).join(" et ");
+    return `<div class="crew-news"><span class="grow">${esc(who.join(", "))} ${who.length > 1 ? "ont ajouté" : "a ajouté"} ${quoi} depuis ta dernière visite.</span>
+      <button class="btn sm ghost" id="crew-seen">Vu</button></div>`;
+  }
 
   // Envoie tout ce qui attend (traces/balises hors ligne, photos) dès que le réseau est là
   async function syncAll(opts = {}) {
@@ -414,7 +467,7 @@
 
   // ---------- Onglet Journées ----------
   function isLive() { return S.cur.trip.publish_mode === "live"; }
-  const seenTs = () => Date.parse(S.cur.trip.comments_seen_at || 0) || 0;
+  const seenTs = () => { const m = meMember(); return Date.parse((m && m.comments_seen_at) || S.cur.trip.comments_seen_at || 0) || 0; };
   function newCommentCount() { return S.cur.comments.filter((c) => Date.parse(c.created_at) > seenTs()).length; }
   function updateCommentBadge() {
     const b = $(".panel-tabs button[data-tab=comments]"); const n = newCommentCount();
@@ -424,6 +477,7 @@
     const days = allDays();
     const dl = S.drawn ? S.drawn.dayList : days;
     body.innerHTML = `
+      ${crewNewsHtml()}
       <div class="row between" style="margin-bottom:12px">
         <span class="kicker">${days.length} journée${days.length > 1 ? "s" : ""}${S.dayFilter ? " · " + fmtDate(S.dayFilter, false) : ""}</span>
         <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout voir</button>` : ""}<button class="btn sm" id="add-day">${ic("plus")} Journée</button></div>
@@ -438,7 +492,7 @@
         const cover = ph.find((x) => x.kind === "photo") || ph[0];
         return `<div class="day-item${S.dayFilter === iso ? " active" : ""}" data-iso="${iso}">
           <div class="num" style="background:${color}" title="Voir cette journée sur la carte"><small>${n ? "Jour" : ""}</small>${n || fmtDateShort(iso)}</div>
-          <div class="info"><b>${esc(d?.title || fmtDate(iso))}</b>
+          <div class="info"><b>${esc(d?.title || fmtDate(iso))}</b>${pill(d?.author_id, { small: true })}
             <span>${d?.title ? fmtDate(iso, false) : ""}${d?.place ? ` · ${ic("pin", "sm")} ${esc(d.place)}` : ""}</span>
             <span>${km ? `${ic("route", "sm")} ${fmtDistance(km)}` : ""}${st.hasAlt && st.gain ? ` · ↗ ${st.gain} m` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
             ${cover ? `<div class="day-cover" style="background-image:url('${API.publicUrl(cover.thumb_path || cover.path)}')"></div>` : ""}
@@ -446,6 +500,8 @@
             ${ph.length > 1 ? `<div class="thumbs">${ph.slice(1, 6).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`).join("")}</div>` : ""}
           </div></div>`; }).join("")}</div>`;
     $("#add-day").onclick = () => dayForm(null);
+    const cs = $("#crew-seen", body);
+    if (cs) cs.onclick = async () => { try { await API.markSeen(S.cur.trip.id, "activity_seen_at"); await reloadMembers(); renderPanel(); } catch (e) { errToast(e); } };
     const cf = $("#clear-filter"); if (cf) cf.onclick = () => { S.dayFilter = null; redraw(true); renderPanel(); };
     $$(".day-item", body).forEach((el) => {
       const iso = el.dataset.iso;
@@ -476,59 +532,176 @@
         ${st.duration_s ? `<div><b>${CV.fmtDuration(st.duration_s)}</b><small>durée</small></div>` : ""}
         ${st.hasAlt ? `<div><b>↗ ${st.gain} m</b><small>montée</small></div><div><b>↘ ${st.loss} m</b><small>descente</small></div><div><b>${st.maxAlt} m</b><small>alt. max</small></div>` : ""}
       </div>${st.hasAlt ? CV.profileSvg(st.profile, CV.colorForDay(dl0, iso)) : ""}` : "";
-    const m = openModal(`<div class="modal-head"><div class="grow">${iso ? `<div class="kicker">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)}</div>` : ""}<h2>${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div><button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+    // v10 · qui écrit quoi. `mine` = j'ai le droit de toucher à la journée
+    // elle-même (je l'ai créée, ou je suis propriétaire du carnet).
+    const mine = !d || canEdit(d);
+    const myStory   = d ? S.stories.find((x) => x.day_id === d.id && x.author_id === S.user.id) : null;
+    const myNote    = d ? S.notes.find((x) => x.day_id === d.id && x.author_id === S.user.id) : null;
+    const dayVoices = d ? S.voices.filter((v) => v.day_id === d.id) : [];
+    // Le mot du jour n'a de sens qu'à plusieurs : sur un carnet solo, le récit
+    // audio suffit et ce bloc n'existe pas.
+    const showVoices = !!iso && (MEMBERS.isShared() || dayVoices.length > 0);
+    const m = openModal(`<div class="modal-head"><div class="grow">${iso ? `<div class="kicker">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}<h2>${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div><button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
       ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
       ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
       ${d?.place ? `<div class="kicker" style="margin:-4px 0 10px">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}
       <form id="f">
         <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
-        <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands"></div></div>
+        <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands" ${mine ? "" : "readonly"}></div></div>
         ${iso ? `<div class="field"><label>Photos de la journée${dayPhotos.length ? ` (${dayPhotos.length})` : ""}</label>
           ${d?.published && !isLive() ? `<p class="small muted" style="margin:-2px 0 8px">Journée publiée : les photos ajoutées ici sont <b>déjà visibles</b> par tes proches. « Envoyer le lien » sert seulement à les prévenir.</p>` : ""}
           ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
           <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="day-add-photos">${ic("camera", "sm")} Ajouter des photos à cette journée</button><input type="file" id="day-files" accept="image/*,video/*" multiple hidden></div>
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
-        ${iso ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
+        ${iso && mine ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
           <div class="mode-picker" id="day-mode-picker">${[["", "🤔", "l'app devine"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, v.icon, v.label.replace(/^(à|en) /, "")])].map(([k, icon, lab]) => `<button type="button" class="mode${dayMode === k ? " active" : ""}" data-mode="${k}">${icon}<small>${lab}</small></button>`).join("")}<input type="hidden" name="transport" value="${esc(dayMode)}"></div>
           <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
         ${legs && legs.length > 1 ? `<details class="legs-details"><summary>Changements en cours de journée (${legs.length} tronçons)</summary><div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
             <select data-from="${l.from.id}" class="leg-mode"><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : `comme avant (${BVMAP.MODES[l.mode].label})`}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.from.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div><p class="help">Chaque ligne = le trajet de la photo de gauche à celle de droite ; le choix vaut à partir de la photo de gauche jusqu'au prochain changement.</p></details>` : ""}` : ""}
-        <div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
-        <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>
+        ${mine ? `<div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
+        <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>`
+        : `${d?.story ? `<div class="field"><label>Le récit de ${esc(MEMBERS.name(d.author_id) || "l'équipage")}</label><div class="story-read">${nl2p(d.story)}</div></div>` : ""}
+           <div class="field"><label>Mon récit</label><textarea name="my_story" class="story" placeholder="Et toi, comment as-tu vécu cette journée ?">${esc(myStory?.body || "")}</textarea></div>`}
+        <div id="story-list"></div>
+        ${showVoices ? `<div class="field"><label>Le mot du jour</label><div id="day-voice"></div><div id="voice-list"></div>
+          <p class="help">Trente secondes à ta façon, en plus du récit — chacun laisse le sien. C'est ce qui vaudra le plus, plus tard.</p></div>` : ""}
+        ${iso ? `<div class="field private-note${MEMBERS.isShared() ? " shared" : ""}"><label>Carnet de bord</label>
+          <textarea name="my_note" placeholder="Ce qui ne va pas dans le récit : l'adresse du gîte, ce qu'il faut penser à faire demain…">${esc(myNote?.body || "")}</textarea>
+          <div id="note-list"></div></div>` : ""}
         ${statsHtml}
         ${iso ? `${canRoute ? `<div class="field"><label>Trajet</label><p class="small muted" style="margin:-2px 0 8px">Pas de trace GPS ce jour-là : la carte relie les photos en pointillés, dans l'ordre de l'heure, selon le moyen de locomotion choisi sur chaque photo. « Tracer l'itinéraire » fait suivre les vraies routes aux tronçons en voiture, bus ou vélo.</p>
           <button type="button" class="btn sm" id="day-route">${ic("route", "sm")} Tracer l'itinéraire par la route</button></div>` : ""}
         ${routeTrack ? `<div class="field"><label>Trajet</label><div class="row between"><span class="small">${ic("route", "sm")} Itinéraire par la route · <b>${fmtDistance(routeTrack.distance_m)}</b> · ${routeTrack.points.length} points</span><button type="button" class="btn sm ghost danger" id="day-route-del">Retirer</button></div>
           <p class="help">Retirer l'itinéraire fait revenir les pointillés entre les photos. Refais « Tracer » après avoir changé un moyen de locomotion.</p></div>` : ""}` : ""}
         <div class="actions sticky">
-          ${d ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer le récit">${ic("trash")}</button>` : ""}${d?.published && !isLive() ? `<button type="button" class="btn sm ghost" id="unpub" title="Repasser en brouillon">Brouillon</button>` : ""}<span class="grow"></span>
+          ${d && mine ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer le récit">${ic("trash")}</button>` : ""}${d?.published && !isLive() && mine ? `<button type="button" class="btn sm ghost" id="unpub" title="Repasser en brouillon">Brouillon</button>` : ""}<span class="grow"></span>
           <button class="btn secondary" type="submit">Enregistrer</button>
-          ${iso && !isLive() && !d?.published ? `<button type="button" class="btn secondary" id="pub-quiet" title="Rend la journée visible sans envoyer de message">${ic("check")} Publier</button>` : ""}
-          ${iso ? `<button type="button" class="btn primary" id="pub" title="Enregistre aussi les modifications">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier et prévenir"}</button>` : ""}
+          ${iso && mine && !isLive() && !d?.published ? `<button type="button" class="btn secondary" id="pub-quiet" title="Rend la journée visible sans envoyer de message">${ic("check")} Publier</button>` : ""}
+          ${iso && mine ? `<button type="button" class="btn primary" id="pub" title="Enregistre aussi les modifications">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier et prévenir"}</button>` : ""}
         </div></form>`,
       { guard: () => dirty() });
     const form = $("#f", m.el);
-    const rec = CV.audioRecorder($("#day-rec", m.el), { existingUrl: d?.audio_path ? API.publicUrl(d.audio_path) : null, label: "Enregistrer le récit du jour" });
-    const dirty = () => form.title.value !== (d?.title || "") || form.story.value !== (d?.story || "") || !!rec.getBlob() || rec.isRemoved();
+    const rec = $("#day-rec", m.el)
+      ? CV.audioRecorder($("#day-rec", m.el), { existingUrl: d?.audio_path ? API.publicUrl(d.audio_path) : null, label: "Enregistrer le récit du jour" })
+      : null;
+
+    // ---- Les contributions des autres : rien à l'écran s'il n'y a rien ----
+    function renderContribs() {
+      if (!d) return;
+      const sl = $("#story-list", m.el);
+      if (sl) {
+        sl.innerHTML = MEMBERS.signedList(
+          S.stories.filter((x) => x.day_id === d.id && x.author_id !== S.user.id),
+          { label: "Le récit des autres", icon: ic("edit", "sm"), when: true,
+            render: (x) => `<div class="text">${nl2p(x.body)}</div>`,
+            canDelete: () => isTripOwner() });
+        bindSigDel(sl, "day_stories", () => S.stories, (l) => { S.stories = l; });
+      }
+      const nl = $("#note-list", m.el);
+      if (nl) {
+        nl.innerHTML = MEMBERS.signedList(
+          S.notes.filter((x) => x.day_id === d.id && x.author_id !== S.user.id),
+          { when: true, render: (x) => `<div class="text">${nl2p(x.body)}</div>`,
+            canDelete: () => isTripOwner() });
+        bindSigDel(nl, "day_notes", () => S.notes, (l) => { S.notes = l; });
+      }
+      const vl = $("#voice-list", m.el);
+      if (vl) {
+        vl.innerHTML = MEMBERS.signedList(
+          S.voices.filter((v) => v.day_id === d.id && v.author_id !== S.user.id),
+          { render: (v) => CV.bigAudio(API.publicUrl(v.audio_path), "Écouter " + (MEMBERS.name(v.author_id) || "le mot du jour"), true),
+            canDelete: () => isTripOwner() });
+        CV.bindBigAudio(vl);
+        $$(".sig-del", vl).forEach((b) => b.onclick = async () => {
+          const v = S.voices.find((x) => x.id === b.closest(".signed").dataset.id);
+          if (!v || !(await confirm("Effacer ce mot du jour ?"))) return;
+          try { await API.deleteDayVoice(v); S.voices = S.voices.filter((x) => x.id !== v.id); renderContribs(); }
+          catch (e) { errToast(e); }
+        });
+      }
+    }
+    function bindSigDel(root, table, get, set) {
+      $$(".sig-del", root).forEach((b) => b.onclick = async () => {
+        const id = b.closest(".signed").dataset.id;
+        if (!(await confirm("Effacer cette contribution ?"))) return;
+        try { await API.deleteDayText(table, id); set(get().filter((x) => x.id !== id)); renderContribs(); }
+        catch (e) { errToast(e); }
+      });
+    }
+
+    // ---- Mon mot du jour : trente secondes, et il n'y en a qu'un par personne ----
+    let voiceRec = null;
+    if ($("#day-voice", m.el)) {
+      const mineVoice = d ? S.voices.find((v) => v.day_id === d.id && v.author_id === S.user.id) : null;
+      voiceRec = CV.audioRecorder($("#day-voice", m.el), {
+        existingUrl: mineVoice ? API.publicUrl(mineVoice.audio_path) : null,
+        label: "Mon mot du jour (30 s)", maxSeconds: 30,
+      });
+    }
+    renderContribs();
+
+    // ---- Enregistrer ce qui n'appartient qu'à moi ----
+    async function saveMine(savedDay) {
+      if (!savedDay) return;
+      const f = $("#f", m.el);
+      try {
+        if (f.my_story) {
+          const r = await API.saveDayStory(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, f.my_story.value, myStory);
+          S.stories = S.stories.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
+          if (r) S.stories.push(r);
+        }
+        if (f.my_note) {
+          const r = await API.saveDayNote(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, f.my_note.value, myNote);
+          S.notes = S.notes.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
+          if (r) S.notes.push(r);
+        }
+        if (voiceRec) {
+          const blob = voiceRec.getBlob();
+          const mineVoice = S.voices.find((v) => v.day_id === savedDay.id && v.author_id === S.user.id);
+          if (blob) {
+            const path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
+            const v = await API.upsertDayVoice(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, path, 0);
+            if (mineVoice && mineVoice.audio_path !== path) API.removeFiles([mineVoice.audio_path]).catch(() => {});
+            S.voices = S.voices.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
+            S.voices.push(v);
+          } else if (voiceRec.isRemoved() && mineVoice) {
+            await API.deleteDayVoice(mineVoice);
+            S.voices = S.voices.filter((x) => x.id !== mineVoice.id);
+          }
+        }
+      } catch (e) { errToast(e, 6000); }
+    }
+
+    const dirty = () => (mine && (form.title.value !== (d?.title || "") || form.story.value !== (d?.story || "")))
+      || (form.my_story && form.my_story.value !== (myStory?.body || ""))
+      || (form.my_note && form.my_note.value !== (myNote?.body || ""))
+      || (rec && (!!rec.getBlob() || rec.isRemoved()))
+      || (voiceRec && (!!voiceRec.getBlob() || voiceRec.isRemoved()));
     // Brouillon sauvé à chaque frappe : un tap malheureux ne perd plus rien
-    const saveDraft = () => { if (dirty()) OFF.LS.set(draftKey(iso), { title: form.title.value, story: form.story.value, at: Date.now() }); else OFF.LS.del(draftKey(iso)); };
-    form.title.addEventListener("input", saveDraft); form.story.addEventListener("input", saveDraft);
+    const saveDraft = () => { if (mine && dirty()) OFF.LS.set(draftKey(iso), { title: form.title.value, story: form.story.value, at: Date.now() }); else OFF.LS.del(draftKey(iso)); };
+    if (mine) { form.title.addEventListener("input", saveDraft); form.story.addEventListener("input", saveDraft); }
     form.onsubmit = async (e) => {
       e.preventDefault();
       const fd = Object.fromEntries(new FormData(e.target));
       try {
-        const fields = { title: fd.title, story: fd.story, transport: fd.transport || null };
-        const blob = rec.getBlob();
-        if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
-        else if (rec.isRemoved()) fields.audio_path = null;
-        const oldAudio = d?.audio_path;
-        const saved = await API.upsertDay(S.user, S.cur.trip.id, fd.day_date, fields);
-        if (oldAudio && oldAudio !== saved.audio_path) API.removeFiles([oldAudio]).catch(() => {});
-        const i = S.cur.days.findIndex((x) => x.id === saved.id);
-        if (i >= 0) S.cur.days[i] = saved; else S.cur.days.push(saved);
-        S.cur.days.sort((a, b) => a.day_date.localeCompare(b.day_date));
+        let saved = d;
+        // La journée elle-même : seulement si elle est à moi (ou si je la crée).
+        if (mine) {
+          const fields = { title: fd.title, story: fd.story, transport: fd.transport || null };
+          const blob = rec && rec.getBlob();
+          if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
+          else if (rec && rec.isRemoved()) fields.audio_path = null;
+          const oldAudio = d?.audio_path;
+          saved = await API.upsertDay(S.user, S.cur.trip.id, fd.day_date, fields);
+          if (oldAudio && oldAudio !== saved.audio_path) API.removeFiles([oldAudio]).catch(() => {});
+          const i = S.cur.days.findIndex((x) => x.id === saved.id);
+          if (i >= 0) S.cur.days[i] = saved; else S.cur.days.push(saved);
+          S.cur.days.sort((a, b) => a.day_date.localeCompare(b.day_date));
+        }
+        // Ce qui n'appartient qu'à moi : mon récit, mon mot du jour, mon carnet de bord.
+        await saveMine(saved);
         OFF.LS.del(draftKey(iso)); saveLocal();
-        m.close(); renderPanel(); toast("Journée enregistrée", "ok");
+        m.close(); renderPanel(); toast(mine ? "Journée enregistrée" : "Ta contribution est enregistrée", "ok");
       } catch (err) { errToast(err, 6000); if (isNetworkError(err)) toast("Ton texte est gardé sur le téléphone : réessaie quand tu auras du réseau", "info", 6000); }
     };
     const del = $("#del", m.el);
@@ -572,11 +745,12 @@
       const f = $("#f", m.el); const fd = Object.fromEntries(new FormData(f));
       try {
         const fields = { title: fd.title, story: fd.story };
-        const blob = rec.getBlob();
+        const blob = rec && rec.getBlob();
         if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
-        else if (rec.isRemoved()) fields.audio_path = null;
+        else if (rec && rec.isRemoved()) fields.audio_path = null;
         if (!d?.published) { fields.published = true; fields.published_at = new Date().toISOString(); }
         const saved = await API.upsertDay(S.user, S.cur.trip.id, iso, fields);
+        await saveMine(saved);
         const i = S.cur.days.findIndex((x) => x.id === saved.id); if (i >= 0) S.cur.days[i] = saved; else S.cur.days.push(saved);
         OFF.LS.del(draftKey(iso)); saveLocal();
         m.close(); renderPanel();
@@ -679,6 +853,7 @@
   function mediaTile(x) {
     const src = API.publicUrl(x.thumb_path || (x.kind === "photo" ? x.path : ""));
     return `<div class="media-tile" data-id="${x.id}">
+      ${dot(x.author_id)}
       ${x.kind === "video" && !x.thumb_path ? `<video src="${API.publicUrl(x.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${src}" alt="" loading="lazy">`}
       ${x.kind === "video" ? `<span class="badge">vidéo</span>` : ""}
       ${x.lat == null ? `<span class="nogps">sans position</span>` : ""}
@@ -759,6 +934,7 @@
         <button type="button" class="nav prev" id="prev" title="Photo précédente (enregistre)">${ic("chevron-left")}</button>
         <button type="button" class="nav next" id="next" title="Photo suivante (enregistre)">${ic("chevron-right")}</button>
         <button type="button" class="close" data-close title="Fermer">${ic("close")}</button></div>
+      ${m.author_id ? `<div style="margin:10px 0 -4px">${pill(m.author_id)}</div>` : ""}
       <form id="f">
         <div class="field caption-field"><label>Légende</label><textarea name="caption" placeholder="Un mot sur cette photo…">${esc(m.caption || "")}</textarea></div>
         <div class="field"><label>Commentaire audio</label><div id="media-rec"></div></div>
@@ -777,8 +953,9 @@
           <button type="button" class="btn sm ghost" id="here">Ma position</button>
           ${m.lat != null ? `<button type="button" class="btn sm ghost" id="goto">Voir sur la carte</button>` : ""}
         </div>
-        <div class="actions sticky"><button type="button" class="btn icon ghost danger" id="del" title="Supprimer">${ic("trash")}</button><span class="grow"></span>
-          <button class="btn primary" type="submit">${ic("check")} Enregistrer</button></div>
+        <div class="actions sticky">${canEdit(m) ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer">${ic("trash")}</button>` : ""}<span class="grow"></span>
+          ${canEdit(m) ? `<button class="btn primary" type="submit">${ic("check")} Enregistrer</button>`
+            : `<span class="small muted">Photo de ${esc(MEMBERS.name(m.author_id) || "un compagnon")} : tu peux la commenter, pas la modifier.</span>`}</div>
       </form>
       <h3 style="margin:18px 0 8px;font-size:17px">Commentaires (${comments.length})</h3>
       <div id="clist">${comments.map(commentHtml).join("") || `<p class="muted small">Pas encore de commentaire. Tes proches pourront en laisser depuis le lien de partage.</p>`}</div>
@@ -810,7 +987,8 @@
     const go = async (dir) => { const nx = list[idx + dir]; if (!nx) return toast(dir > 0 ? "Dernière photo" : "Première photo"); if (await save()) { modal.close(); redraw(); renderPanel(); mediaViewer(nx); } };
     $("#prev", el).onclick = () => go(-1); $("#next", el).onclick = () => go(1);
     $("#prev", el).disabled = idx <= 0; $("#next", el).disabled = idx >= list.length - 1;
-    $("#del", el).onclick = async () => {
+    const delBtn = $("#del", el);
+    if (delBtn) delBtn.onclick = async () => {
       if (!(await confirm("Supprimer cette photo ?"))) return;
       try { await API.deleteMedia(m); S.cur.media = S.cur.media.filter((x) => x.id !== m.id); saveLocal(); modal.close(); renderTripHeader(); redraw(); renderPanel(); }
       catch (err) { errToast(err); }
@@ -859,7 +1037,8 @@
     const list = [...S.cur.comments].reverse();
     const seenBefore = seenTs();
     const n = list.filter((c) => Date.parse(c.created_at) > seenBefore).length;
-    if (n) { API.updateTrip(S.cur.trip.id, { comments_seen_at: new Date().toISOString() }).then((t) => { S.cur.trip = t; updateCommentBadge(); }).catch(() => {}); }
+    // v10 : le repère est sur MA ligne de membre — un co-auteur n'a pas le droit d'écrire dans trips
+    if (n) { API.markSeen(S.cur.trip.id, "comments_seen_at").then(reloadMembers).then(updateCommentBadge).catch(() => {}); }
     body.innerHTML = `<div class="comments-head"><span class="hand">Ce que disent tes proches</span>${n ? `<span class="badge-count">${n}</span>` : ""}</div>
       ${list.length ? "" : `<div class="empty valdo-empty"><img src="icons/valdo.svg" alt="">Aucun commentaire pour l'instant.<span class="small">Tes proches peuvent en laisser depuis le lien du voyage.</span></div>`}
       ${list.map((c) => {
@@ -1101,14 +1280,19 @@
       const zip = new JSZip();
       const safe = (s) => String(s || "").replace(/[^\w\u00C0-\u024F .-]+/g, "_").trim();
       const root = zip.folder(safe(trip.title) || "voyage");
-      root.file("voyage.json", JSON.stringify({ exporte_le: new Date().toISOString(), trip, days, tracks, media, comments }, null, 2));
+      root.file("voyage.json", JSON.stringify({ exporte_le: new Date().toISOString(), trip, days, tracks, media, comments,
+        membres: S.members, recits_des_co_auteurs: S.stories, carnet_de_bord: S.notes, mots_du_jour: S.voices }, null, 2));
       if (tracks.length) root.file("traces.gpx", CV.toGPX(trip, tracks));
       // Récit lisible en texte
       let txt = `${trip.title}\n${trip.subtitle || ""}\n\n${trip.description || ""}\n\n`;
       for (const iso of allDays()) {
         const d = dayInfo(iso); const n = dayNumber(trip, iso);
         txt += `\n==== ${n ? "Jour " + n + " — " : ""}${fmtDate(iso)}${d?.title ? " — " + d.title : ""} ====\n\n${d?.story || ""}\n`;
-        for (const x of media.filter((x) => x.day_date === iso)) txt += `\n[${x.kind}] ${x.path.split("/").pop()}${x.caption ? " — " + x.caption : ""}${x.lat != null ? ` (${x.lat}, ${x.lng})` : ""}\n`;
+        if (d && MEMBERS.name(d.author_id) && MEMBERS.isShared()) txt += `   (journée de ${MEMBERS.name(d.author_id)})\n`;
+        for (const st of S.stories.filter((x) => x.day_date === iso)) txt += `\n   — récit de ${MEMBERS.name(st.author_id) || "?"} —\n${st.body}\n`;
+        for (const nt of S.notes.filter((x) => x.day_date === iso)) txt += `\n   [carnet de bord · ${MEMBERS.name(nt.author_id) || "?"}] ${nt.body}\n`;
+        for (const v of S.voices.filter((v) => v.day_date === iso)) txt += `   🎙 mot du jour de ${MEMBERS.name(v.author_id) || "?"}\n`;
+        for (const x of media.filter((x) => x.day_date === iso)) txt += `\n[${x.kind}] ${x.path.split("/").pop()}${MEMBERS.name(x.author_id) ? " par " + MEMBERS.name(x.author_id) : ""}${x.caption ? " — " + x.caption : ""}${x.lat != null ? ` (${x.lat}, ${x.lng})` : ""}\n`;
         for (const c of comments.filter((c) => (c.day_id && c.day_id === d?.id) || media.some((x) => x.day_date === iso && x.id === c.media_id))) txt += `   💬 ${c.author} : ${c.body}${c.audio_path ? " [audio]" : ""}\n`;
       }
       root.file("recit.txt", txt);
@@ -1116,6 +1300,7 @@
         const files = [];
         for (const x of media) { files.push([`photos/${x.day_date || "sans-date"}/${x.path.split("/").pop()}`, x.path]); if (x.audio_path) files.push([`audios/photo-${x.audio_path.split("/").pop()}`, x.audio_path]); }
         for (const d of days) if (d.audio_path) files.push([`audios/recit-${d.day_date}-${d.audio_path.split("/").pop()}`, d.audio_path]);
+        for (const v of S.voices) files.push([`audios/mot-du-jour-${v.day_date}-${safe(MEMBERS.name(v.author_id))}.${(v.audio_path.split(".").pop() || "m4a")}`, v.audio_path]);
         for (const c of comments) if (c.audio_path) files.push([`audios/commentaire-${safe(c.author)}-${c.audio_path.split("/").pop()}`, c.audio_path]);
         let i = 0;
         for (const [name, path] of files) {
@@ -1140,12 +1325,14 @@
     const m = openModal(`<h2>Partager avec tes proches</h2>
       <p class="small muted">Ils ouvrent simplement ce lien dans leur navigateur : pas de compte, rien à installer. Le lien est secret — ne le publie pas en public.</p>
       <div class="share-box"><input readonly value="${esc(url)}" id="su"><div class="row" style="margin-top:8px">
-        <button class="btn sm primary" id="copy">Copier le lien</button>${navigator.share ? `<button class="btn sm" id="nshare">${ic("send", "sm")} Envoyer</button>` : ""}<a class="btn sm ghost" href="${esc(url)}" target="_blank">Aperçu</a></div></div>
+        <button class="btn sm primary" id="copy">Copier le lien</button>${navigator.share ? `<button class="btn sm" id="nshare">${ic("send", "sm")} Envoyer</button>` : ""}<a class="btn sm ghost" href="${esc(url)}" target="_blank">Aperçu</a></div>
+        <div class="row" style="margin-top:10px"><button class="btn sm ghost" id="named-links">${ic("share", "sm")} Plutôt un lien par personne…</button></div></div>
       ${cfg.VAPID_PUBLIC_KEY ? `<p class="small muted" id="push-count" style="margin-top:12px">…</p>` : ""}
       <label class="row" style="margin-top:16px"><input type="checkbox" id="is_shared" ${t.is_shared ? "checked" : ""}> Lien de partage actif</label>
       <label class="row" style="margin-top:8px"><input type="checkbox" id="allow_comments" ${t.allow_comments ? "checked" : ""}> Autoriser les commentaires des proches</label>
       <div class="actions" style="margin-top:16px"><button class="btn" data-close>Fermer</button></div>`);
     $("#copy", m.el).onclick = async () => { try { await navigator.clipboard.writeText(url); toast("Lien copié", "ok"); } catch { $("#su", m.el).select(); } };
+    $("#named-links", m.el).onclick = () => { m.close(); openAccess(); };
     const pc = $("#push-count", m.el);
     if (pc) API.countPushSubscriptions(t.id).then((n) => { pc.textContent = n ? `${n} proche${n > 1 ? "s reçoivent" : " reçoit"} une notification à chaque journée publiée.` : "Personne n'a encore activé les notifications (bouton « Me prévenir » sur la page du voyage)."; }).catch(() => { pc.textContent = ""; });
     const ns = $("#nshare", m.el); if (ns) ns.onclick = () => navigator.share({ title: t.title, text: "Suis mon voyage : " + t.title, url }).catch(() => { });
@@ -1199,6 +1386,19 @@
       navigator.serviceWorker.register("sw.js").then((reg) => reg.update().catch(() => { })).catch(() => { });
       let reloaded = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => { if (reloaded || !navigator.serviceWorker.controller) return; reloaded = true; if (S.gps.watchId == null) location.reload(); });
+    }
+
+    // Lien d'invitation : index.html?join=<jeton>. On traite cet écran avant tout
+    // le reste — l'invité n'a pas encore de compte, il n'y a rien à charger.
+    const joinToken = new URLSearchParams(location.search).get("join");
+    if (joinToken) {
+      show("screen-join"); hideSplash();
+      MEMBERS.joinScreen(joinToken, {
+        api: API,
+        onCancel: () => { location.replace(location.pathname); },
+        onJoined: (tripId) => { location.replace(location.pathname + "#trip=" + tripId); location.reload(); },
+      });
+      return;
     }
 
     const onUser = async (user) => {
