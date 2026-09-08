@@ -55,6 +55,16 @@
       $("#ok", m.el).onclick = () => { res(true); m.close(); };
     });
   }
+  // Comme confirm(), mais pour une action qui n'est pas une suppression : bouton
+  // principal en bleu, contenu libre (une liste, par exemple) et les deux libelles
+  // se choisissent.
+  function ask(html, okLabel, cancelLabel = "Annuler") {
+    return new Promise((res) => {
+      const m = openModal(`${html}<div class="actions"><button class="btn" data-close>${esc(cancelLabel)}</button><button class="btn primary" id="ok">${esc(okLabel)}</button></div>`,
+        { onClose: () => res(false) });
+      $("#ok", m.el).onclick = () => { res(true); m.close(); };
+    });
+  }
   function busy(el, on) { el.disabled = on; el.dataset.txt ??= el.textContent; el.textContent = on ? "…" : el.dataset.txt; }
 
   // ---------------------------------------------------------------
@@ -473,11 +483,28 @@
     const b = $(".panel-tabs button[data-tab=comments]"); const n = newCommentCount();
     b.innerHTML = `Commentaires${n ? `<span class="badge-count">${n}</span>` : ""}`;
   }
+  // #30 - Un brouillon publiable par moi : exactement ce qui porte la puce
+  // « Brouillon » dans la liste, et dont j'ai le droit de disposer (ma journee,
+  // ou toutes si le carnet est a moi). En direct, rien n'est en brouillon.
+  function myDraftDays(days) {
+    if (isLive()) return [];
+    return (days || allDays()).filter((iso) => {
+      const d = dayInfo(iso);
+      if (d?.published) return false;
+      // Volontairement plus strict que canEdit() : celui-ci laisse passer les lignes
+      // d'avant la v10 (author_id vide), que la base refuserait ensuite a un co-auteur.
+      // Une action de masse ne doit pas promettre ce qui echouera ligne a ligne.
+      if (!(isTripOwner() || !d || d.author_id === S.user.id)) return false;
+      return !!d || S.cur.media.some((x) => x.day_date === iso) || S.cur.tracks.some((x) => x.day_date === iso);
+    });
+  }
   function renderDays(body) {
     const days = allDays();
     const dl = S.drawn ? S.drawn.dayList : days;
+    const drafts = myDraftDays(days);
     body.innerHTML = `
       ${crewNewsHtml()}
+      ${drafts.length > 1 ? `<div class="row" style="margin-bottom:12px"><button class="btn sm secondary grow" id="pub-all">${ic("check", "sm")} Publier les ${drafts.length} brouillons</button></div>` : ""}
       <div class="row between" style="margin-bottom:12px">
         <span class="kicker">${days.length} journée${days.length > 1 ? "s" : ""}${S.dayFilter ? " · " + fmtDate(S.dayFilter, false) : ""}</span>
         <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout voir</button>` : ""}<button class="btn sm" id="add-day">${ic("plus")} Journée</button></div>
@@ -500,6 +527,7 @@
             ${ph.length > 1 ? `<div class="thumbs">${ph.slice(1, 6).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`).join("")}</div>` : ""}
           </div></div>`; }).join("")}</div>`;
     $("#add-day").onclick = () => dayForm(null);
+    const pa = $("#pub-all", body); if (pa) pa.onclick = () => publishDrafts(drafts);
     const cs = $("#crew-seen", body);
     if (cs) cs.onclick = async () => { try { await API.markSeen(S.cur.trip.id, "activity_seen_at"); await reloadMembers(); renderPanel(); } catch (e) { errToast(e); } };
     const cf = $("#clear-filter"); if (cf) cf.onclick = () => { S.dayFilter = null; redraw(true); renderPanel(); };
@@ -541,7 +569,8 @@
     // Le mot du jour n'a de sens qu'à plusieurs : sur un carnet solo, le récit
     // audio suffit et ce bloc n'existe pas.
     const showVoices = !!iso && (MEMBERS.isShared() || dayVoices.length > 0);
-    const m = openModal(`<div class="modal-head"><div class="grow">${iso ? `<div class="kicker">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}<h2>${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div><button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+    const m = openModal(`<div class="modal-head"><div class="grow">${iso ? `<div class="kicker">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}<h2>${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div>
+      <div class="row" style="gap:6px;flex:0 0 auto;flex-wrap:nowrap">${iso ? `<button type="button" class="btn icon ghost sm" id="day-prev" title="Journée précédente (enregistre)">${ic("chevron-left")}</button><button type="button" class="btn icon ghost sm" id="day-next" title="Journée suivante (enregistre)">${ic("chevron-right")}</button>` : ""}<button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div></div>
       ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
       ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
       ${d?.place ? `<div class="kicker" style="margin:-4px 0 10px">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}
@@ -680,9 +709,11 @@
     // Brouillon sauvé à chaque frappe : un tap malheureux ne perd plus rien
     const saveDraft = () => { if (mine && dirty()) OFF.LS.set(draftKey(iso), { title: form.title.value, story: form.story.value, at: Date.now() }); else OFF.LS.del(draftKey(iso)); };
     if (mine) { form.title.addEventListener("input", saveDraft); form.story.addEventListener("input", saveDraft); }
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      const fd = Object.fromEntries(new FormData(e.target));
+    // #31 - Le seul chemin d'écriture de la fiche : le bouton « Enregistrer » et les
+    // flèches ◀ ▶ passent tous les deux par ici, brouillon local (draftKey) et
+    // contributions personnelles (saveMine) compris. Renvoie false si ça a échoué.
+    async function saveDay() {
+      const fd = Object.fromEntries(new FormData(form));
       try {
         let saved = d;
         // La journée elle-même : seulement si elle est à moi (ou si je la crée).
@@ -701,9 +732,27 @@
         // Ce qui n'appartient qu'à moi : mon récit, mon mot du jour, mon carnet de bord.
         await saveMine(saved);
         OFF.LS.del(draftKey(iso)); saveLocal();
-        m.close(); renderPanel(); toast(mine ? "Journée enregistrée" : "Ta contribution est enregistrée", "ok");
-      } catch (err) { errToast(err, 6000); if (isNetworkError(err)) toast("Ton texte est gardé sur le téléphone : réessaie quand tu auras du réseau", "info", 6000); }
+        return true;
+      } catch (err) { errToast(err, 6000); if (isNetworkError(err)) toast("Ton texte est gardé sur le téléphone : réessaie quand tu auras du réseau", "info", 6000); return false; }
+    }
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!(await saveDay())) return;
+      m.close(); renderPanel(); toast(mine ? "Journée enregistrée" : "Ta contribution est enregistrée", "ok");
     };
+
+    // #31 - ◀ ▶ : enregistrer puis ouvrir la journée voisine sans repasser par la
+    // liste. `dl0` est l'ordre de allDays(), celui de la liste affichée.
+    const navIdx = iso ? dl0.indexOf(iso) : -1;
+    const goDay = async (dir) => {
+      const nx = dl0[navIdx + dir];
+      if (!nx) return toast(dir > 0 ? "Dernière journée" : "Première journée");
+      if (dirty() && !(await saveDay())) return;   // rien n'est perdu si l'envoi échoue
+      m.close(); renderPanel(); dayForm(nx);
+    };
+    const dPrev = $("#day-prev", m.el), dNext = $("#day-next", m.el);
+    if (dPrev) { dPrev.onclick = () => goDay(-1); dPrev.disabled = navIdx <= 0; }
+    if (dNext) { dNext.onclick = () => goDay(1); dNext.disabled = navIdx < 0 || navIdx >= dl0.length - 1; }
     const del = $("#del", m.el);
     if (del) del.onclick = async () => {
       if (!(await confirm("Supprimer le titre et le récit de cette journée ? (les photos et traces restent)"))) return;
@@ -789,6 +838,67 @@
     }
     try { await navigator.clipboard.writeText(text); toast("Journée publiée · message copié, colle-le dans WhatsApp, SMS ou email", "ok", 6000); }
     catch { toast("Journée publiée", "ok"); }
+  }
+
+  // #30 - Publier plusieurs brouillons d'un coup. Le vrai cas d'usage est le
+  // rattrapage : trois jours sans réseau, quatre journées en attente. Silencieux,
+  // puis UN SEUL message proposé pour l'ensemble — publier quatre journées ne doit
+  // jamais prévenir quatre fois (c'est le travers corrigé par #11 et le bandeau v10).
+  async function publishDrafts(list) {
+    if (!list || list.length < 2) return;
+    const line = (iso) => {
+      const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso);
+      const ph = S.cur.media.filter((x) => x.day_date === iso).length;
+      const quoi = [ph ? `${ph} photo${ph > 1 ? "s" : ""}` : "", d?.story ? "récit" : "", d?.audio_path ? "récit audio" : ""].filter(Boolean).join(" · ");
+      return `<li><b>${n ? "Jour " + n : fmtDateShort(iso)}</b> — ${esc(d?.title || fmtDate(iso, false))}${quoi ? `<br><span class="small muted">${quoi}</span>` : ""}</li>`;
+    };
+    const go = await ask(`<h2>Publier ${list.length} journées ?</h2>
+      <p class="small muted">Elles deviendront visibles par tes proches. Personne n'est prévenu tout de suite : tu pourras ensuite envoyer <b>un seul</b> message pour l'ensemble.</p>
+      <ul style="margin:10px 0 16px;padding-left:20px;line-height:1.6">${list.map(line).join("")}</ul>`,
+      `Publier les ${list.length}`);
+    if (!go) return;
+    const done = [], failed = [];
+    for (const iso of list) {
+      try {
+        const saved = await API.upsertDay(S.user, S.cur.trip.id, iso, { published: true, published_at: new Date().toISOString() });
+        const i = S.cur.days.findIndex((x) => x.id === saved.id);
+        if (i >= 0) S.cur.days[i] = saved; else S.cur.days.push(saved);
+        done.push(saved);
+      } catch (err) { failed.push(iso); }
+    }
+    S.cur.days.sort((a, b) => a.day_date.localeCompare(b.day_date));
+    saveLocal(); renderPanel();
+    if (!done.length) return toast("Aucune journée n'a pu être publiée — réessaie quand tu auras du réseau", "error", 6000);
+    toast(`${done.length} journée${done.length > 1 ? "s" : ""} publiée${done.length > 1 ? "s" : ""} — tes proches ${done.length > 1 ? "les" : "la"} verront à leur prochaine visite`, "ok", 5000);
+    if (failed.length) toast(`${failed.length} journée${failed.length > 1 ? "s" : ""} n'a pas pu être publiée — réessaie plus tard`, "error", 6000);
+    if (!(await ask(`<h2>Prévenir tes proches ?</h2>
+      <p class="small muted">Un seul message pour ${done.length > 1 ? `ces ${done.length} journées` : "cette journée"}.</p>`,
+      "Envoyer le message", "Plus tard"))) return;
+    // Si une seule a finalement abouti, c'est le message d'une journée qui convient.
+    if (done.length === 1) announceDay(done[0]); else announceDays(done);
+  }
+
+  // Le message unique de #30 — le pendant de announceDay() pour un lot de journées.
+  async function announceDays(list) {
+    const url = shareUrl() + "#day-" + list[0].day_date;
+    // « jours 2 à 5 » quand la série se suit — c'est le cas du rattrapage, celui de #30.
+    const nums = list.map((d) => dayNumber(S.cur.trip, d.day_date));
+    const join = (a) => (a.length > 1 ? a.slice(0, -1).join(", ") + " et " + a[a.length - 1] : a[0]);
+    const suite = list.length > 2 && nums.every(Boolean) && nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
+    const quoi = !nums.every(Boolean) ? join(list.map((d) => fmtDate(d.day_date, false)))
+      : suite ? `jours ${nums[0]} à ${nums[nums.length - 1]}`
+      : `jours ${join(nums.map(String))}`;
+    const text = `${S.cur.trip.title} — ${list.length} nouvelles journées en ligne (${quoi}) ! Carte, photos et récits ici : ${url}`;
+    if (cfg.VAPID_PUBLIC_KEY) {
+      API.notify(S.cur.trip.id, S.cur.trip.title, `${list.length} nouvelles journées en ligne 🧳`, url)
+        .then((r) => { if (r && r.total) toast(`Notification envoyée à ${r.sent} proche${r.sent > 1 ? "s" : ""}`, "ok"); })
+        .catch((e) => toast("Notifications non envoyées : " + friendly(e), "error", 6000));
+    }
+    if (navigator.share) {
+      try { await navigator.share({ title: S.cur.trip.title, text, url }); toast("Message envoyé", "ok"); return; } catch { /* annulé */ }
+    }
+    try { await navigator.clipboard.writeText(text); toast("Message copié · colle-le dans WhatsApp, SMS ou email", "ok", 6000); }
+    catch { toast("Journées publiées", "ok"); }
   }
 
   // ---------- Onglet Photos ----------
