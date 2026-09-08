@@ -13,12 +13,16 @@
   }
 
   let client = null;
+  // v10.5 · « Voir comme un proche » (#12) : la page publique peut demander un
+  // client SANS session, pour être vraiment déconnectée même si l'app est
+  // ouverte dans un autre onglet du même navigateur.
+  let anonOnly = false;
   function sb() {
     if (!client) {
       if (!window.supabase) throw new Error("Bibliothèque Supabase non chargée (pas de connexion internet ?)");
-      client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-      });
+      client = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, anonOnly
+        ? { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "bv-apercu" } }
+        : { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
     }
     return client;
   }
@@ -30,6 +34,10 @@
 
   const api = {
     isConfigured,
+
+    // v10.5 · à appeler AVANT toute requête (share.js le fait au chargement).
+    // Renvoie false si le client était déjà créé — donc trop tard.
+    useAnonymousSession() { if (client) return false; anonOnly = true; return true; },
 
     // ---------- Authentification ----------
     async getUser() {

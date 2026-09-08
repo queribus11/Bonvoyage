@@ -7,12 +7,20 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const root = $("#share-root");
-  const token = new URLSearchParams(location.search).get("t");
+  const params = new URLSearchParams(location.search);
+  const token = params.get("t");
+  // #12 · « Voir comme un proche » : ?apercu=<prénom> (ou 1). Dans ce mode, la
+  // page s'ouvre déconnectée, ne garde AUCUN repère (ni « déjà vu », ni prénom)
+  // et n'envoie aucun commentaire — Sophie voit donc exactement la page d'un
+  // proche qui arrive pour la première fois.
+  const preview = params.get("apercu");
+  const previewName = preview && preview !== "1" ? preview : "";
+  if (preview && window.API && API.useAnonymousSession) API.useAnonymousSession();
   const NAME_KEY = "cv_visitor_name";
   const VISIT_KEY = "cv_last_visit_" + token;
 
   let D = null, map = null, drawn = null, dayFilter = null, lastVisit = 0, introDone = false, introStarted = false, replayWanted = false;
-  try { lastVisit = Date.parse(localStorage.getItem(VISIT_KEY) || "") || 0; } catch { }
+  try { if (!preview) lastVisit = Date.parse(localStorage.getItem(VISIT_KEY) || "") || 0; } catch { }
   const isNew = (ts) => !!lastVisit && !!ts && Date.parse(ts) > lastVisit;
   const isMobile = () => window.matchMedia("(max-width: 640px)").matches;
   const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -32,7 +40,8 @@
     if (window.MEMBERS) MEMBERS.setCrew(D.authors || [], null);
     document.title = D.trip.title + " — Bonvoyage";
     render();
-    const stamp = () => { try { localStorage.setItem(VISIT_KEY, new Date().toISOString()); } catch { } };
+    // un aperçu ne laisse aucune trace : le repère « déjà vu » n'est pas posé
+    const stamp = () => { if (preview) return; try { localStorage.setItem(VISIT_KEY, new Date().toISOString()); } catch { } };
     let stamped = false; const stampOnce = () => { if (!stamped) { stamped = true; stamp(); } };
     window.addEventListener("scroll", () => { if (scrollY > innerHeight * .6) stampOnce(); }, { passive: true });
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") stampOnce(); });
@@ -69,6 +78,42 @@
     document.head.appendChild(link);
   }
 
+  // Le bandeau d'aperçu, en haut de la page, avec la sortie de secours.
+  function previewBarHtml() {
+    return `<div id="apercu-bar" style="position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:10px;
+      padding:10px 14px;background:#123F66;color:#fff;font-size:14px;font-weight:700;line-height:1.35">
+      <span style="flex:1;min-width:0">Aperçu · voici le carnet tel que ${previewName ? esc(previewName) + " le voit" : "le voient tes proches"}.</span>
+      <button type="button" class="btn sm glass" id="apercu-close" style="flex:none">Fermer</button></div>`;
+  }
+  // Le lien de cette page, sans l'ancre ni le repère d'aperçu.
+  function shareLink() {
+    const u = new URL(location.href); u.hash = ""; u.searchParams.delete("apercu"); return u.href;
+  }
+  // #16 · Le proche peut faire suivre le carnet, par la feuille de partage de
+  // son téléphone. « Envoyer » et « Copier le lien » restent deux gestes
+  // séparés : une phrase collée dans une barre d'adresse devient une recherche.
+  function shareBlockHtml() {
+    return `<div class="home-tip" id="share-block" style="text-align:center">
+      <b>Faire suivre ce carnet</b>
+      <div class="small muted" style="margin:4px 0 12px">À quelqu'un d'autre de la famille, qui aimerait le suivre aussi.</div>
+      <div class="row" style="justify-content:center">
+        ${navigator.share ? `<button class="btn primary" id="sb-send">${ic("send", "sm")} Envoyer</button>` : ""}
+        <button class="btn" id="sb-copy">Copier le lien</button>
+      </div></div>`;
+  }
+  function bindShareBlock() {
+    const send = $("#sb-send");
+    if (send) send.onclick = async () => {
+      try { await navigator.share({ title: D.trip.title, text: `Suis notre voyage « ${D.trip.title} » : `, url: shareLink() }); }
+      catch { /* annulé */ }
+    };
+    const copy = $("#sb-copy");
+    if (copy) copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(shareLink()); toast("Lien copié", "ok"); }
+      catch { toast(shareLink(), "info", 10000); }
+    };
+  }
+
   function dayList() {
     const set = new Set([...D.days.map((d) => d.day_date), ...D.tracks.map((t) => t.day_date), ...D.media.map((m) => m.day_date)].filter(Boolean));
     return [...set].sort();
@@ -84,6 +129,7 @@
     const newDays = days.filter((iso) => { const d = D.days.find((x) => x.day_date === iso); return (d && isNew(d.published_at)) || D.media.some((m) => m.day_date === iso && isNew(m.created_at)); });
     const showTip = isMobile() && !isStandalone() && !lastVisit;
     root.innerHTML = `
+      ${preview ? previewBarHtml() : ""}
       ${newDays.length ? `<div class="news-pill"><div><i></i>Du nouveau : ${newDays.map((iso) => { const n = dayNumber(D.trip, iso); return `<a href="#day-${iso}">${n ? "Jour " + n : CV.fmtDateShort(iso)}</a>`; }).join(", ")}</div></div>` : ""}
       <header class="share-hero" ${cover ? `style="background-image:url('${cover}')"` : ""}>
         <div class="inner">${t.subtitle ? `<div class="sub">${esc(t.subtitle)}</div>` : ""}<h1>${esc(t.title)}</h1>
@@ -109,10 +155,14 @@
         ${days.map((iso) => daySection(iso, days)).join("")}
         ${!days.length ? `<p class="muted" style="text-align:center">Le récit n'a pas encore commencé… revenez bientôt !</p>` : ""}
       </main>
+      ${shareBlockHtml()}
       <footer class="share-footer"><div class="logo"><img src="icons/icon.svg" alt="Valdo"></div><span class="wordmark"><span>bon</span><b>voyage</b></span><span class="hand">tes voyages, racontés</span><span class="version">v${window.BV_VERSION || "?"}</span>
         <div class="home-tip">${homeTipHtml()}</div>
       </footer>`;
     animateKm();
+    bindShareBlock();
+    const ab = $("#apercu-close");
+    if (ab) ab.onclick = () => { window.close(); setTimeout(() => { location.href = "index.html"; }, 250); };
     const tc = $("#tip-close"); if (tc) tc.onclick = () => $("#tip-top").remove();
     installManifest();
 
@@ -233,8 +283,15 @@
     const initial = (c.author || "?").trim().charAt(0).toUpperCase();
     return `<div class="comment${isNew(c.created_at) ? " is-new" : ""}"><span class="avatar">${esc(initial)}</span><div class="body"><b>${esc(c.author)}</b><span class="when">${new Date(c.created_at).toLocaleDateString("fr-FR")}</span>${isNew(c.created_at) ? `<span class="new-mark">nouveau</span>` : ""}${c.body ? `<div>${esc(c.body)}</div>` : ""}${c.audio_path ? bigAudio(API.publicUrl(c.audio_path), `Écouter ${esc(c.author)}`, true) : ""}</div></div>`;
   }
+  // #9 · Le prénom n'est demandé qu'au premier message, puis mémorisé dans le
+  // navigateur du proche. La lecture est protégée : en navigation privée,
+  // Safari fait échouer localStorage, et le formulaire ne doit pas disparaître.
+  function knownName() {
+    if (preview) return "";   // en aperçu, on veut voir le formulaire du tout premier message
+    try { return localStorage.getItem(NAME_KEY) || ""; } catch { return ""; }
+  }
   function commentFormHtml() {
-    const known = localStorage.getItem(NAME_KEY) || "";
+    const known = knownName();
     return `<form class="comment-form" id="cf">
         ${known ? `<div class="small muted" id="cf-who">Vous écrivez en tant que <b>${esc(known)}</b> · <a href="#" id="cf-not-me">pas vous ?</a></div>` : ""}
         <input name="author" placeholder="Votre prénom (obligatoire)" required maxlength="60" value="${esc(known)}" ${known ? "hidden" : ""}>
@@ -373,6 +430,7 @@
   }
 
   async function submitComment(form, rec, { mediaId, dayId }, onDone) {
+    if (preview) return toast("Aperçu : le message n'est pas envoyé.", "info", 4500);
     const author = form.author.value.trim(), body = form.body.value.trim(), blob = rec.getBlob();
     if (!author) return toast("Indiquez votre prénom", "error");
     if (!body && !blob) return toast("Écrivez ou enregistrez un message", "error");

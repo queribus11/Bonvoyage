@@ -276,6 +276,8 @@
     const active = links.filter((l) => l.is_active);
     const cut = links.filter((l) => !l.is_active);
     const url = (l) => `${ctx.shareBase}?t=${l.token}`;
+    // #12 · l'aperçu ouvre le carnet déconnecté, avec le lien de cette personne.
+    const previewUrl = (l) => `${url(l)}&apercu=${encodeURIComponent(l.label || "1")}`;
 
     pane.innerHTML = `
       <p class="small muted">Un lien par personne : tu vois qui a ouvert le carnet et quand, et tu peux couper un lien sans toucher aux autres.
@@ -286,14 +288,19 @@
           <button type="button" class="btn primary sm" id="lk-add">${ic("plus", "sm")} Créer un lien</button></div>
       </div>
 
-      ${active.length ? `<div class="member-list">${active.map((l) => `<div class="member" data-link="${esc(l.id)}">
+      ${active.length ? `<div class="member-list">${active.map((l) => `<div class="member" data-link="${esc(l.id)}" style="flex-wrap:wrap">
         <span class="author-dot big" style="background:var(--azur)">${esc((l.label || "?").charAt(0).toUpperCase())}</span>
         <div class="grow" style="min-width:0"><b>${esc(l.label || "sans nom")}</b>
           <span class="small muted">${l.opens ? `${l.opens} ouverture${l.opens > 1 ? "s" : ""} · dernière le ${new Date(l.last_seen_at).toLocaleDateString("fr-FR")}` : "jamais ouvert"}</span></div>
-        <button type="button" class="btn sm ghost lk-copy">Copier</button>
         <button type="button" class="btn sm ghost lk-renew" title="Couper l'ancien et en créer un nouveau">${ic("sparkle", "sm")}</button>
         <button type="button" class="btn sm ghost danger lk-cut" title="Couper ce lien">${ic("close", "sm")}</button>
-      </div>`).join("")}</div>` : `<p class="help">Aucun lien nominatif pour l'instant.</p>`}
+        <div class="row" style="flex-basis:100%;gap:6px">
+          ${navigator.share ? `<button type="button" class="btn sm lk-send">Envoyer</button>` : ""}
+          <button type="button" class="btn sm ghost lk-copy">Copier le lien</button>
+          <button type="button" class="btn sm ghost lk-eye">Aperçu</button>
+        </div>
+      </div>`).join("")}</div>
+      <p class="help">« Aperçu » ouvre le carnet comme le voit cette personne, déconnectée et sans rien garder — mais il ouvre vraiment son lien : compte une ouverture de plus.</p>` : `<p class="help">Aucun lien nominatif pour l'instant.</p>`}
 
       ${cut.length ? `<details style="margin-top:14px"><summary class="small muted">${cut.length} lien${cut.length > 1 ? "s" : ""} coupé${cut.length > 1 ? "s" : ""}</summary>
         <div class="member-list">${cut.map((l) => `<div class="member muted" data-link="${esc(l.id)}">
@@ -309,7 +316,9 @@
       catch (e) { toast(e.message, "error"); }
     };
     const find = (b) => links.find((l) => l.id === b.closest(".member").dataset.link);
-    $$(".lk-copy", pane).forEach((b) => b.onclick = () => { const l = find(b); copyLink(l, url(l), ctx); });
+    $$(".lk-send", pane).forEach((b) => b.onclick = () => { const l = find(b); sendLink(l, url(l), ctx); });
+    $$(".lk-copy", pane).forEach((b) => b.onclick = () => { const l = find(b); copyLinkOnly(l, url(l), ctx); });
+    $$(".lk-eye", pane).forEach((b) => b.onclick = () => { window.open(previewUrl(find(b)), "_blank", "noopener"); });
     $$(".lk-renew", pane).forEach((b) => b.onclick = async () => {
       const l = find(b);
       if (!(await ctx.confirm(`Créer un nouveau lien pour ${l.label} ? L'ancien cessera de fonctionner définitivement.`, "Nouveau lien"))) return;
@@ -330,12 +339,18 @@
     });
   }
 
-  async function copyLink(l, url, ctx) {
-    const text = `Suis notre voyage « ${ctx.trip.title} » : ${url}`;
-    if (navigator.share) { try { await navigator.share({ title: ctx.trip.title, text, url }); return; } catch { } }
+  // Envoyer le message et copier l'adresse seule sont DEUX gestes : une phrase
+  // entière collée dans une barre d'adresse devient une recherche Google.
+  async function sendLink(l, url, ctx) {
+    const text = `Suis notre voyage « ${ctx.trip.title} » : `;
+    if (navigator.share) { try { await navigator.share({ title: ctx.trip.title, text, url }); return; } catch { return; } }
+    return copyLinkOnly(l, url, ctx);
+  }
+  async function copyLinkOnly(l, url, ctx) {
     try { await navigator.clipboard.writeText(url); toast(`Lien de ${l.label || "partage"} copié`, "ok"); }
     catch { toast(url, "info", 10000); }
   }
+  const copyLink = sendLink;   // à la création d'un lien, on enchaîne sur l'envoi
 
   // ---------------------------------------------------------------------
   //  L'arrivée d'un invité : index.html?join=<jeton>
