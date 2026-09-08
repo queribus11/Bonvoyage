@@ -169,7 +169,8 @@
           <span class="author-dot big pending">✉︎</span>
           <div class="grow" style="min-width:0"><b>${esc(i.label || "sans nom")}</b>
             <span class="small muted">créée le ${new Date(i.created_at).toLocaleDateString("fr-FR")} · expire le ${new Date(i.expires_at).toLocaleDateString("fr-FR")}</span></div>
-          <button type="button" class="btn sm ghost i-copy">Copier le lien</button>
+          <button type="button" class="btn sm ghost i-send" title="Envoyer le message d'invitation">${ic("send", "sm")}</button>
+          <button type="button" class="btn sm ghost i-copy" title="Copier uniquement l'adresse du lien">Copier le lien</button>
           <button type="button" class="btn sm ghost danger i-del" title="Annuler l'invitation">${ic("close", "sm")}</button>
         </div>`).join("")}</div>` : ""}` : ""}`;
 
@@ -193,17 +194,25 @@
       if (!label) return toast("Écris d'abord son prénom", "error");
       add.disabled = true;
       try {
-        const inv = await ctx.api.createInvite(ctx.trip.id, label);
-        await copyInvite(inv, label, ctx);
+        await ctx.api.createInvite(ctx.trip.id, label);
         await renderCrewPane(pane, ctx);
+        toast(`Invitation créée pour ${label} — « Envoyer » pour le message tout prêt, « Copier le lien » pour l'adresse seule`, "ok", 7000);
       } catch (e) { toast(e.message, "error", 6000); }
       add.disabled = false;
     };
 
     // Copier / annuler une invitation
-    $$(".i-copy", pane).forEach((b) => b.onclick = () => {
+    $$(".i-send", pane).forEach((b) => b.onclick = () => {
       const i = pending.find((x) => x.id === b.closest(".member").dataset.invite);
-      copyInvite(i, i.label, ctx);
+      sendInvite(i, i.label, ctx);
+    });
+    // « Copier le lien » copie l'ADRESSE SEULE : collée dans une barre d'adresse, une phrase
+    // entière serait prise pour une recherche.
+    $$(".i-copy", pane).forEach((b) => b.onclick = async () => {
+      const i = pending.find((x) => x.id === b.closest(".member").dataset.invite);
+      const url = inviteUrl(ctx, i.token);
+      try { await navigator.clipboard.writeText(url); toast("Adresse du lien copiée", "ok"); }
+      catch { toast(url, "info", 10000); }
     });
     $$(".i-del", pane).forEach((b) => b.onclick = async () => {
       const i = pending.find((x) => x.id === b.closest(".member").dataset.invite);
@@ -218,7 +227,8 @@
     return `${base}index.html?join=${token}`;
   }
 
-  async function copyInvite(inv, label, ctx) {
+  // Le message tout prêt, pour WhatsApp ou un SMS — pas pour une barre d'adresse.
+  async function sendInvite(inv, label, ctx) {
     const url = inviteUrl(ctx, inv.token);
     const text = `${label ? label + ", " : ""}je t'ouvre mon carnet de voyage « ${ctx.trip.title} » : tes photos et tes mots y auront leur place à côté des miens. Ouvre ce lien pour rejoindre : ${url}`;
     if (navigator.share) {

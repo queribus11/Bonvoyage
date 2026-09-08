@@ -1352,6 +1352,8 @@
   const ONB_KEY = "bv_onboarded";
   function onboarding(force) {
     if (!force && OFF.LS.get(ONB_KEY)) return;
+    if ($("#modal-host .onb")) return;      // v10.1 — déjà à l'écran : on n'en empile pas un second
+    OFF.LS.set(ONB_KEY, true);              // v10.1 — marqué dès l'ouverture, plus à la fermeture
     const slides = [
       { hand: "Bienvenue !", title: "Ton voyage sur une carte", text: "Pose une balise 📍 à chaque étape, importe la trace de ta montre (GPX), ajoute tes photos : elles se placent toutes seules grâce à leur date et leur position." },
       { hand: "Chaque soir…", title: "Raconte ta journée", text: "Un titre, quelques lignes ou un récit dicté au micro 🎙, une légende ou un mot audio sur chaque photo. Tout reste en brouillon jusqu'à ce que tu appuies sur « Publier »." },
@@ -1363,7 +1365,7 @@
       <div class="slides">${slides.map((s, k) => `<div class="slide${k === 0 ? " active" : ""}"><span class="hand">${esc(s.hand)}</span><h2>${esc(s.title)}</h2><p>${esc(s.text)}</p></div>`).join("")}</div>
       <div class="dots">${slides.map((_, k) => `<i class="${k === 0 ? "on" : ""}"></i>`).join("")}</div>
       <div class="actions"><button type="button" class="btn ghost" id="onb-skip">Passer</button><button type="button" class="btn primary" id="onb-next">Suivant →</button></div>
-    </div>`, { onClose: () => OFF.LS.set(ONB_KEY, true) });
+    </div>`);
     const show = () => { $$(".slide", m.el).forEach((s, k) => s.classList.toggle("active", k === i)); $$(".dots i", m.el).forEach((d, k) => d.classList.toggle("on", k === i)); $("#onb-next", m.el).textContent = i === slides.length - 1 ? "C'est parti !" : "Suivant →"; };
     $("#onb-next", m.el).onclick = () => { if (i < slides.length - 1) { i++; show(); } else m.close(); };
     $("#onb-skip", m.el).onclick = () => m.close();
@@ -1404,7 +1406,9 @@
     const onUser = async (user) => {
       const wasUser = S.user; S.user = user;
       if (!user) { S.cur = null; show("screen-auth"); hideSplash(); return; }
-      if (wasUser && wasUser.id === user.id && S.cur) return;   // simple rafraîchissement de jeton
+      // v10.1 — le « && S.cur » de la v9 ne couvrait pas l'écran « Mes voyages », où S.cur est vide :
+      // chaque événement d'authentification y rejouait tout l'écran et empilait un onboarding de plus.
+      if (wasUser && wasUser.id === user.id) return;   // simple rafraîchissement de jeton
       const hash = new URLSearchParams(location.hash.slice(1));
       if (hash.get("trip")) openTrip(hash.get("trip")); else { show("screen-trips"); loadTrips(); }
       hideSplash();
