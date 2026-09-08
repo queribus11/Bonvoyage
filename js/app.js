@@ -222,6 +222,8 @@
       const u = await API.upsertDay(S.user, S.cur.trip.id, d.day_date, { place: name });
       Object.assign(d, u); if (S.tab === "days") renderPanel();
     }).catch(() => { });
+    // #22 : rattrapage — les traces déjà en base sans aucune altitude sont complétées ici, en arrière-plan
+    if (navigator.onLine && !S.offline) CV.fillElevations(S.cur, enrichElevation).catch(() => { });
     syncAll();
   }
   function saveLocal() { if (S.cur) OFF.cacheTrip(S.cur); }
@@ -234,6 +236,14 @@
   // « Ce que j'ai moi-même ajouté » — plus tout, si je suis le propriétaire du voyage.
   // Les lignes d'avant la v10 n'ont pas d'auteur : elles appartiennent au propriétaire.
   const canEdit = (row) => isTripOwner() || !row || !row.author_id || row.author_id === S.user.id;
+  // #22 : complète en douceur l'altitude d'une trace qui n'en a aucune (relief déduit des tuiles DEM).
+  // Ne fait rien si la trace n'est plus modifiable (droits) ou pas encore synchronisée (id local, hors ligne).
+  async function enrichElevation(t, pts) {
+    if (!canEdit(t) || t._pending || OFF.isLocalId(t.id)) return;
+    const distance_m = CV.trackDistance(pts);
+    const u = await API.updateTrack(t.id, { points: pts, distance_m });
+    Object.assign(t, u); saveLocal(); redraw(); if (S.tab === "days") renderPanel();
+  }
   const pill = (id, o) => (window.MEMBERS ? MEMBERS.pill(id, o) : "");
   const dot = (id, o) => (window.MEMBERS ? MEMBERS.dot(id, o) : "");
   async function reloadMembers() {
@@ -775,6 +785,7 @@
         if (!route || route.length < 2) throw new Error("Itinéraire introuvable pour ces points");
         const tr = await API.createTrack(S.user, S.cur.trip.id, { name: "Itinéraire estimé (route)", day_date: iso, source: "route", points: route, distance_m: CV.trackDistance(route) });
         S.cur.tracks.push(tr); saveLocal(); redraw(); toast(`Itinéraire tracé · ${fmtDistance(tr.distance_m)}`, "ok"); m.close(); dayForm(iso);
+        if (navigator.onLine) CV.fillElevations(S.cur, enrichElevation).catch(() => { }); // #22 : un itinéraire estimé n'a jamais d'altitude propre
       } catch (err) { errToast(err, 6000); busy(routeBtn, false); }
     };
     $$("#day-mode-picker .mode", m.el).forEach((b) => b.onclick = async () => {
@@ -1363,6 +1374,8 @@
       } catch (err) { toast(`${f.name} : ${friendly(err)}`, "error", 5000); }
     }
     saveLocal(); renderTripHeader(); redraw(true); renderPanel();
+    // #22 : le GPX importé n'a pas toujours d'altitude (montre, appli) — on la déduit du relief sans bloquer l'import
+    if (navigator.onLine) CV.fillElevations(S.cur, enrichElevation).catch(() => { });
   }
   function trackForm(tr) {
     const m = openModal(`<h2>Trace</h2><form id="f">

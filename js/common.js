@@ -206,6 +206,70 @@
     }
   }
 
+  // ---------- Altitude déduite du relief, pour les traces qui n'en ont pas (#22) ----------
+  // Mêmes tuiles d'altitude que le fond « Relief » (Terrarium / Mapzen, AWS Open Data, sans clé) :
+  // chaque pixel encode une élévation. Formule Terrarium : altitude = (R*256 + G + B/256) - 32768.
+  const DEM_ZOOM = 12;      // compromis résolution (~40 m/px) / nombre de tuiles à charger
+  const DEM_MAX_TILES = 40; // garde-fou : une trace qui couvrirait un pays entier ne doit pas déclencher une rafale de requêtes
+  function tileForLatLng(lat, lng, z) {
+    const n = 2 ** z;
+    const xf = (lng + 180) / 360 * n;
+    const latRad = lat * Math.PI / 180;
+    const yf = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+    const x = Math.floor(xf), y = Math.floor(yf);
+    const px = Math.min(255, Math.max(0, Math.floor((xf - x) * 256)));
+    const py = Math.min(255, Math.max(0, Math.floor((yf - y) * 256)));
+    return { x, y, px, py };
+  }
+  async function loadDemTile(z, x, y) {
+    const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const r = await fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`, { signal: ctrl.signal });
+      if (!r.ok) return null;
+      const bitmap = await createImageBitmap(await r.blob());
+      const c = document.createElement("canvas"); c.width = bitmap.width; c.height = bitmap.height;
+      const ctx = c.getContext("2d"); ctx.drawImage(bitmap, 0, 0);
+      return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+    } catch { return null; } finally { clearTimeout(timer); }
+  }
+  // Altitude d'une liste de points d'après le relief. N'écrase jamais une altitude déjà connue ; en cas de
+  // souci (hors ligne, service indisponible, position aberrante), les points concernés ressortent inchangés —
+  // cette fonction ne lève jamais d'exception.
+  async function elevationForPoints(points) {
+    const out = points.map((p) => ({ ...p }));
+    const tiles = new Map(); // "x,y" → ImageData | null, le temps de l'appel
+    let loaded = 0;
+    for (const p of out) {
+      if (p.alt != null || p.lat == null || p.lng == null) continue;
+      const { x, y, px, py } = tileForLatLng(p.lat, p.lng, DEM_ZOOM);
+      const key = x + "," + y;
+      if (!tiles.has(key)) {
+        if (loaded >= DEM_MAX_TILES) continue; // garde-fou atteint : on s'arrête là, sans échouer
+        loaded++;
+        try { tiles.set(key, await loadDemTile(DEM_ZOOM, x, y)); } catch { tiles.set(key, null); }
+      }
+      const img = tiles.get(key);
+      if (!img) continue;
+      const i = (py * img.width + px) * 4;
+      const alt = (img.data[i] * 256 + img.data[i + 1] + img.data[i + 2] / 256) - 32768;
+      if (isFinite(alt)) p.alt = Math.round(alt);
+    }
+    return out;
+  }
+  // Repère les traces d'un voyage qui n'ont aucune altitude et les complète en douceur, une à la fois.
+  // save(track, points) doit persister le résultat (et ne rien faire si la trace n'est plus modifiable) ;
+  // une trace en échec ne doit jamais empêcher les suivantes.
+  async function fillElevations(cur, save) {
+    const todo = (cur.tracks || []).filter((t) => (t.points || []).length && !t.points.some((p) => p.alt != null));
+    for (const t of todo) {
+      try {
+        const pts = await elevationForPoints(t.points);
+        if (pts.some((p) => p.alt != null)) await save(t, pts);
+      } catch { /* une trace en échec ne doit pas empêcher les suivantes */ }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+
   // ---------- Images ----------
   function loadImage(blob) {
     return new Promise((res, rej) => {
@@ -423,6 +487,6 @@
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
-    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
+    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio };
 })();
