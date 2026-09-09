@@ -533,6 +533,17 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .day-card .dc-num { min-width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-body); font-weight: 800; padding: 0 8px; }
 /* Survol du voyage : légende et bouton Arrêter */
 .map-actions { position: absolute; right: 12px; top: 12px; z-index: 6; display: flex; gap: 8px; }
+/* Téléphone : les mots s'en vont et les boutons deviennent ronds. Avec eux, la rangée
+   du haut demandait ~482 px pour 337 disponibles : elle débordait de la carte et
+   recouvrait Relief, Plan et 3D. Le sens passe par l'infobulle, comme pour le bouton
+   Pause du survol juste à côté. S'il n'y a qu'un bouton (carnet sans parcours à
+   suivre), la place existe et le mot reste. */
+@media (max-width: 640px) {
+  .share-map-wrap .map-actions .btn { width: 44px; min-height: 44px; padding: 0; }
+  .share-map-wrap .map-actions .lbl { display: none; }
+  .share-map-wrap .map-actions .btn:only-child { width: auto; padding: 0 14px; }
+  .share-map-wrap .map-actions .btn:only-child .lbl { display: inline; }
+}
 .replay-overlay { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 7; display: flex; align-items: center; gap: 12px; pointer-events: none; }
 .replay-overlay .caption { flex: 1; min-width: 0; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 18px; padding: 10px 16px; box-shadow: var(--sh-2); font-size: 15px; color: var(--ink); }
 .replay-overlay .caption b { font-family: var(--font-title); font-weight: 600; font-size: 18px; }

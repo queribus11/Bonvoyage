@@ -149,7 +149,7 @@
       <div id="map-sentinel" aria-hidden="true"></div>
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
         <div class="map-hud"><div class="map-caption" id="map-caption" hidden></div><div class="legend" id="legend"></div></div>
-        <div class="map-actions"><button class="btn sm glass" id="map-expand">${ic("expand", "sm")} Plein écran</button>${canReplay ? `<button class="btn sm glass" id="map-replay">${ic("play", "sm")} Suivre le parcours</button>` : ""}</div>
+        <div class="map-actions"><button class="btn sm glass" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand", "sm")}<span class="lbl">Plein écran</span></button>${canReplay ? `<button class="btn sm glass" id="map-replay" title="Suivre le parcours" aria-label="Suivre le parcours sur la carte">${ic("play", "sm")}<span class="lbl">Suivre le parcours</span></button>` : ""}</div>
         <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><div class="replay-ctls"><button class="btn sm" id="replay-pause" title="Pause">${ic("pause", "sm")}</button><button class="btn sm" id="replay-next" title="Journée suivante">${ic("chevron-right", "sm")} Suivant</button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Retour au récit</button></div></div></div>
       <main class="story">
         ${t.description ? `<div class="intro">${nl2p(t.description)}</div>` : ""}
@@ -172,7 +172,11 @@
     map = BVMAP.create("share-map", { cooperative: true, globe: true, terrain: false, controlsPos: "bottom-right" });
     const setBig = (big) => {
       const w = $("#map-wrap"); w.classList.toggle("big", big);
-      $("#map-expand").innerHTML = big ? `${ic("close", "sm")} Réduire` : `${ic("expand", "sm")} Plein écran`;
+      // Sur téléphone le mot est masqué : c'est l'infobulle qui dit ce que fait le bouton, elle doit suivre.
+      const eb = $("#map-expand");
+      eb.innerHTML = big ? `${ic("close", "sm")}<span class="lbl">Réduire</span>` : `${ic("expand", "sm")}<span class="lbl">Plein écran</span>`;
+      eb.title = big ? "Réduire la carte" : "Plein écran";
+      eb.setAttribute("aria-label", big ? "Réduire la carte" : "Afficher la carte en plein écran");
       BVMAP.setCooperative(map, !big);
       document.body.classList.toggle("map-big", big);
       setTimeout(() => { BVMAP.resize(map); if (!map.replaying && introDone && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
