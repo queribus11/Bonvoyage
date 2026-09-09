@@ -426,6 +426,52 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-day.hidden .in { opacity: 0; }
 .bv-day.hidden { pointer-events: none; }
 .maplibregl-marker { z-index: 1; } .maplibregl-marker:has(.bv-day) { z-index: 2; }
+/* Les arrêts d'une journée (#5) — le picto posé sur la trace.
+   La pastille est bleu nuit en clair comme en sombre : elle vit sur la carte,
+   pas sur la page, et doit se détacher du satellite comme du plan. */
+.bv-stop { width: 34px; height: 34px; cursor: pointer; }
+.bv-stop .in { display: block; width: 34px; height: 34px; border-radius: 50%; border: 2.5px solid #fff; background: var(--night); box-shadow: 0 5px 14px rgba(18,63,102,.4); padding: 5px; position: relative; transition: transform var(--t-fast) var(--ease), opacity var(--t-mid); }
+.bv-stop .in::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 9px; height: 9px; background: #fff; transform: translateX(-50%) rotate(45deg); border-radius: 2px; z-index: -1; }
+.bv-stop .in svg { width: 100%; height: 100%; display: block; }
+.bv-stop:hover .in { transform: scale(1.12); }
+.bv-stop:hover { z-index: 3; }
+.bv-stop.hidden .in { opacity: 0; transform: scale(.3); }
+.bv-stop.hidden { pointer-events: none; }
+.maplibregl-marker:has(.bv-stop) { z-index: 2; }
+
+/* Le fil des arrêts — chez les proches (sous les statistiques) et dans la fiche journée */
+.stop-trail { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; }
+.stop-trail li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--r-sm); background: var(--cream); margin-bottom: 6px; cursor: pointer; transition: background var(--t-fast); text-align: left; border: none; width: 100%; font: inherit; color: inherit; }
+.stop-trail li:hover { background: var(--sky-soft); }
+.stop-trail .pic { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; background: var(--night); padding: 5px; }
+.stop-trail .pic svg { width: 100%; height: 100%; display: block; }
+.stop-trail .txt { min-width: 0; flex: 1; }
+.stop-trail .nm { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-trail .meta { display: block; font-size: 12px; color: var(--muted); }
+.stop-trail .hr { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 13px; color: var(--azur); }
+.stop-trail .note { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* La fiche journée : la liste modifiable, et les propositions faites à partir des photos */
+.stop-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--cream); margin-bottom: 6px; }
+.stop-row .pic { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; background: var(--night); padding: 5px; }
+.stop-row .pic svg { width: 100%; height: 100%; display: block; }
+.stop-row .grow { min-width: 0; }
+.stop-row .nm { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-row .meta { display: block; font-size: 12px; color: var(--muted); }
+.stop-proposal { border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: 14px; margin-bottom: 12px; background: var(--paper-soft); }
+.stop-proposal .thumbs { display: flex; gap: 4px; margin: 8px 0 10px; overflow-x: auto; }
+.stop-proposal .thumbs img { width: 52px; height: 52px; object-fit: cover; border-radius: var(--r-sm); flex: 0 0 auto; background: var(--cream); }
+.stop-proposal .lead { font-size: 14.5px; line-height: 1.5; }
+.stop-proposal .lead b { font-family: var(--font-title); font-weight: 600; }
+.stop-proposal.done { opacity: .55; }
+.stop-picks { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; max-height: 240px; overflow-y: auto; }
+.stop-pick { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--paper); cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
+.stop-pick:hover, .stop-pick.on { background: var(--sky-soft); border-color: var(--azur); }
+.stop-pick .pic { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: var(--night); padding: 5px; }
+.stop-pick .pic svg { width: 100%; height: 100%; display: block; }
+.stop-pick .nm { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-pick .meta { display: block; font-size: 12px; color: var(--muted); }
+
 .replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .legend, .replaying .map-actions { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
 /* Valdo qui marche sur le trajet pendant le survol */
 .bv-walker { width: 66px; height: 44px; pointer-events: none; }

@@ -19,7 +19,7 @@
   const NAME_KEY = "cv_visitor_name";
   const VISIT_KEY = "cv_last_visit_" + token;
 
-  let D = null, map = null, drawn = null, dayFilter = null, lastVisit = 0, introDone = false, introStarted = false, replayWanted = false;
+  let D = null, map = null, drawn = null, dayFilter = null, stopDay = null, lastVisit = 0, introDone = false, introStarted = false, replayWanted = false;
   try { if (!preview) lastVisit = Date.parse(localStorage.getItem(VISIT_KEY) || "") || 0; } catch { }
   const isNew = (ts) => !!lastVisit && !!ts && Date.parse(ts) > lastVisit;
   const isMobile = () => window.matchMedia("(max-width: 640px)").matches;
@@ -237,6 +237,16 @@
     $$(".day-comment-btn", root).forEach((b) => b.onclick = () => commentForm({ dayId: b.dataset.day }));
     $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { if (map.replaying) return; dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); renderLegend(days); $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" }); });
     $$(".step-card.has-cover", root).forEach((c) => c.onclick = () => viewer(D.media.find((m) => m.id === c.dataset.id)));
+    // Toucher un arrêt recentre la carte dessus — même geste que le clic sur une journée
+    $$(".stop-trail li", root).forEach((li) => li.onclick = () => {
+      if (map.replaying) return;
+      const st = (D.stops || []).find((x) => x.id === li.dataset.stop);
+      if (!st) return;
+      const iso = st.day_date;
+      if (dayFilter !== iso) { dayFilter = iso; draw(false); renderLegend(dayList()); }
+      $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => { BVMAP.easeTo(map, st.lat, st.lng, Math.max(BVMAP.getZoom(map), 15)); BVMAP.ping(map, st.lat, st.lng); }, 420);
+    });
 
     // Quand on scrolle sur une journée, la carte la met en avant
     if ("IntersectionObserver" in window) {
@@ -245,6 +255,24 @@
       }, { rootMargin: "-45% 0px -45% 0px" });
       $$(".day-section", root).forEach((s) => io.observe(s));
     }
+  }
+
+  // Le fil des arrêts d'une journée (#5) : sous les statistiques, au-dessus des photos.
+  // Aucun arrêt → rien du tout : pas de cadre vide, pas de titre orphelin.
+  function stopsOf(iso) {
+    return (D.stops || []).filter((x) => x.day_date === iso)
+      .sort((a, b) => (a.at_time || "").localeCompare(b.at_time || "") || ((a.sort_order || 0) - (b.sort_order || 0)));
+  }
+  function stopTrailHtml(iso) {
+    const list = stopsOf(iso);
+    if (!list.length) return "";
+    const picto = (c) => (window.BV_STOP_PICTOS && (BV_STOP_PICTOS[c] || BV_STOP_PICTOS.autre)) || "";
+    return `<ol class="stop-trail">${list.map((st) => `<li data-stop="${st.id}" title="Voir sur la carte">
+      <span class="pic">${picto(st.category)}</span>
+      <span class="txt"><span class="nm">${esc(st.name)}</span>
+        <span class="meta">${esc(CV.stopCategoryLabel(st.category))}</span>
+        ${st.note ? `<span class="note">${esc(st.note)}</span>` : ""}</span>
+      ${st.at_time ? `<span class="hr">${CV.fmtTime(st.at_time)}</span>` : ""}</li>`).join("")}</ol>`;
   }
 
   function daySection(iso, days) {
@@ -265,6 +293,7 @@
       ${cover || d.place || chips.length ? `<div class="step-card${cover ? " has-cover" : ""}" ${cover ? `style="background-image:url('${API.publicUrl(cover.path)}')"` : ""} data-id="${cover ? cover.id : ""}">
         <div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
       ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
+      ${stopTrailHtml(iso)}
       ${media.length ? `<div class="gallery">${media.map((m) => `<figure data-id="${m.id}" class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
           ${MEMBERS.dot(m.author_id)}
           ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${thumb(m)}" alt="${esc(m.caption)}" loading="lazy">`}
@@ -307,13 +336,25 @@
   function draw(fit) {
     drawn = BVMAP.draw(map, D, { dayFilter, dayList: dayList(), thumbUrl: thumb, onMediaClick: viewer, dayNumber: (iso) => dayNumber(D.trip, iso),
       onDayClick: (iso) => { $(`#day-${iso}`)?.scrollIntoView({ behavior: "smooth" }); } });
+    showStopsFor(dayFilter || stopDay);
     if (fit && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 });
+  }
+  // Les pictos des arrêts se posent sur la trace de LA journée qu'on est en train de
+  // lire — ils suivent le défilement du récit. Toute la carte d'un coup serait illisible
+  // sur un long voyage, et une journée sans arrêt ne montre rien de nouveau.
+  function showStopsFor(iso) {
+    stopDay = iso || null;
+    BVMAP.drawStopMarkers(map, D, {
+      dayFilter: stopDay,
+      onStopClick: (st) => { $(`#day-${st.day_date}`)?.scrollIntoView({ behavior: "smooth" }); },
+    });
   }
   function highlight(iso) {
     if (!introDone || map.replaying) return;
     const trs = D.tracks.filter((t) => t.day_date === iso), ms = D.media.filter((m) => m.day_date === iso && m.lat != null);
     const pts = [...trs.flatMap((t) => t.points.filter((p) => p && p.lat != null)), ...ms];
     const b = BVMAP.boundsOf(pts);
+    showStopsFor(iso);
     if (b) BVMAP.flyToBounds(map, b, { padding: 48, maxZoom: 13, duration: 1200, keepPitch: true });
   }
   function renderLegend(days) {

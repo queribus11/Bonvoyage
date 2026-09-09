@@ -11,10 +11,11 @@
   const S = {
     user: null, trips: [], cur: null,      // cur = { trip, days, tracks, media, comments }
     map: null, drawn: null, meMarker: null,
-    tab: "days", dayFilter: null, placing: null,
+    tab: "days", dayFilter: null, placing: null, stopping: null,
     gps: { watchId: null, track: null, points: [], lastSaved: 0, dirty: false, startedAt: null, wakeLock: null, lastFix: 0, watchdog: null, errAt: 0 },
     offline: false, syncing: false, pendingMedia: [],
     members: [], voices: [], stories: [], notes: [],   // v10 : l'équipage et les contributions signées
+    stops: [],                                        // v10.8 : les arrêts d'une journée (#5)
   };
 
   // ---------------------------------------------------------------
@@ -204,6 +205,7 @@
     S.dayFilter = null; S.tab = "days";
     S.members = S.cur.members || [];
     S.voices = S.cur.voices || []; S.stories = S.cur.stories || []; S.notes = S.cur.notes || [];
+    S.cur.stops = S.cur.stops || [];   // une base pas encore mise à jour n'en renvoie pas : le carnet marche quand même
     if (window.MEMBERS) MEMBERS.setCrew(S.members, S.user.id);
     $$(".panel-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === "days"));
     ensureMap();
@@ -346,6 +348,13 @@
     if (S.map) return;
     S.map = BVMAP.create("map", { controlsPos: "bottom-right", switcherClass: "in-app" });
     BVMAP.onClick(S.map, (e) => {
+      // Poser un arrêt : on demande à OpenStreetMap ce qu'il y a là, puis Sophie choisit.
+      if (S.stopping) {
+        const iso = S.stopping; S.stopping = null;
+        BVMAP.setCursor(S.map, "");
+        stopFromPoint(iso, e);
+        return;
+      }
       if (!S.placing) return;
       const m = S.placing; S.placing = null;
       BVMAP.setCursor(S.map, "");
@@ -370,6 +379,7 @@
       onMediaClick: (m) => mediaViewer(m),
       onTrackClick: (tr) => trackForm(tr),
       onDayClick: (iso) => { if (navigator.vibrate) navigator.vibrate(8); S.dayFilter = S.dayFilter === iso ? null : iso; redraw(true); renderPanel(); },
+      onStopClick: (st) => stopForm(st.day_date, st),
     });
     if (fitAfter) fit();
   }
@@ -409,9 +419,18 @@
     S.dayFilter = iso; redraw(true); renderPanel();
     const card = $("#day-card");
     card.innerHTML = `<div class="dc-head"><span class="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b>${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted">${d?.place ? esc(d.place) + " · " : ""}${ph.length} photo${ph.length > 1 ? "s" : ""}${d?.story ? " · récit" : ""}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
-      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
+      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
     card.hidden = false;
     $("#dc-open").onclick = () => dayForm(iso);
+    // Marquer un arrêt : on arme le mode, puis c'est le doigt sur la carte qui décide
+    $("#dc-stop").onclick = () => {
+      if (S.map.replaying && S.map.stopReplay) S.map.stopReplay();
+      S.stopping = iso; S.placing = null;
+      BVMAP.setCursor(S.map, "crosshair");
+      $("#panel").classList.add("collapsed");
+      toast("Touche la carte à l'endroit de l'arrêt");
+      setTimeout(() => BVMAP.resize(S.map), 280);
+    };
     const closeCard = () => { card.hidden = true; if (S.map.stopReplay && S.map.replaying) S.map.stopReplay(); S.dayFilter = null; redraw(true); renderPanel(); };
     $("#dc-close").onclick = closeCard; $("#dc-all").onclick = closeCard;
     const rp = $("#dc-replay");
@@ -481,6 +500,7 @@
     S.cur.days.forEach((d) => set.add(d.day_date));
     S.cur.tracks.forEach((x) => x.day_date && set.add(x.day_date));
     S.cur.media.forEach((x) => x.day_date && set.add(x.day_date));
+    (S.cur.stops || []).forEach((x) => x.day_date && set.add(x.day_date));
     return [...set].sort();
   }
   function dayInfo(iso) { return S.cur.days.find((d) => d.day_date === iso); }
@@ -596,6 +616,7 @@
           ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
           <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="day-add-photos">${ic("camera", "sm")} Ajouter des photos à cette journée</button><input type="file" id="day-files" accept="image/*,video/*" multiple hidden></div>
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
+        ${iso ? stopsFieldHtml(iso) : ""}
         ${iso && mine ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
           <div class="mode-picker" id="day-mode-picker">${[["", "🤔", "l'app devine"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, v.icon, v.label.replace(/^(à|en) /, "")])].map(([k, icon, lab]) => `<button type="button" class="mode${dayMode === k ? " active" : ""}" data-mode="${k}">${icon}<small>${lab}</small></button>`).join("")}<input type="hidden" name="transport" value="${esc(dayMode)}"></div>
           <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
@@ -773,6 +794,14 @@
       if (d.audio_path) API.removeFiles([d.audio_path]).catch(() => {});
       await API.deleteDay(d.id); S.cur.days = S.cur.days.filter((x) => x.id !== d.id); m.close(); renderPanel();
     };
+    // Les arrêts de la journée : la liste se redessine sur place après chaque ajout
+    const refreshStops = () => {
+      const holder = $("#stop-list", m.el);
+      if (holder) { holder.innerHTML = stopsOf(iso).map(stopRowHtml).join(""); bindStopsField(m.el, iso, refreshStops); }
+      const lab = holder && holder.parentElement && $("label", holder.parentElement);
+      if (lab) { const n = stopsOf(iso).length; lab.textContent = `Les arrêts de la journée${n ? ` (${n})` : ""}`; }
+    };
+    if (iso) bindStopsField(m.el, iso, refreshStops);
     // Galerie de la journée
     $$("#day-gallery .media-tile", m.el).forEach((el) => el.onclick = () => mediaViewer(S.cur.media.find((x) => x.id === el.dataset.id)));
     const addBtn = $("#day-add-photos", m.el), dayFiles = $("#day-files", m.el);
@@ -1155,6 +1184,224 @@
       try { await API.deleteComment(c); S.cur.comments = S.cur.comments.filter((x) => x.id !== c.id); el.remove(); }
       catch (err) { errToast(err); }
     });
+  }
+
+  // ---------------------------------------------------------------
+  //  Les arrêts d'une journée (#5)
+  //  Un arrêt se pose LE SOIR : soit à partir d'un groupe de photos, soit en
+  //  touchant la carte. Dans les deux cas c'est Sophie qui tranche — l'app
+  //  propose, elle n'enregistre jamais toute seule.
+  // ---------------------------------------------------------------
+  const stopsOf = (iso) => (S.cur.stops || []).filter((x) => x.day_date === iso)
+    .sort((a, b) => (a.at_time || "").localeCompare(b.at_time || "") || (a.sort_order - b.sort_order));
+  const stopPicto = (cat) => (window.BV_STOP_PICTOS && (BV_STOP_PICTOS[cat] || BV_STOP_PICTOS.autre)) || "";
+  // Comme pour une journée ou une photo : on ne corrige que ce qu'on a soi-même ajouté.
+  const canEditStop = (st) => !st.author_id || st.author_id === S.user.id || isTripOwner();
+
+  function stopRowHtml(st) {
+    const when = st.at_time ? fmtTime(st.at_time) : "";
+    const bits = [CV.stopCategoryLabel(st.category), (st.media_ids || []).length ? `${(st.media_ids || []).length} photo${(st.media_ids || []).length > 1 ? "s" : ""}` : ""].filter(Boolean);
+    return `<div class="stop-row" data-id="${st.id}">
+      <span class="pic">${stopPicto(st.category)}</span>
+      <span class="grow"><span class="nm">${when ? `<span style="color:var(--azur)">${when}</span> · ` : ""}${esc(st.name || "Sans nom")}</span>
+        <span class="meta">${esc(bits.join(" · "))}${st.note ? " · " + esc(st.note) : ""}</span></span>
+      ${canEditStop(st) ? `<button type="button" class="btn icon ghost sm stop-edit" title="Modifier cet arrêt">${ic("edit", "sm")}</button>` : ""}
+    </div>`;
+  }
+
+  // Le bloc de la fiche journée. Rien à afficher → il n'existe pas du tout
+  // (règle : pas de contenu, pas de cadre).
+  function stopsFieldHtml(iso) {
+    const list = stopsOf(iso);
+    const canFind = CV.photoClusters(S.cur.media, iso).length > 0;
+    if (!list.length && !canFind) return "";
+    return `<div class="field"><label>Les arrêts de la journée${list.length ? ` (${list.length})` : ""}</label>
+      <div id="stop-list">${list.map(stopRowHtml).join("")}</div>
+      ${canFind ? `<div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="stop-find">${ic("pin", "sm")} Retrouver les arrêts d'après mes photos</button></div>` : ""}
+      <p class="help">Les lieux de la journée : un musée, un restaurant, un point de vue. Tu peux aussi en poser un en touchant la carte, depuis la carte de la journée.</p></div>`;
+  }
+
+  // Les boutons du bloc, à recâbler après chaque redessin de la liste
+  function bindStopsField(root, iso, refresh) {
+    $$("#stop-list .stop-edit", root).forEach((b) => b.onclick = () => {
+      const st = (S.cur.stops || []).find((x) => x.id === b.closest(".stop-row").dataset.id);
+      if (st) stopForm(iso, st, refresh);
+    });
+    const find = $("#stop-find", root);
+    if (find) find.onclick = () => findStops(iso, refresh);
+  }
+
+  // ---- La fiche d'un arrêt : nom, catégorie, heure, note ----
+  // `preset` sert aux arrêts qui n'existent pas encore (proposés, ou posés sur la carte).
+  function stopForm(iso, st, after) {
+    const preset = st && !st.id ? st : null;
+    const cur = preset || st || {};
+    const isNew = !st || !st.id;
+    if (st && st.id && !canEditStop(st)) return toast("Cet arrêt a été ajouté par quelqu'un d'autre", "info");
+    const n = dayNumber(S.cur.trip, iso);
+    const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
+      <div class="modal-head"><div class="grow"><h2 style="margin-bottom:0">${isNew ? "Un arrêt" : "Modifier l'arrêt"}</h2></div>
+        <button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+      <form id="sf">
+        <div class="field"><label>Nom du lieu</label><input name="name" required value="${esc(cur.name || "")}" placeholder="Musée de l'Azulejo"></div>
+        <div class="field"><label>Catégorie</label><select name="category">${CV.STOP_CATEGORIES.map((c) => `<option value="${c.k}" ${(cur.category || "autre") === c.k ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>
+        <div class="row"><div class="field grow"><label>Heure</label><input type="time" name="hhmm" value="${cur.at_time ? toLocalTime(cur.at_time) : ""}">
+          <p class="help">Vide quand il n'y a pas de photo : l'app n'invente pas d'heure.</p></div></div>
+        <div class="field"><label>Une note, si tu veux</label><input name="note" value="${esc(cur.note || "")}" placeholder="La lumière de fin d'après-midi"></div>
+        ${(cur.media_ids || []).length ? `<p class="small muted">${cur.media_ids.length} photo${cur.media_ids.length > 1 ? "s" : ""} rattachée${cur.media_ids.length > 1 ? "s" : ""} à cet arrêt.</p>` : ""}
+        <div class="actions sticky">
+          ${!isNew ? `<button type="button" class="btn icon ghost danger" id="sdel" title="Supprimer cet arrêt">${ic("trash")}</button>` : ""}<span class="grow"></span>
+          <button class="btn primary" type="submit">Enregistrer</button>
+        </div></form>`);
+    const f = $("#sf", m.el);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(f));
+      const name = (fd.name || "").trim();
+      if (!name) return toast("Il faut un nom", "error");
+      const fields = {
+        day_date: iso, lat: cur.lat, lng: cur.lng, name,
+        category: fd.category || "autre", note: (fd.note || "").trim(),
+        at_time: timeToIso(iso, fd.hhmm) || null,
+      };
+      if (isNew) { fields.media_ids = cur.media_ids || []; if (cur.osm_type) { fields.osm_type = cur.osm_type; fields.osm_id = cur.osm_id; } }
+      try {
+        if (isNew) { const r = await API.createStop(S.cur.trip.id, fields); S.cur.stops.push(r); }
+        else { const r = await API.updateStop(st.id, fields); Object.assign(st, r); }
+        saveLocal(); redraw(); m.close(); if (after) after();
+        toast(isNew ? "Arrêt ajouté" : "Arrêt modifié", "ok");
+      } catch (err) { errToast(err, 6000); }
+    };
+    const del = $("#sdel", m.el);
+    if (del) del.onclick = async () => {
+      if (!(await confirm("Supprimer cet arrêt ? (les photos, elles, restent)"))) return;
+      try { await API.deleteStop(st.id); S.cur.stops = S.cur.stops.filter((x) => x.id !== st.id); saveLocal(); redraw(); m.close(); if (after) after(); }
+      catch (err) { errToast(err); }
+    };
+  }
+  // L'heure d'un arrêt se saisit en heure locale ; on la range en date complète du jour.
+  function toLocalTime(iso) { const d = new Date(iso); return isNaN(d) ? "" : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; }
+  function timeToIso(dayIso, hhmm) {
+    if (!hhmm || !/^\d{2}:\d{2}$/.test(hhmm)) return null;
+    const [y, mo, dd] = dayIso.split("-").map(Number), [h, mi] = hhmm.split(":").map(Number);
+    return new Date(y, mo - 1, dd, h, mi).toISOString();
+  }
+
+  // ---- Geste 2 : en touchant la carte ----
+  // On demande à OpenStreetMap les lieux nommés autour du point, avec leur type.
+  // Un doigt sur l'un d'eux remplit le nom et la catégorie : Sophie ne tape rien.
+  async function stopFromPoint(iso, pt) {
+    BVMAP.ping(S.map, pt.lat, pt.lng);
+    CV.progress("Qu'y a-t-il ici ?…");
+    let near = [];
+    try { near = (await CV.placesAround([pt], 130))[0] || []; } catch { near = []; }
+    CV.progress(null);
+    // L'heure vient de la photo la plus proche — la première s'il y en a plusieurs.
+    // Pas de photo à côté : pas d'heure du tout.
+    const t = CV.timeFromNearbyPhotos(S.cur.media, iso, pt, 150);
+    const base = { lat: +pt.lat.toFixed(6), lng: +pt.lng.toFixed(6), at_time: t.at, media_ids: t.ids };
+    if (!near.length) {
+      toast("Aucun lieu connu ici : donne-lui son nom", "info", 4000);
+      return stopForm(iso, { ...base, name: "", category: "autre" }, () => renderPanel());
+    }
+    const m = openModal(`<h2>Qu'est-ce qu'il y a ici ?</h2>
+      <p class="small muted" style="margin-top:-6px">D'après OpenStreetMap, autour de l'endroit que tu as touché.</p>
+      <div class="stop-picks">${near.map((f, i) => `<button type="button" class="stop-pick" data-i="${i}">
+        <span class="pic">${stopPicto(f.category)}</span>
+        <span class="grow" style="min-width:0"><span class="nm">${esc(f.name)}</span>
+          <span class="meta">${esc([f.kind, CV.stopCategoryLabel(f.category), f.dist + " m"].filter(Boolean).join(" · "))}</span></span></button>`).join("")}</div>
+      <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><span class="grow"></span>
+        <button type="button" class="btn" id="sp-manual">Nommer moi-même</button></div>`);
+    $$(".stop-pick", m.el).forEach((b) => b.onclick = () => {
+      const f = near[+b.dataset.i];
+      m.close();
+      stopForm(iso, { ...base, lat: +f.lat.toFixed(6), lng: +f.lng.toFixed(6), name: f.name, category: f.category, osm_type: f.osm_type, osm_id: f.osm_id }, () => renderPanel());
+    });
+    $("#sp-manual", m.el).onclick = () => { m.close(); stopForm(iso, { ...base, name: "", category: "autre" }, () => renderPanel()); };
+  }
+
+  // ---- Geste 1 : à partir des photos ----
+  // Le regroupement fait cinq ou six propositions, pas soixante. Un seul appel à
+  // OpenStreetMap pour toute la journée. Et on ne décide rien : on propose.
+  async function findStops(iso, after) {
+    const taken = new Set(stopsOf(iso).map((x) => `${x.osm_type || ""}/${x.osm_id || ""}`).filter((k) => k !== "/"));
+    const already = stopsOf(iso);
+    let groups = CV.photoClusters(S.cur.media, iso);
+    // Un groupe déjà couvert par un arrêt existant ne se repropose pas
+    groups = groups.filter((g) => !already.some((st) => CV.haversine(st, g) < 120));
+    if (!groups.length) return toast("Tous tes groupes de photos ont déjà leur arrêt", "info", 4000);
+    CV.progress("On demande à OpenStreetMap…");
+    let lists = [];
+    try { lists = await CV.placesAround(groups, 130); } catch { lists = []; }
+    CV.progress(null);
+    const offline = !lists.some((l) => l && l.length);
+    const m = openModal(`<h2>Les arrêts de la journée</h2>
+      <p class="small muted" style="margin-top:-6px">${groups.length} groupe${groups.length > 1 ? "s" : ""} de photos. ${offline ? "OpenStreetMap n'a rien renvoyé — tu peux nommer chaque lieu toi-même." : "Tu tranches : rien n'est enregistré sans toi."}</p>
+      <div id="sp-list"></div>
+      <div class="actions sticky"><span class="grow"></span><button type="button" class="btn primary" data-close>Terminé</button></div>`, { wide: true });
+
+    const render = () => {
+      $("#sp-list", m.el).innerHTML = groups.map((g, i) => {
+        if (g._done) return `<div class="stop-proposal done"><div class="lead">✓ ${esc(g._doneName)} — arrêt ajouté.</div></div>`;
+        if (g._skipped) return "";
+        const cands = (lists[i] || []).filter((f) => !taken.has(`${f.osm_type}/${f.osm_id}`));
+        const best = cands[0];
+        const from = g.at ? fmtTime(g.at) : "", to = g.until && g.until !== g.at ? fmtTime(g.until) : "";
+        const quand = from ? (to ? `de ${from} à ${to}` : `vers ${from}`) : "";
+        return `<div class="stop-proposal" data-i="${i}">
+          <div class="lead">Tes <b>${g.items.length} photos</b>${quand ? " " + quand : ""} sont autour ${best ? `du <b>${esc(best.name)}</b>${best.kind ? ` (${esc(best.kind)})` : ""}` : "d'un endroit qu'OpenStreetMap ne connaît pas"}. En faire un arrêt ?</div>
+          <div class="thumbs">${g.items.slice(0, 8).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="" loading="lazy">`).join("")}</div>
+          <div class="row" style="flex-wrap:wrap">
+            ${best ? `<button type="button" class="btn sm primary" data-act="yes" data-i="${i}">${ic("check", "sm")} Oui</button>` : ""}
+            ${cands.length > 1 || !best ? `<button type="button" class="btn sm" data-act="other" data-i="${i}">Un autre lieu</button>` : ""}
+            <button type="button" class="btn sm ghost" data-act="no" data-i="${i}">Non</button>
+          </div></div>`;
+      }).join("") || `<p class="small muted">Plus rien à proposer.</p>`;
+      bind();
+    };
+
+    // Enregistre l'arrêt d'un groupe. L'heure = celle de la PREMIÈRE photo du groupe.
+    const add = async (i, place, name, category) => {
+      const g = groups[i];
+      try {
+        const r = await API.createStop(S.cur.trip.id, {
+          day_date: iso,
+          lat: place ? +place.lat.toFixed(6) : g.lat, lng: place ? +place.lng.toFixed(6) : g.lng,
+          name, category: category || "autre", at_time: g.at || null, media_ids: g.ids,
+          osm_type: place ? place.osm_type : null, osm_id: place ? place.osm_id : null,
+        });
+        S.cur.stops.push(r);
+        if (place) taken.add(`${place.osm_type}/${place.osm_id}`);
+        g._done = true; g._doneName = name;
+        saveLocal(); redraw(); render(); if (after) after();
+      } catch (err) { errToast(err, 6000); }
+    };
+
+    const bind = () => {
+      $$("[data-act]", m.el).forEach((b) => b.onclick = async () => {
+        const i = +b.dataset.i, g = groups[i], cands = (lists[i] || []).filter((f) => !taken.has(`${f.osm_type}/${f.osm_id}`));
+        if (b.dataset.act === "no") { g._skipped = true; return render(); }
+        if (b.dataset.act === "yes") { const f = cands[0]; busy(b, true); await add(i, f, f.name, f.category); return; }
+        // « Un autre lieu » : les autres candidats du même groupe, ou le nom à la main
+        const pick = openModal(`<h2>Un autre lieu</h2>
+          <p class="small muted" style="margin-top:-6px">Autour de tes ${g.items.length} photos.</p>
+          ${cands.length ? `<div class="stop-picks">${cands.map((f, j) => `<button type="button" class="stop-pick" data-j="${j}">
+            <span class="pic">${stopPicto(f.category)}</span>
+            <span class="grow" style="min-width:0"><span class="nm">${esc(f.name)}</span>
+              <span class="meta">${esc([f.kind, CV.stopCategoryLabel(f.category), f.dist + " m"].filter(Boolean).join(" · "))}</span></span></button>`).join("")}</div>`
+            : `<p class="small muted">OpenStreetMap ne connaît rien de nommé à cet endroit.</p>`}
+          <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><span class="grow"></span>
+            <button type="button" class="btn" id="sp-hand">Nommer moi-même</button></div>`);
+        $$(".stop-pick", pick.el).forEach((pb) => pb.onclick = async () => {
+          const f = cands[+pb.dataset.j]; pick.close(); await add(i, f, f.name, f.category);
+        });
+        $("#sp-hand", pick.el).onclick = () => {
+          pick.close();
+          stopForm(iso, { lat: g.lat, lng: g.lng, at_time: g.at, media_ids: g.ids, name: "", category: "autre" }, () => { g._done = true; g._doneName = "Cet arrêt"; render(); if (after) after(); });
+        };
+      });
+    };
+    render();
   }
 
   // ---------- Onglet Commentaires ----------

@@ -77,7 +77,7 @@
       unwrap(await sb().from("trips").delete().eq("id", id));
     },
     async loadTrip(id) {
-      const [trip, days, tracks, media, comments, members, voices, stories, notes] = await Promise.all([
+      const [trip, days, tracks, media, comments, members, voices, stories, notes, stops] = await Promise.all([
         unwrap(await sb().from("trips").select("*").eq("id", id).single()),
         unwrap(await sb().from("days").select("*").eq("trip_id", id).order("day_date").range(0, 999)),
         unwrap(await sb().from("tracks").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
@@ -87,8 +87,9 @@
         unwrap(await sb().from("day_voices").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
         unwrap(await sb().from("day_stories").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
         unwrap(await sb().from("day_notes").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
+        unwrap(await sb().from("day_stops").select("*").eq("trip_id", id).order("at_time", { ascending: true, nullsFirst: false }).range(0, 999)),
       ]);
-      return { trip, days, tracks, media, comments, members, voices, stories, notes };
+      return { trip, days, tracks, media, comments, members, voices, stories, notes, stops };
     },
 
     // ---------- Journées ----------
@@ -155,6 +156,19 @@
     async deleteMedia(m) {
       unwrap(await sb().from("media").delete().eq("id", m.id));
       await this.removeFiles([m.path, m.thumb_path, m.audio_path]).catch(() => {});
+    },
+
+    // ---------- Les arrêts d'une journée (#5) ----------
+    // Même forme que les photos : user_id et author_id sont posés par la base
+    // (trigger stamp_contribution). L'app ne les envoie pas.
+    async createStop(tripId, fields) {
+      return unwrap(await sb().from("day_stops").insert({ ...fields, trip_id: tripId }).select().single());
+    },
+    async updateStop(id, fields) {
+      return unwrap(await sb().from("day_stops").update(fields).eq("id", id).select().single());
+    },
+    async deleteStop(id) {
+      unwrap(await sb().from("day_stops").delete().eq("id", id));
     },
 
     // ---------- Commentaires (côté propriétaire et co-auteurs) ----------

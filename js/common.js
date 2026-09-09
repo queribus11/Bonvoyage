@@ -206,6 +206,244 @@
     }
   }
 
+  // ---------- Les arrêts d'une journée (#5) : « qu'est-ce qu'il y a ici ? » ----------
+  // Overpass, comme Nominatim : service bénévole d'OpenStreetMap, sans compte ni clé.
+  // On est donc économe pour de bon : UN seul appel pour toute une journée (les
+  // « around » de tous les groupes tiennent dans la même requête), les réponses sont
+  // gardées, et rien n'est demandé tant que Sophie n'a pas touché le bouton.
+  const OSM_ENDPOINT = "https://overpass-api.de/api/interpreter";
+  const STOPS_CACHE_KEY = "bv_stops_osm";
+  const STOPS_CACHE_MAX = 120;            // entrées gardées ; au-delà on jette les plus anciennes
+  const STOPS_CACHE_TTL = 30 * 86400000;  // un mois : un musée ne déménage pas
+
+  // Les onze catégories de Sophie, et rien d'autre. La clé est ce qui va en base.
+  const STOP_CATEGORIES = [
+    { k: "monument",   label: "Monuments" },
+    { k: "musee",      label: "Musées" },
+    { k: "parc",       label: "Parcs" },
+    { k: "vue",        label: "Points de vue" },
+    { k: "resto",      label: "Restaurants / bar" },
+    { k: "boutique",   label: "Boutique" },
+    { k: "marche",     label: "Marché" },
+    { k: "attraction", label: "Attraction" },
+    { k: "streetart",  label: "Street art" },
+    { k: "camp",       label: "Notre camp de base" },
+    { k: "autre",      label: "Autre" },
+  ];
+  const stopCategoryLabel = (k) => (STOP_CATEGORIES.find((c) => c.k === k) || STOP_CATEGORIES[STOP_CATEGORIES.length - 1]).label;
+
+  // Replie les étiquettes OpenStreetMap sur les onze mots. Quand c'est ambigu,
+  // on propose le plus probable — la liste déroulante reste modifiable.
+  function osmCategory(tags) {
+    const t = tags || {};
+    const tourism = t.tourism || "", amenity = t.amenity || "", historic = t.historic || "";
+    const leisure = t.leisure || "", natural = t.natural || "", manMade = t.man_made || "";
+
+    if (/^(hotel|hostel|guest_house|apartment|chalet|motel|camp_site|caravan_site|alpine_hut|wilderness_hut)$/.test(tourism)) return "camp";
+    if (/^(museum|gallery)$/.test(tourism) || amenity === "arts_centre") return "musee";
+    if (tourism === "artwork" && /^(mural|graffiti|street_art)$/.test(t.artwork_type || "")) return "streetart";
+    if (tourism === "artwork") return "streetart";
+    if (tourism === "viewpoint" || /^(peak|volcano|cliff|beach|waterfall|cave_entrance|arch|hot_spring)$/.test(natural)) return "vue";
+    if (/^(theme_park|zoo|aquarium)$/.test(tourism) || /^(water_park|amusement_arcade|bowling_alley|escape_game)$/.test(leisure)
+        || amenity === "cinema" || amenity === "theatre" || amenity === "nightclub") return "attraction";
+    if (amenity === "marketplace") return "marche";
+    if (/^(restaurant|cafe|bar|pub|fast_food|ice_cream|biergarten|food_court)$/.test(amenity)) return "resto";
+    if (/^(park|garden|nature_reserve|common|dog_park)$/.test(leisure) || /^(wood|grassland)$/.test(natural)
+        || /^(forest|meadow|village_green)$/.test(t.landuse || "")) return "parc";
+    if (/^(monument|memorial|castle|fort|ruins|city_gate|tower|archaeological_site|manor|church|wayside_cross)$/.test(historic)
+        || amenity === "place_of_worship" || /^(lighthouse|tower|obelisk|windmill|watermill)$/.test(manMade)
+        || t.building === "cathedral" || t.building === "church") return "monument";
+    if (/^(marketplace|greengrocer|deli|farm)$/.test(t.shop || "")) return "marche";
+    if (t.shop) return "boutique";
+    if (tourism === "attraction") return "attraction";
+    return "autre";
+  }
+
+  // Ce qu'on demande à Overpass : uniquement des objets NOMMÉS, dans les familles
+  // qui ont une chance de devenir un arrêt. Un filtre serré = une réponse légère.
+  const OSM_KEYS = "^(tourism|amenity|shop|leisure|historic|natural|man_made)$";
+
+  function stopsCache() {
+    try { return JSON.parse(localStorage.getItem(STOPS_CACHE_KEY) || "{}"); } catch { return {}; }
+  }
+  function saveStopsCache(c) {
+    try {
+      const ks = Object.keys(c);
+      if (ks.length > STOPS_CACHE_MAX) {
+        ks.sort((a, b) => (c[a].at || 0) - (c[b].at || 0));
+        for (const k of ks.slice(0, ks.length - STOPS_CACHE_MAX)) delete c[k];
+      }
+      localStorage.setItem(STOPS_CACHE_KEY, JSON.stringify(c));
+    } catch { }   // Safari en navigation privée : on s'en passe, sans rien casser
+  }
+  const stopsKey = (p, radius) => `${(+p.lat).toFixed(4)},${(+p.lng).toFixed(4)}@${radius}`;
+
+  // Un seul appel en vol à la fois, et jamais deux à moins de 1,1 s d'écart :
+  // c'est la même politesse que pour Nominatim.
+  let osmChain = Promise.resolve(), osmLastAt = 0;
+  function osmQueue(fn) {
+    const run = osmChain.then(async () => {
+      const wait = 1100 - (Date.now() - osmLastAt);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      try { return await fn(); } finally { osmLastAt = Date.now(); }
+    });
+    osmChain = run.catch(() => { });
+    return run;
+  }
+
+  // Les lieux nommés autour d'un ou plusieurs points.
+  // Renvoie [{ osm_type, osm_id, name, lat, lng, kind, category, dist }] par point,
+  // dans le même ordre que `points` : placesAround(pts)[i] = les lieux autour de pts[i].
+  // N'échoue jamais : service muet ou hors ligne → des listes vides, et Sophie nomme à la main.
+  async function placesAround(points, radius = 130) {
+    const pts = (points || []).filter((p) => p && p.lat != null && p.lng != null);
+    if (!pts.length) return [];
+    const cache = stopsCache(), now = Date.now();
+    const out = pts.map(() => null);
+    const todo = [];
+    pts.forEach((p, i) => {
+      const hit = cache[stopsKey(p, radius)];
+      if (hit && now - (hit.at || 0) < STOPS_CACHE_TTL) out[i] = hit.list || [];
+      else todo.push(i);
+    });
+    if (todo.length) {
+      const blocks = todo.map((i) => `nwr(around:${radius},${(+pts[i].lat).toFixed(5)},${(+pts[i].lng).toFixed(5)})["name"][~"${OSM_KEYS}"~"."];`).join("");
+      const q = `[out:json][timeout:25];(${blocks});out center 300;`;
+      let elements = null;
+      try {
+        elements = await osmQueue(async () => {
+          const ctl = new AbortController();
+          const timer = setTimeout(() => ctl.abort(), 15000);
+          try {
+            const r = await fetch(OSM_ENDPOINT, {
+              method: "POST", body: "data=" + encodeURIComponent(q), signal: ctl.signal,
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            });
+            if (!r.ok) return null;
+            const j = await r.json();
+            return Array.isArray(j.elements) ? j.elements : null;
+          } finally { clearTimeout(timer); }
+        });
+      } catch { elements = null; }
+      // Un échec ne se met PAS en cache : on retentera au prochain essai de Sophie.
+      const found = (elements || []).map((e) => {
+        const lat = e.lat != null ? e.lat : (e.center && e.center.lat), lng = e.lon != null ? e.lon : (e.center && e.center.lon);
+        if (lat == null || lng == null) return null;
+        const tags = e.tags || {};
+        if (!tags.name) return null;
+        return { osm_type: e.type, osm_id: e.id, name: tags.name, lat, lng,
+                 kind: osmKind(tags), category: osmCategory(tags) };
+      }).filter(Boolean);
+      // Overpass renvoie tout en vrac : on redistribue chaque lieu au(x) point(s) qu'il concerne.
+      for (const i of todo) {
+        const p = pts[i];
+        const list = found.map((f) => ({ ...f, dist: Math.round(haversine(p, f)) }))
+          .filter((f) => f.dist <= radius)
+          .sort((a, b) => a.dist - b.dist)
+          .slice(0, 12);
+        out[i] = list;
+        if (elements) cache[stopsKey(p, radius)] = { at: now, list };
+      }
+      if (elements) saveStopsCache(cache);
+    }
+    return out.map((l) => l || []);
+  }
+
+  // Le type du lieu, en français, tel qu'il s'affiche à côté du nom (« Musée », « Café »…).
+  const OSM_KIND_FR = {
+    museum: "Musée", gallery: "Galerie", artwork: "Œuvre de rue", viewpoint: "Point de vue",
+    attraction: "Curiosité", theme_park: "Parc d'attractions", zoo: "Zoo", aquarium: "Aquarium",
+    hotel: "Hôtel", hostel: "Auberge", guest_house: "Chambre d'hôtes", apartment: "Appartement",
+    camp_site: "Camping", chalet: "Chalet", motel: "Motel",
+    restaurant: "Restaurant", cafe: "Café", bar: "Bar", pub: "Pub", fast_food: "Restauration rapide",
+    ice_cream: "Glacier", biergarten: "Brasserie en plein air", marketplace: "Marché",
+    place_of_worship: "Lieu de culte", theatre: "Théâtre", cinema: "Cinéma", arts_centre: "Centre d'art",
+    monument: "Monument", memorial: "Mémorial", castle: "Château", fort: "Fort", ruins: "Ruines",
+    city_gate: "Porte de ville", tower: "Tour", archaeological_site: "Site archéologique", church: "Église",
+    park: "Parc", garden: "Jardin", nature_reserve: "Réserve naturelle",
+    peak: "Sommet", volcano: "Volcan", cliff: "Falaise", beach: "Plage", waterfall: "Cascade",
+    cave_entrance: "Grotte", hot_spring: "Source chaude", lighthouse: "Phare", windmill: "Moulin",
+  };
+  function osmKind(tags) {
+    const t = tags || {};
+    for (const k of ["tourism", "amenity", "historic", "leisure", "natural", "man_made", "shop"]) {
+      const v = t[k];
+      if (!v || v === "yes") continue;
+      if (OSM_KIND_FR[v]) return OSM_KIND_FR[v];
+      if (k === "shop") return "Boutique";
+      return v.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+    }
+    return "";
+  }
+
+  // ---------- Le regroupement des photos ----------
+  // Une journée fait facilement soixante photos ; soixante propositions seraient
+  // insupportables. On les regroupe par proximité d'heure ET de lieu, pour en
+  // sortir cinq ou six. Un groupe d'une seule photo n'est pas proposé (choix de
+  // Sophie) : ce lieu-là se pose à la main en touchant la carte.
+  const STOP_GAP_MS = 45 * 60000;   // au-delà de 45 min sans photo, on a changé d'endroit
+  const STOP_SPREAD_M = 250;        // au-delà de 250 m du centre du groupe, aussi
+  const STOP_MERGE_M = 150;         // deux groupes plus proches que ça : le même lieu, revisité
+
+  function photoClusters(media, iso, opts = {}) {
+    const minPhotos = opts.minPhotos == null ? 2 : opts.minPhotos;
+    const photos = (media || [])
+      .filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
+      .slice().sort((a, b) => (a.taken_at || a.created_at || "").localeCompare(b.taken_at || b.created_at || ""));
+    if (!photos.length) return [];
+    const groups = [];
+    let cur = null;
+    const centre = (g) => ({ lat: g.sumLat / g.items.length, lng: g.sumLng / g.items.length });
+    for (const m of photos) {
+      const t = Date.parse(m.taken_at || m.created_at || "") || null;
+      if (cur) {
+        const gap = t != null && cur.lastT != null ? Math.abs(t - cur.lastT) : 0;
+        const far = haversine(centre(cur), m) > STOP_SPREAD_M;
+        if (gap > STOP_GAP_MS || far) cur = null;
+      }
+      if (!cur) { cur = { items: [], sumLat: 0, sumLng: 0, firstT: t, lastT: t }; groups.push(cur); }
+      cur.items.push(m); cur.sumLat += m.lat; cur.sumLng += m.lng;
+      if (t != null) { if (cur.firstT == null) cur.firstT = t; cur.lastT = t; }
+    }
+    // Le même lieu revisité dans la journée ne mérite qu'une proposition
+    for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        if (haversine(centre(groups[i]), centre(groups[j])) <= STOP_MERGE_M) {
+          groups[i].items.push(...groups[j].items);
+          groups[i].sumLat += groups[j].sumLat; groups[i].sumLng += groups[j].sumLng;
+          groups[i].firstT = Math.min(groups[i].firstT ?? Infinity, groups[j].firstT ?? Infinity);
+          groups[i].lastT = Math.max(groups[i].lastT ?? -Infinity, groups[j].lastT ?? -Infinity);
+          groups.splice(j, 1); j--;
+        }
+      }
+    }
+    return groups
+      .filter((g) => g.items.length >= minPhotos)
+      .map((g) => {
+        const c = centre(g);
+        const ordered = g.items.slice().sort((a, b) => (a.taken_at || "").localeCompare(b.taken_at || ""));
+        return {
+          lat: +c.lat.toFixed(6), lng: +c.lng.toFixed(6),
+          items: ordered, ids: ordered.map((m) => m.id),
+          // L'heure d'un arrêt, c'est celle de sa PREMIÈRE photo — jamais une moyenne.
+          at: ordered.find((m) => m.taken_at)?.taken_at || null,
+          until: [...ordered].reverse().find((m) => m.taken_at)?.taken_at || null,
+        };
+      })
+      .sort((a, b) => (a.at || "").localeCompare(b.at || ""));
+  }
+
+  // L'heure à donner à un arrêt posé à la main : celle de la photo la plus proche
+  // du point touché — la première dans le temps s'il y en a plusieurs — et RIEN
+  // quand il n'y a pas de photo. On n'invente pas une heure.
+  function timeFromNearbyPhotos(media, iso, point, radius = 150) {
+    const near = (media || [])
+      .filter((m) => m.day_date === iso && m.lat != null && m.lng != null && m.taken_at)
+      .filter((m) => haversine(point, m) <= radius)
+      .sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+    return near.length ? { at: near[0].taken_at, ids: near.map((m) => m.id) } : { at: null, ids: [] };
+  }
+
   // ---------- Altitude déduite du relief, pour les traces qui n'en ont pas (#22) ----------
   // Mêmes tuiles d'altitude que le fond « Relief » (Terrarium / Mapzen, AWS Open Data, sans clé) :
   // chaque pixel encode une élévation. Formule Terrarium : altitude = (R*256 + G + B/256) - 32768.
@@ -487,6 +725,7 @@
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
-    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
+    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces,
+    placesAround, osmCategory, osmKind, STOP_CATEGORIES, stopCategoryLabel, photoClusters, timeFromNearbyPhotos, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio };
 })();

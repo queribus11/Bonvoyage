@@ -16,7 +16,7 @@
   function cacheTrip(cur) {
     if (!cur || !cur.trip) return;
     // On ne garde pas les objets volumineux inutiles ; les traces (points) sont nécessaires
-    LS.set(tripKey(cur.trip.id), { savedAt: Date.now(), trip: cur.trip, days: cur.days, tracks: cur.tracks, media: cur.media, comments: cur.comments });
+    LS.set(tripKey(cur.trip.id), { savedAt: Date.now(), trip: cur.trip, days: cur.days, tracks: cur.tracks, media: cur.media, comments: cur.comments, stops: cur.stops });
   }
   function getCachedTrip(id) { return LS.get(tripKey(id)); }
   function cacheTrips(list) { LS.set("cv_trips", { savedAt: Date.now(), list }); }

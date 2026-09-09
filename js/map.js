@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.7";
+window.BV_VERSION = "10.8";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -97,7 +97,7 @@ window.BVMAP = (() => {
   function create(el, opts = {}) {
     const container = typeof el === "string" ? document.getElementById(el) : el;
     const isDark = () => !!(window.THEME && THEME.isDark());
-    const M = { base: defaultBase(), terrain: false, ready: false, markers: new Map(), dayMarkers: [], me: null, data: null, drawOpts: {}, replaying: false, container };
+    const M = { base: defaultBase(), terrain: false, ready: false, markers: new Map(), dayMarkers: [], stopMarkers: [], me: null, data: null, drawOpts: {}, replaying: false, container };
 
     const map = new maplibregl.Map({
       container, style: buildStyle(M.base, isDark()),
@@ -182,7 +182,7 @@ window.BVMAP = (() => {
   }
 
   // ---------- Dessin du voyage ----------
-  // data : { tracks, media } · options : { dayList, dayFilter, thumbUrl(m), onMediaClick(m), onTrackClick(tr), onDayClick(iso), dayNumber(iso) }
+  // data : { tracks, media, stops } · options : { dayList, dayFilter, thumbUrl(m), onMediaClick(m), onTrackClick(tr), onDayClick(iso), onStopClick(s), dayNumber(iso) }
   function draw(M, data, options = {}) {
     M.data = data; M.drawOpts = options;
     // Pas de redessin pendant un survol (il effacerait les vignettes révélées) : on l'applique à la fin
@@ -223,6 +223,7 @@ window.BVMAP = (() => {
       map.on("mouseleave", "track-line", () => map.getCanvas().style.cursor = "");
     }
     drawDayMarkers(M, data, dayList, options);
+    drawStopMarkers(M, data, options);
     for (const mk of M.markers.values()) mk.marker.remove(); M.markers.clear();
     syncPhotoMarkers(M);
     return { bounds: computeBounds(data, filter), dayList };
@@ -311,6 +312,8 @@ window.BVMAP = (() => {
     const ext = (lng, lat) => { if (!b) b = [[lng, lat], [lng, lat]]; else { b[0][0] = Math.min(b[0][0], lng); b[0][1] = Math.min(b[0][1], lat); b[1][0] = Math.max(b[1][0], lng); b[1][1] = Math.max(b[1][1], lat); } };
     for (const tr of data.tracks || []) { if (filter && tr.day_date !== filter) continue; for (const p of tr.points || []) if (p && p.lat != null) ext(p.lng, p.lat); }
     for (const m of data.media || []) { if (filter && m.day_date !== filter) continue; if (m.lat != null && m.lng != null) ext(m.lng, m.lat); }
+    // Un arrêt posé loin de la trace ne doit pas tomber hors cadre
+    for (const st of data.stops || []) { if (filter && st.day_date !== filter) continue; if (st.lat != null && st.lng != null) ext(st.lng, st.lat); }
     return b;
   }
   function boundsOf(points) { let b = null; for (const p of points) { if (!b) b = [[p.lng, p.lat], [p.lng, p.lat]]; else { b[0][0] = Math.min(b[0][0], p.lng); b[0][1] = Math.min(b[0][1], p.lat); b[1][0] = Math.max(b[1][0], p.lng); b[1][1] = Math.max(b[1][1], p.lat); } } return b; }
@@ -334,6 +337,24 @@ window.BVMAP = (() => {
       const mk = new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(M.map);
       M.dayMarkers.push(mk);
     });
+  }
+
+  // Les arrêts de la journée (#5) : un picto posé sur la trace.
+  // Ils n'apparaissent QUE lorsqu'une journée est ouverte (dayFilter) : la vue de
+  // tout le voyage ne gagne aucun dessin nouveau — c'est le choix de Sophie.
+  function drawStopMarkers(M, data, options) {
+    for (const mk of M.stopMarkers) mk.remove(); M.stopMarkers = [];
+    const filter = options.dayFilter;
+    if (!filter || options.noStops) return;
+    for (const st of data.stops || []) {
+      if (st.day_date !== filter || st.lat == null || st.lng == null) continue;
+      const el = document.createElement("div"); el.className = "bv-stop";
+      const picto = (window.BV_STOP_PICTOS && (BV_STOP_PICTOS[st.category] || BV_STOP_PICTOS.autre)) || "";
+      el.innerHTML = `<span class="in">${picto}</span>`;
+      el.title = st.name || "Arrêt"; el.setAttribute("aria-label", st.name || "Arrêt");
+      el.addEventListener("click", (e) => { e.stopPropagation(); if (options.onStopClick) options.onStopClick(st); });
+      M.stopMarkers.push(new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([st.lng, st.lat]).addTo(M.map));
+    }
   }
 
   // Vignettes photos (HTML) et grappes, calées sur la source « photos » regroupée par MapLibre
@@ -453,6 +474,7 @@ window.BVMAP = (() => {
     map.setPaintProperty("track-line", "line-opacity", .25); map.setPaintProperty("track-halo", "line-opacity", .1); map.setPaintProperty("track-edge", "line-opacity", .25);
     M.revealed = new Set();
     for (const mk of M.dayMarkers) mk.getElement().classList.add("hidden");
+    for (const mk of M.stopMarkers) mk.getElement().classList.add("hidden");
     for (const e of M.markers.values()) e.el.classList.add("hidden");
     // Valdo (ou son véhicule) avance sur le trajet
     const wEl = document.createElement("div"); wEl.className = "bv-walker"; wEl.innerHTML = '<div class="in"></div>';
@@ -475,6 +497,7 @@ window.BVMAP = (() => {
       map.getSource("progress").setData(empty()); walker.remove(); M.revealed = null;
       map.setPaintProperty("track-line", "line-opacity", 1); map.setPaintProperty("track-halo", "line-opacity", .35); map.setPaintProperty("track-edge", "line-opacity", .9);
       for (const mk of M.dayMarkers) mk.getElement().classList.remove("hidden");
+      for (const mk of M.stopMarkers) mk.getElement().classList.remove("hidden");
       for (const e of M.markers.values()) e.el.classList.remove("hidden", "pop");
       if (wasTerrain !== M.terrain) setTerrain(M, wasTerrain, true); else if (!wasTerrain) map.setProjection({ type: "globe" });
       try { map.resize(); } catch { }
@@ -579,5 +602,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
