@@ -517,10 +517,17 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .replay-overlay { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 7; display: flex; align-items: center; gap: 12px; pointer-events: none; }
 .replay-overlay .caption { flex: 1; min-width: 0; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 18px; padding: 10px 16px; box-shadow: var(--sh-2); font-size: 15px; color: var(--ink); }
 .replay-overlay .caption b { font-family: var(--font-title); font-weight: 600; font-size: 18px; }
-.replay-overlay .caption span { display: block; font-size: 13px; color: var(--muted); font-weight: 700; }
+.replay-overlay .caption span { display: block; font-size: 13px; color: var(--muted); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .replay-overlay .btn { pointer-events: auto; background: var(--glass-strong); min-height: 44px; }
 .replay-ctls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .replay-ctls .btn { min-width: 44px; }
+/* Téléphone : la légende sur toute la largeur, les boutons centrés en dessous */
+@media (max-width: 640px) {
+  .replay-overlay:not(.compact) { flex-direction: column; align-items: stretch; gap: 8px; }
+  .replay-overlay:not(.app):not(.compact) { bottom: calc(12px + var(--safe-b)); }  /* page du proche : au-dessus de la barre d'accueil de l'iPhone ; l'app garde le sien */
+  .replay-overlay:not(.compact) .caption { flex: none; width: 100%; padding: 8px 14px; }
+  .replay-overlay:not(.compact) .replay-ctls { justify-content: center; }
+}
 .recap { text-align: center; }
 .recap-valdo { width: 72px; height: 72px; margin: 0 auto 8px; display: block; }
 .recap-stats { display: flex; gap: 10px; justify-content: center; margin: 14px 0 20px; }
