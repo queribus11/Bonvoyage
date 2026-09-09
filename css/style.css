@@ -441,14 +441,14 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 
 /* Le fil des arrêts — chez les proches (sous les statistiques) et dans la fiche journée */
 .stop-trail { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; }
-.stop-trail li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--r-sm); background: var(--cream); margin-bottom: 6px; cursor: pointer; transition: background var(--t-fast); text-align: left; border: none; width: 100%; font: inherit; color: inherit; }
+.stop-trail li { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-radius: var(--r-sm); background: var(--cream); margin-bottom: 6px; cursor: pointer; transition: background var(--t-fast); text-align: left; border: none; width: 100%; font: inherit; color: inherit; }
 .stop-trail li:hover { background: var(--sky-soft); }
 .stop-trail .pic { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; background: var(--night); padding: 5px; }
 .stop-trail .pic svg { width: 100%; height: 100%; display: block; }
 .stop-trail .txt { min-width: 0; flex: 1; }
-.stop-trail .nm { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-trail .nm { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .stop-trail .meta { display: block; font-size: 12px; color: var(--muted); }
-.stop-trail .hr { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 13px; color: var(--azur); }
+.stop-trail .hr { flex: 0 0 auto; padding-top: 1px; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 13px; color: var(--azur); }
 .stop-trail .note { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 
 /* La fiche journée : la liste modifiable, et les propositions faites à partir des photos */
@@ -456,7 +456,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .stop-row .pic { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; background: var(--night); padding: 5px; }
 .stop-row .pic svg { width: 100%; height: 100%; display: block; }
 .stop-row .grow { min-width: 0; }
-.stop-row .nm { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-row .nm { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .stop-row .meta { display: block; font-size: 12px; color: var(--muted); }
 .stop-proposal { border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: 14px; margin-bottom: 12px; background: var(--paper-soft); }
 .stop-proposal .thumbs { display: flex; gap: 4px; margin: 8px 0 10px; overflow-x: auto; }
@@ -469,7 +469,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .stop-pick:hover, .stop-pick.on { background: var(--sky-soft); border-color: var(--azur); }
 .stop-pick .pic { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: var(--night); padding: 5px; }
 .stop-pick .pic svg { width: 100%; height: 100%; display: block; }
-.stop-pick .nm { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-pick .nm { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .stop-pick .meta { display: block; font-size: 12px; color: var(--muted); }
 
 .replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .legend, .replaying .map-actions { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }

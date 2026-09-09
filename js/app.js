@@ -611,12 +611,12 @@
       <form id="f">
         <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
         <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands" ${mine ? "" : "readonly"}></div></div>
+        ${iso ? stopsFieldHtml(iso) : ""}
         ${iso ? `<div class="field"><label>Photos de la journée${dayPhotos.length ? ` (${dayPhotos.length})` : ""}</label>
           ${d?.published && !isLive() ? `<p class="small muted" style="margin:-2px 0 8px">Journée publiée : les photos ajoutées ici sont <b>déjà visibles</b> par tes proches. « Envoyer le lien » sert seulement à les prévenir.</p>` : ""}
           ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
           <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="day-add-photos">${ic("camera", "sm")} Ajouter des photos à cette journée</button><input type="file" id="day-files" accept="image/*,video/*" multiple hidden></div>
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
-        ${iso ? stopsFieldHtml(iso) : ""}
         ${iso && mine ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
           <div class="mode-picker" id="day-mode-picker">${[["", "🤔", "l'app devine"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, v.icon, v.label.replace(/^(à|en) /, "")])].map(([k, icon, lab]) => `<button type="button" class="mode${dayMode === k ? " active" : ""}" data-mode="${k}">${icon}<small>${lab}</small></button>`).join("")}<input type="hidden" name="transport" value="${esc(dayMode)}"></div>
           <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
@@ -1198,6 +1198,17 @@
   // Comme pour une journée ou une photo : on ne corrige que ce qu'on a soi-même ajouté.
   const canEditStop = (st) => !st.author_id || st.author_id === S.user.id || isTripOwner();
 
+  // Le type d'un lieu et sa catégorie disent parfois la même chose
+  // (« Point de vue · Points de vue ») : on n'écrit le mot qu'une fois.
+  function placeMeta(f) {
+    const cat = CV.stopCategoryLabel(f.category);
+    // « Point de vue » et « Points de vue » sont le même mot : on compare au singulier
+    const nu = (x) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .split(/[\s/]+/).map((w) => w.replace(/s$/, "")).filter(Boolean).join(" ");
+    const kind = f.kind && nu(f.kind) !== nu(cat) ? f.kind : "";
+    return [kind, cat, f.dist != null ? f.dist + " m" : ""].filter(Boolean).join(" · ");
+  }
+
   function stopRowHtml(st) {
     const when = st.at_time ? fmtTime(st.at_time) : "";
     const bits = [CV.stopCategoryLabel(st.category), (st.media_ids || []).length ? `${(st.media_ids || []).length} photo${(st.media_ids || []).length > 1 ? "s" : ""}` : ""].filter(Boolean);
@@ -1309,7 +1320,7 @@
       <div class="stop-picks">${near.map((f, i) => `<button type="button" class="stop-pick" data-i="${i}">
         <span class="pic">${stopPicto(f.category)}</span>
         <span class="grow" style="min-width:0"><span class="nm">${esc(f.name)}</span>
-          <span class="meta">${esc([f.kind, CV.stopCategoryLabel(f.category), f.dist + " m"].filter(Boolean).join(" · "))}</span></span></button>`).join("")}</div>
+          <span class="meta">${esc(placeMeta(f))}</span></span></button>`).join("")}</div>
       <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><span class="grow"></span>
         <button type="button" class="btn" id="sp-manual">Nommer moi-même</button></div>`);
     $$(".stop-pick", m.el).forEach((b) => b.onclick = () => {
@@ -1388,7 +1399,7 @@
           ${cands.length ? `<div class="stop-picks">${cands.map((f, j) => `<button type="button" class="stop-pick" data-j="${j}">
             <span class="pic">${stopPicto(f.category)}</span>
             <span class="grow" style="min-width:0"><span class="nm">${esc(f.name)}</span>
-              <span class="meta">${esc([f.kind, CV.stopCategoryLabel(f.category), f.dist + " m"].filter(Boolean).join(" · "))}</span></span></button>`).join("")}</div>`
+              <span class="meta">${esc(placeMeta(f))}</span></span></button>`).join("")}</div>`
             : `<p class="small muted">OpenStreetMap ne connaît rien de nommé à cet endroit.</p>`}
           <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><span class="grow"></span>
             <button type="button" class="btn" id="sp-hand">Nommer moi-même</button></div>`);
