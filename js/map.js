@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.9";
+window.BV_VERSION = "10.10";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -382,6 +382,7 @@ window.BVMAP = (() => {
           el.innerHTML = `<div class="in"><img alt="" src="${thumbOf(M, m)}">${m.kind === "video" ? '<span class="play">▶</span>' : ""}${m.transport && MODES[m.transport] ? `<span class="mode" title="Arrivée ${MODES[m.transport].label}">${MODES[m.transport].icon}</span>` : ""}</div>`;
           el.addEventListener("click", (e) => { e.stopPropagation(); if (M.drawOpts.onMediaClick) M.drawOpts.onMediaClick(m); });
           el.dataset.id = m.id; el.dataset.day = m.day_date || "";
+          if (M.focusId && m.id === M.focusId) el.classList.add("is-focus");   // vignette recréée pendant un déplacement : elle reste en avant
         }
         entry = { marker: new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([lng, lat]).addTo(map), el };
         M.markers.set(key, entry);
@@ -390,6 +391,14 @@ window.BVMAP = (() => {
     for (const [key, entry] of M.markers) if (!seen.has(key)) { entry.marker.remove(); M.markers.delete(key); }
   }
   function thumbOf(M, m) { return M.drawOpts.thumbUrl ? M.drawOpts.thumbUrl(m) : ""; }
+  // #8 · La vignette de la photo qu'on est en train de lire passe en avant sur la carte.
+  // C'est ce qui relie ce qu'on voit dans le récit à l'endroit où c'était.
+  function focusMedia(M, id) {
+    id = id || null;
+    if (M.focusId === id) return;
+    M.focusId = id;
+    for (const e of M.markers.values()) e.el.classList.toggle("is-focus", !!id && e.el.dataset.id === id);
+  }
 
   // ---------- Caméra et utilitaires ----------
   function fitBounds(M, bounds, opts = {}) {
@@ -602,5 +611,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

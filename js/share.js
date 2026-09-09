@@ -19,7 +19,7 @@
   const NAME_KEY = "cv_visitor_name";
   const VISIT_KEY = "cv_last_visit_" + token;
 
-  let D = null, map = null, drawn = null, dayFilter = null, stopDay = null, lastVisit = 0, introDone = false, introStarted = false, replayWanted = false;
+  let D = null, map = null, drawn = null, dayFilter = null, stopDay = null, lastVisit = 0, introDone = false, introStarted = false, replayWanted = false, stuck = false;
   try { if (!preview) lastVisit = Date.parse(localStorage.getItem(VISIT_KEY) || "") || 0; } catch { }
   const isNew = (ts) => !!lastVisit && !!ts && Date.parse(ts) > lastVisit;
   const isMobile = () => window.matchMedia("(max-width: 640px)").matches;
@@ -146,8 +146,9 @@
           <a class="scroll-hint" href="#story-start" aria-label="Faire défiler pour lire le récit">${ic("chevron-right")}<span>Faire défiler pour lire</span></a></div>
       </header><div id="story-start"></div>
       ${showTip ? `<div class="home-tip top" id="tip-top">${homeTipHtml()}<button class="btn sm" id="tip-close" style="margin-top:8px">J'ai compris</button></div>` : ""}
+      <div id="map-sentinel" aria-hidden="true"></div>
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
-        <div class="legend" id="legend"></div>
+        <div class="map-hud"><div class="map-caption" id="map-caption" hidden></div><div class="legend" id="legend"></div></div>
         <div class="map-actions"><button class="btn sm glass" id="map-expand">${ic("expand", "sm")} Plein écran</button>${canReplay ? `<button class="btn sm glass" id="map-replay">${ic("play", "sm")} Suivre le parcours</button>` : ""}</div>
         <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><div class="replay-ctls"><button class="btn sm" id="replay-pause" title="Pause">${ic("pause", "sm")}</button><button class="btn sm" id="replay-next" title="Journée suivante">${ic("chevron-right", "sm")} Suivant</button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Retour au récit</button></div></div></div>
       <main class="story">
@@ -224,7 +225,7 @@
     // Intro : le globe tourne vers le voyage quand la carte arrive à l'écran (une seule fois)
     const runIntro = () => {
       if (introStarted) return; introStarted = true;
-      const done = () => { introDone = true; if (replayWanted) { const w = replayWanted; replayWanted = false; startReplay(w === true ? null : w); } };
+      const done = () => { introDone = true; schedule(); if (replayWanted) { const w = replayWanted; replayWanted = false; startReplay(w === true ? null : w); } };
       if (BVMAP.reducedMotion()) { if (drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 13, animate: false }); done(); }
       else BVMAP.intro(map, drawn && drawn.bounds, done);
     };
@@ -235,7 +236,7 @@
     bindBigAudio(root);
     $$(".gallery figure", root).forEach((f) => f.onclick = () => viewer(D.media.find((m) => m.id === f.dataset.id)));
     $$(".day-comment-btn", root).forEach((b) => b.onclick = () => commentForm({ dayId: b.dataset.day }));
-    $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { if (map.replaying) return; dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); renderLegend(days); $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" }); });
+    $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { if (map.replaying) return; dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); renderLegend(days); refreshCaption(); showMap(); });
     $$(".step-card.has-cover", root).forEach((c) => c.onclick = () => viewer(D.media.find((m) => m.id === c.dataset.id)));
     // Toucher un arrêt recentre la carte dessus — même geste que le clic sur une journée
     $$(".stop-trail li", root).forEach((li) => li.onclick = () => {
@@ -243,18 +244,19 @@
       const st = (D.stops || []).find((x) => x.id === li.dataset.stop);
       if (!st) return;
       const iso = st.day_date;
-      if (dayFilter !== iso) { dayFilter = iso; draw(false); renderLegend(dayList()); }
-      $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
+      if (dayFilter !== iso) { dayFilter = iso; draw(false); renderLegend(dayList()); refreshCaption(); }
+      showMap();
       setTimeout(() => { BVMAP.easeTo(map, st.lat, st.lng, Math.max(BVMAP.getZoom(map), 15)); BVMAP.ping(map, st.lat, st.lng); }, 420);
     });
 
-    // Quand on scrolle sur une journée, la carte la met en avant
-    if ("IntersectionObserver" in window) {
-      const io = new IntersectionObserver((entries) => {
-        for (const e of entries) if (e.isIntersecting && !dayFilter) highlight(e.target.dataset.iso);
-      }, { rootMargin: "-45% 0px -45% 0px" });
-      $$(".day-section", root).forEach((s) => io.observe(s));
-    }
+    // #8 · La carte suit la lecture : elle se colle en haut et se recadre toute seule
+    mediaById = new Map(D.media.map((m) => [m.id, m]));
+    map.map.on("movestart", (e) => { if (e && e.originalEvent) touchedAt = Date.now(); });   // le proche manipule la carte : on le laisse tranquille
+    armSticky();
+    armFollow();
+    refreshCaption();
+    let resizeT = 0;
+    window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(armFollow, 300); }, { passive: true });
   }
 
   // Le fil des arrêts d'une journée (#5) : sous les statistiques, au-dessus des photos.
@@ -290,11 +292,11 @@
       <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${n ? `Jour ${n} · ` : ""}${fmtDate(iso)}</div>
       <h2>${esc(d.title || (n ? `Jour ${n}` : fmtDate(iso, false)))}${isNew(d.published_at) ? `<span class="new-mark">nouveau</span>` : ""}${MEMBERS.pill(d.author_id)}</h2>
       ${hasPath ? `<button class="btn sm day-replay" data-iso="${iso}" style="margin:-4px 0 12px">${ic("play", "sm")} Suivre cette journée</button>` : ""}
-      ${cover || d.place || chips.length ? `<div class="step-card${cover ? " has-cover" : ""}" ${cover ? `style="background-image:url('${API.publicUrl(cover.path)}')"` : ""} data-id="${cover ? cover.id : ""}">
+      ${cover || d.place || chips.length ? `<div class="step-card${cover ? " has-cover" : ""}" ${cover ? `style="background-image:url('${API.publicUrl(cover.path)}')"` : ""} data-id="${cover ? cover.id : ""}"${cover && cover.lat != null ? " data-geo" : ""}>
         <div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
       ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
       ${stopTrailHtml(iso)}
-      ${media.length ? `<div class="gallery">${media.map((m) => `<figure data-id="${m.id}" class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
+      ${media.length ? `<div class="gallery">${media.map((m) => `<figure data-id="${m.id}"${m.lat != null ? " data-geo" : ""} class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
           ${MEMBERS.dot(m.author_id)}
           ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${thumb(m)}" alt="${esc(m.caption)}" loading="lazy">`}
           ${m.caption || m.kind === "video" || m.audio_path || m.transport ? `<figcaption>${m.transport && BVMAP.MODES[m.transport] ? BVMAP.MODES[m.transport].icon + " " : ""}${m.kind === "video" ? "▶ " : ""}${m.audio_path ? "🎙 " : ""}${esc(m.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : ""}
@@ -349,13 +351,148 @@
       onStopClick: (st) => { $(`#day-${st.day_date}`)?.scrollIntoView({ behavior: "smooth" }); },
     });
   }
-  function highlight(iso) {
+  function highlight(iso, calm) {
     if (!introDone || map.replaying) return;
     const trs = D.tracks.filter((t) => t.day_date === iso), ms = D.media.filter((m) => m.day_date === iso && m.lat != null);
     const pts = [...trs.flatMap((t) => t.points.filter((p) => p && p.lat != null)), ...ms];
     const b = BVMAP.boundsOf(pts);
     showStopsFor(iso);
-    if (b) BVMAP.flyToBounds(map, b, { padding: 48, maxZoom: 13, duration: 1200, keepPitch: true });
+    if (b) BVMAP.flyToBounds(map, b, { padding: 48, maxZoom: 13, duration: calm ? 0 : 1200, keepPitch: true });
+  }
+
+  // ---------- #8 · La carte suit la lecture ----------
+  // Deux façons de faire : « photo » — la carte se pose sur le lieu de la photo qu'on
+  // regarde (Polarsteps) — ou « jour » — elle se recadre sur la journée qu'on lit
+  // (FindPenguins). `?suivi=photo|jour|off` sert à les comparer sur la page d'essai.
+  // Rien ne bouge tant que l'intro n'est pas finie, pendant le survol, quand le proche
+  // a choisi une journée lui-même, ni pendant qu'il manipule la carte. Et si le carnet
+  // n'a aucune photo située ni aucune trace, rien ne s'arme : pas de contenu, pas de bloc.
+  // Tant que Sophie n'a pas tranché, la page en ligne garde « jour » — c'est ce que le
+  // carnet faisait déjà (la carte se recadrait sans qu'on la voie). Un seul mot à
+  // changer ici après son choix. `?suivi=photo` marche aussi sur un vrai lien de partage.
+  const FOLLOW_MODES = ["photo", "jour", "off"], FOLLOW_DEFAULT = "jour";
+  const askedMode = (params.get("suivi") || "").toLowerCase();
+  const followMode = FOLLOW_MODES.includes(askedMode) ? askedMode : FOLLOW_DEFAULT;
+  const seenDays = new Set(), seenShots = new Set();
+  let dayIO = null, shotIO = null, followDay = null, followShot = null, touchedAt = 0, tickReq = 0, sizeReq = 0, mediaById = new Map();
+
+  const canFollow = () => !!D && (D.media.some((m) => m.lat != null) || D.tracks.some((t) => (t.points || []).length));
+  // Collée, la carte est déjà sous les yeux : inutile de remonter la page jusqu'à elle.
+  function showMap() { if (!stuck) $("#map-wrap")?.scrollIntoView({ behavior: "smooth", block: "center" }); }
+
+  // La ligne de lecture : le milieu de ce qui reste visible SOUS la carte collée.
+  function readLine() {
+    const w = $("#map-wrap");
+    const top = stuck && w ? Math.max(0, w.getBoundingClientRect().bottom) : 0;
+    return top + (innerHeight - top) / 2;
+  }
+  // Une bande fine autour de cette ligne : c'est elle que les blocs du récit traversent.
+  function bandMargin() {
+    const t = Math.min(88, Math.max(6, Math.round(readLine() / innerHeight * 100) - 6));
+    return `-${t}% 0px -${Math.max(0, 100 - t - 12)}% 0px`;
+  }
+  function nearestToLine(set) {
+    const line = readLine();
+    let best = null, bd = Infinity;
+    for (const el of set) { const r = el.getBoundingClientRect(); const d = Math.abs((r.top + r.bottom) / 2 - line); if (d < bd) { bd = d; best = el; } }
+    return best;
+  }
+  function schedule() { if (!tickReq) tickReq = requestAnimationFrame(() => { tickReq = 0; applyFollow(); }); }
+
+  // Pendant que la carte change de hauteur, MapLibre doit refaire sa toile.
+  // Et ce n'est qu'une fois la hauteur stabilisée qu'on sait où passe la ligne de
+  // lecture : les observateurs se reposent à la fin, pas pendant.
+  function keepSize(done) {
+    cancelAnimationFrame(sizeReq);
+    const t0 = performance.now();
+    const step = () => {
+      BVMAP.resize(map);
+      if (performance.now() - t0 < 700) { sizeReq = requestAnimationFrame(step); return; }
+      sizeReq = 0; if (done) done();
+    };
+    sizeReq = requestAnimationFrame(step);
+  }
+  function armSticky() {
+    const sen = $("#map-sentinel"), wrap = $("#map-wrap");
+    if (!sen || !wrap || !("IntersectionObserver" in window)) return;
+    // Rien à suivre (aucune photo située, aucune trace) : la carte ne se colle pas
+    // et le carnet reste exactement comme avant. Pas de contenu, pas de bloc.
+    if (followMode === "off" || !canFollow()) return;
+    new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        const on = !e.isIntersecting && e.boundingClientRect.top <= 0;
+        if (on === stuck) continue;
+        stuck = on;
+        wrap.classList.toggle("stuck", on);
+        document.body.classList.toggle("map-stuck", on);
+        keepSize(armFollow);   // la ligne de lecture a bougé avec la hauteur de la carte
+      }
+    }, { rootMargin: "-8px 0px 0px 0px", threshold: 0 }).observe(sen);
+  }
+
+  function armFollow() {
+    if (!("IntersectionObserver" in window) || followMode === "off" || !canFollow()) return;
+    if (dayIO) dayIO.disconnect();
+    if (shotIO) shotIO.disconnect();
+    seenDays.clear(); seenShots.clear();
+    const rootMargin = bandMargin();
+    dayIO = new IntersectionObserver((es) => { for (const e of es) e.isIntersecting ? seenDays.add(e.target) : seenDays.delete(e.target); schedule(); }, { rootMargin });
+    $$(".day-section", root).forEach((s) => dayIO.observe(s));
+    if (followMode !== "photo") return;
+    shotIO = new IntersectionObserver((es) => { for (const e of es) e.isIntersecting ? seenShots.add(e.target) : seenShots.delete(e.target); schedule(); }, { rootMargin });
+    $$(".gallery figure[data-geo], .step-card[data-geo]", root).forEach((f) => shotIO.observe(f));
+  }
+
+  function applyFollow() {
+    if (followMode === "off" || !canFollow()) return;
+    if (!introDone || map.replaying || dayFilter) { followDay = null; followShot = null; return; }
+    if (document.visibilityState === "hidden") return;
+    if (Date.now() - touchedAt < 6000) return;
+    const sec = nearestToLine(seenDays);
+    const iso = sec ? sec.dataset.iso : null;
+    const calm = BVMAP.reducedMotion();
+    // Remonté au-dessus du récit : la carte remontre tout le voyage.
+    if (!iso) {
+      const first = $(".day-section", root);
+      if (!followDay || !first || first.getBoundingClientRect().top < innerHeight) return;
+      followDay = null; followShot = null;
+      BVMAP.focusMedia(map, null); refreshCaption();
+      if (drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14, duration: calm ? 0 : 1200 });
+      return;
+    }
+    // Nouvelle journée : on montre d'abord la journée entière — on voit où l'on est.
+    if (followDay !== iso) {
+      followDay = iso; followShot = null;
+      BVMAP.focusMedia(map, null);
+      refreshCaption();
+      highlight(iso, calm);
+      if (followMode === "photo") setTimeout(schedule, calm ? 60 : 1500);
+      return;
+    }
+    if (followMode !== "photo") return;
+    const fig = nearestToLine(seenShots);
+    const m = fig ? mediaById.get(fig.dataset.id) : null;
+    if (!m || m.lat == null || m.day_date !== iso || followShot === m.id) return;
+    // On garde le zoom : la carte glisse d'une photo à l'autre, les tuiles sont déjà là.
+    followShot = m.id;
+    BVMAP.focusMedia(map, m.id);
+    refreshCaption(m);
+    const z = Math.max(BVMAP.getZoom(map), 13.5);
+    if (calm) BVMAP.setView(map, m.lat, m.lng, z); else BVMAP.easeTo(map, m.lat, m.lng, z);
+  }
+
+  // La pastille qui dit ce que la carte montre. Rien à dire → pas de pastille.
+  function refreshCaption(m) {
+    const el = $("#map-caption"); if (!el) return;
+    const iso = dayFilter || followDay;
+    const html = followMode === "off" || !canFollow() ? "" : (iso ? dayLabel(iso, m) : `<b>Tout le voyage</b>`);
+    el.innerHTML = html; el.hidden = !html;
+  }
+  function dayLabel(iso, m) {
+    const d = D.days.find((x) => x.day_date === iso) || {};
+    const n = dayNumber(D.trip, iso);
+    const where = (m && m.caption) || d.place || d.title || "";
+    return `<b>${n ? "Jour " + n : esc(CV.fmtDateShort(iso))}</b>${where ? `<span>${esc(where)}</span>` : ""}`;
   }
   function renderLegend(days) {
     const lg = $("#legend");
@@ -363,7 +500,7 @@
     $$("button", lg).forEach((b) => b.onclick = () => {
       if (map.replaying) return;
       dayFilter = dayFilter === b.dataset.iso ? null : b.dataset.iso;
-      draw(introDone); renderLegend(days);
+      draw(introDone); renderLegend(days); refreshCaption();
       if (dayFilter) $(`#day-${dayFilter}`)?.scrollIntoView({ behavior: "smooth" });
     });
   }

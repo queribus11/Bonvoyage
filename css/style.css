@@ -346,9 +346,23 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
 .news-pill div { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; background: var(--glass-strong); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: var(--ink); border-radius: 999px; padding: 8px 14px 8px 10px; box-shadow: var(--sh-2); font-size: 14px; font-weight: 700; max-width: 92vw; }
 .news-pill i { width: 10px; height: 10px; border-radius: 50%; background: var(--lime); flex: none; }
 .news-pill a { color: var(--azur); }
-.share-map-wrap { position: relative; margin: 16px; border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--sh-2); }
-#share-map { height: 60vh; min-height: 340px; background: #DCEBF7; }
-.share-map-wrap .legend { position: absolute; left: 12px; bottom: 12px; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; max-width: 75%; }
+/* #8 · La carte du proche reste sous les yeux pendant la lecture, et rétrécit
+   quand le récit passe dessous. Le plein écran (.big) reprend la main plus bas. */
+#map-sentinel { height: 1px; margin-bottom: -1px; }
+.share-map-wrap { position: sticky; top: 8px; z-index: 20; margin: 16px; border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--sh-2); }
+#share-map { height: 60vh; min-height: 340px; background: #DCEBF7; transition: height var(--t-mid) var(--ease); }
+.share-map-wrap.stuck #share-map { height: 42vh; min-height: 260px; }
+/* Les journées se posent sous la carte collée quand on saute à l'une d'elles */
+body.map-stuck .day-section { scroll-margin-top: calc(46vh + 20px); }
+/* Le bandeau du bas de la carte : la pastille de lecture au-dessus des pastilles de journée */
+.share-map-wrap .map-hud { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+.share-map-wrap .map-hud > * { pointer-events: auto; }
+.share-map-wrap .legend { position: static; display: flex; gap: 6px; flex-wrap: wrap; max-width: 75%; }
+/* La pastille qui dit ce que la carte montre. Rien à dire, rien à afficher. */
+.map-caption { max-width: 100%; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 16px; padding: 7px 14px; box-shadow: var(--sh-2); font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.35; }
+.map-caption b { font-family: var(--font-title); font-weight: 600; font-size: 16px; }
+.map-caption b + span { color: var(--muted); }
+.map-caption span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .legend button { border: 0; border-radius: 999px; min-width: 44px; height: 44px; padding: 0 12px; font-size: 14px; font-weight: 800; color: #fff; box-shadow: var(--sh-1); opacity: .7; transition: opacity var(--t-fast), transform var(--t-fast); }
 .legend button.active { opacity: 1; }
 .legend button, .day-card .dc-num, .day-item .num { text-shadow: 0 1px 2px rgba(18,63,102,.45); }
@@ -387,6 +401,8 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 @media (max-width: 640px) {
   .share-hero { min-height: 82svh; }
   #share-map { height: 52vh; min-height: 300px; }
+  .share-map-wrap.stuck #share-map { height: 38svh; min-height: 220px; }
+  body.map-stuck .day-section { scroll-margin-top: calc(42svh + 16px); }
 }
 
 /* ---------- Carte immersive (MapLibre) : fonds, 3D, vignettes photos, survol ---------- */
@@ -416,6 +432,9 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-photo.cluster, .bv-photo.cluster .in { width: 52px; height: 52px; }
 .bv-photo.cluster .in::before { content: ""; position: absolute; inset: -6px -2px 2px 2px; border-radius: 50%; border: 3px solid #fff; opacity: .55; z-index: -1; background: var(--cream); box-shadow: 0 4px 10px rgba(18,63,102,.25); transform: rotate(-8deg); }
 .bv-photo .mode { position: absolute; left: -8px; bottom: -4px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: var(--sh-1); font-size: 13px; display: flex; align-items: center; justify-content: center; line-height: 1; }
+/* #8 · La photo qu'on est en train de lire : sa vignette grossit et s'entoure */
+.bv-photo.is-focus { z-index: 4; }
+.bv-photo.is-focus .in { transform: scale(1.22); border-color: var(--mandarine); box-shadow: 0 0 0 4px rgba(249,115,22,.35), 0 10px 22px rgba(18,63,102,.4); }
 .bv-photo.hidden .in { opacity: 0; transform: scale(.3); }
 .bv-photo.hidden { pointer-events: none; }
 .bv-photo.pop .in { animation: photo-pop .55s var(--ease); }
@@ -472,7 +491,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .stop-pick .nm { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .stop-pick .meta { display: block; font-size: 12px; color: var(--muted); }
 
-.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .legend, .replaying .map-actions { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
+.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .legend, .replaying .map-caption, .replaying .map-actions { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
 /* Valdo qui marche sur le trajet pendant le survol */
 .bv-walker { width: 66px; height: 44px; pointer-events: none; }
 .bv-walker .in { width: 66px; height: 44px; position: relative; filter: drop-shadow(0 5px 7px rgba(18,63,102,.45)); }
