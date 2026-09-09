@@ -77,7 +77,14 @@
       unwrap(await sb().from("trips").delete().eq("id", id));
     },
     async loadTrip(id) {
-      const [trip, days, tracks, media, comments, members, voices, stories, notes, stops] = await Promise.all([
+      // v10.8 · les arrêts sont demandés à part, et leur échec ne casse RIEN.
+      // Tant que la mise à jour v10.8 n'est pas passée dans la base, la table
+      // day_stops n'existe pas : le carnet doit s'ouvrir quand même, simplement
+      // sans arrêts. Une seule requête fragile ne doit jamais fermer le carnet.
+      const stopsP = sb().from("day_stops").select("*").eq("trip_id", id)
+        .order("at_time", { ascending: true, nullsFirst: false }).range(0, 999)
+        .then(({ data, error }) => (error ? [] : (data || [])), () => []);
+      const [trip, days, tracks, media, comments, members, voices, stories, notes] = await Promise.all([
         unwrap(await sb().from("trips").select("*").eq("id", id).single()),
         unwrap(await sb().from("days").select("*").eq("trip_id", id).order("day_date").range(0, 999)),
         unwrap(await sb().from("tracks").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
@@ -87,9 +94,8 @@
         unwrap(await sb().from("day_voices").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
         unwrap(await sb().from("day_stories").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
         unwrap(await sb().from("day_notes").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
-        unwrap(await sb().from("day_stops").select("*").eq("trip_id", id).order("at_time", { ascending: true, nullsFirst: false }).range(0, 999)),
       ]);
-      return { trip, days, tracks, media, comments, members, voices, stories, notes, stops };
+      return { trip, days, tracks, media, comments, members, voices, stories, notes, stops: await stopsP };
     },
 
     // ---------- Journées ----------
