@@ -159,6 +159,14 @@ révoqué, à usage unique.
 
 **Stockage** : chemin `<user_id de l'auteur>/<trip_id>/…`.
 
+**Les arrêts d'une journée (v10.8, #5)** : table `day_stops`, calquée sur `media` (donc
+`user_id` + `author_id` posés par `stamp_contribution`, et la règle « auteur ou
+propriétaire »), clé sur `day_date` et non `day_id` — un arrêt peut exister sur une
+journée sans fiche. Plusieurs arrêts par journée : **aucune contrainte d'unicité, aucun
+plafond**. Les onze catégories sont celles de Sophie, tenues par une contrainte `check` :
+`monument · musee · parc · vue · resto · boutique · marche · attraction · streetart ·
+camp · autre`. Ne pas en inventer une douzième.
+
 ---
 
 ## Le déploiement
@@ -198,6 +206,16 @@ fiche journée**, **le proche** (qui lit) et **le co-auteur** (qui écrit), **le
   a déjà fait disparaître le formulaire de commentaire **et** la visionneuse photo.
 - **WhatsApp garde l'aperçu d'un lien en mémoire plusieurs jours, par adresse.** Pour
   voir une nouvelle vignette, il faut un lien nominatif neuf, jamais partagé.
+- **Une requête fragile ne va jamais dans le `Promise.all` de `loadTrip`.** Les entrées de
+  ce lot passent par `unwrap`, qui lève : une seule table absente et le carnet ne s'ouvre
+  plus du tout (il tombe en « hors ligne » perpétuel). C'est arrivé avec `day_stops` avant
+  que la mise à jour de la base ne soit passée. Toute table nouvelle se lit **à côté**, avec
+  un repli silencieux — c'est ce qui permet de mettre l'app en ligne avant de toucher la base.
+- **Overpass (les arrêts) est bénévole, comme Nominatim.** Un seul appel pour toute une
+  journée (les `around` de tous les groupes tiennent dans une même requête), réponses
+  gardées un mois dans `localStorage`, un appel à la fois et 1,1 s d'écart. Rien n'est
+  demandé tant que Sophie n'a pas touché le bouton. `out center` et non `out center tags` :
+  `tags` retirerait les coordonnées des nœuds.
 - **OSRM ne renvoie jamais d'altitude** — d'où l'estimation par le relief (#22).
 - **Une trace qui a déjà ne serait-ce qu'un point avec altitude n'est jamais
   ré-estimée**, pour ne pas mélanger une estimation avec une vraie mesure GPS. Et
