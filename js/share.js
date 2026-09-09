@@ -367,13 +367,16 @@
   // ---------- #8 · La carte suit la lecture ----------
   // Deux façons de faire : « photo » — la carte se pose sur le lieu de la photo qu'on
   // regarde (Polarsteps) — ou « jour » — elle se recadre sur la journée qu'on lit
-  // (FindPenguins). `?suivi=photo|jour|off` sert à les comparer sur la page d'essai.
-  // Rien ne bouge tant que l'intro n'est pas finie, pendant le survol, quand le proche
-  // a choisi une journée lui-même, ni pendant qu'il manipule la carte. Et si le carnet
-  // n'a aucune photo située ni aucune trace, rien ne s'arme : pas de contenu, pas de bloc.
-  // Tant que Sophie n'a pas tranché, la page en ligne garde « jour » — c'est ce que le
-  // carnet faisait déjà (la carte se recadrait sans qu'on la voie). Un seul mot à
-  // changer ici après son choix. `?suivi=photo` marche aussi sur un vrai lien de partage.
+  // (FindPenguins). Rien ne bouge tant que l'intro n'est pas finie, pendant le survol,
+  // quand le proche a choisi une journée lui-même, ni pendant qu'il manipule la carte.
+  // Et si le carnet n'a aucune photo située ni aucune trace, rien ne s'arme : pas de
+  // contenu, pas de bloc.
+  //
+  // Sophie a tranché après essai sur son iPhone (v10.12) : ce sera « jour ».
+  // « photo » reste en sommeil, jamais montré aux proches, mais réveillable en ajoutant
+  // `&suivi=photo` à un lien de partage — pour le rejuger un jour sur un vrai carnet,
+  // avec de vraies photos (l'essai s'était fait sur un faux voyage). Ne pas le retirer
+  // sans le lui demander. `&suivi=off` coupe tout suivi.
   const FOLLOW_MODES = ["photo", "jour", "off"], FOLLOW_DEFAULT = "jour";
   const askedMode = (params.get("suivi") || "").toLowerCase();
   const followMode = FOLLOW_MODES.includes(askedMode) ? askedMode : FOLLOW_DEFAULT;
