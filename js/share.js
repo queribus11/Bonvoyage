@@ -374,43 +374,256 @@
     } catch (e) { toast(e.message, "error"); }
   }
 
-  // ---------- Visionneuse + commentaires ----------
-  function viewer(m) {
-    if (!m) return;
-    const list = D.media, i = list.indexOf(m);
-    const comments = D.comments.filter((c) => c.media_id === m.id);
-    const back = document.createElement("div"); back.className = "modal-back";
-    back.innerHTML = `<div class="modal wide">
-      <div class="viewer-media">${m.kind === "video" ? `<video src="${API.publicUrl(m.path)}" controls playsinline autoplay></video>` : `<img src="${API.publicUrl(m.path)}" alt="">`}<span class="count">${i + 1} / ${list.length}</span></div>
-      <div class="row between"><div><b>${esc(m.caption || "")}</b><div class="small muted">${m.day_date ? fmtDate(m.day_date) : ""}${m.taken_at ? " · " + CV.fmtTime(m.taken_at) : ""}</div>${MEMBERS.pill(m.author_id)}${m.audio_path ? bigAudio(API.publicUrl(m.audio_path), "Écouter le commentaire", true) : ""}</div>
-        <div class="row" style="flex-wrap:nowrap"><button class="btn icon" id="prev" ${i <= 0 ? "disabled" : ""} title="Photo précédente">${ic("chevron-left")}</button><button class="btn icon" id="next" ${i >= list.length - 1 ? "disabled" : ""} title="Photo suivante">${ic("chevron-right")}</button><button class="btn icon" id="close" title="Fermer">${ic("close")}</button></div></div>
-      <p class="small muted" style="margin:6px 0 0">${list.length > 1 ? `Photo ${i + 1} / ${list.length} · glissez pour passer à la suivante` : ""}</p>
-      <h3 style="margin:16px 0 8px;font-size:17px">Commentaires</h3>
-      <div id="clist">${comments.map(commentHtml).join("") || `<p class="muted small">Soyez le premier à laisser un mot !</p>`}</div>
-      ${D.trip.allow_comments ? commentFormHtml() : ""}
-    </div>`;
-    $("#modal-host").appendChild(back);
-    const close = () => { back.remove(); document.removeEventListener("keydown", onKey); };
-    const go = (dir) => { const nx = list[i + dir]; if (nx) { close(); viewer(nx); } };
-    back.onclick = (e) => { if (e.target === back) close(); };
-    $("#close", back).onclick = close;
-    $("#prev", back).onclick = () => go(-1);
-    $("#next", back).onclick = () => go(1);
-    const onKey = (e) => { if (e.key === "Escape") close(); if (e.key === "ArrowLeft") go(-1); if (e.key === "ArrowRight") go(1); };
-    document.addEventListener("keydown", onKey);
-    // Glisser à gauche / droite pour changer de photo, vers le bas pour fermer
-    let t0 = null;
-    const media = $(".viewer-media", back);
-    media.addEventListener("touchstart", (e) => { t0 = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
-    media.addEventListener("touchend", (e) => {
-      if (!t0) return; const dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y; t0 = null;
-      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
-      else if (dy > 80 && Math.abs(dy) > Math.abs(dx)) close();
+  // ---------- Visionneuse plein écran ----------
+  // #1 · La photo prend tout l'écran sur fond sombre : on glisse pour passer à la
+  // suivante (dans la journée), on pince pour agrandir, on tire vers le bas — ou on
+  // appuie sur le bouton retour du téléphone — pour refermer. Les mots des proches
+  // attendent dans un tiroir qu'on fait monter.
+  let lbOpen = false;   // une seule visionneuse à la fois
+
+  // Un audio lancé depuis la visionneuse continuerait de jouer après la fermeture :
+  // le lecteur « gros bouton » garde son son hors du DOM. On appuie donc sur Pause.
+  function hushAudio(root) {
+    root.querySelectorAll(".big-audio button").forEach((b) => {
+      const u = b.querySelector("svg use");
+      if (u && u.getAttribute("href") === "#i-pause") b.click();
     });
-    bindBigAudio(back);
-    const cf = $("#cf", back);
-    if (cf) { const rec = CV.audioRecorder($("#cf-rec", cf), { label: "Enregistrer un message vocal", maxSeconds: 120 }); bindNotMe(cf);
-      cf.onsubmit = (e) => { e.preventDefault(); submitComment(cf, rec, { mediaId: m.id }, (c) => { $("#clist", back).insertAdjacentHTML("beforeend", commentHtml(c)); bindBigAudio(back); rec.reset(); }); }; }
+  }
+
+  function viewer(m) {
+    if (!m || lbOpen) return;
+    lbOpen = true;
+
+    // La série, c'est la journée d'où l'on part (une photo sans journée reste seule).
+    let list = m.day_date ? D.media.filter((x) => x.day_date === m.day_date) : [];
+    if (!list.includes(m)) list = [m];
+    let i = list.indexOf(m);
+    const dayN = m.day_date ? dayNumber(D.trip, m.day_date) : 0;
+
+    const back = document.createElement("div");
+    back.className = "bv-lb";
+    back.innerHTML = `<div class="bv-lb-stage" id="lb-stage"><div class="bv-lb-frame" id="lb-frame"></div></div>
+      <div class="bv-lb-top">
+        <span class="bv-lb-count" id="lb-count"></span>
+        <button type="button" class="bv-lb-btn" id="lb-close" title="Fermer" aria-label="Fermer la photo">${ic("close")}</button>
+      </div>
+      <button type="button" class="bv-lb-nav prev" id="lb-prev" title="Photo précédente" aria-label="Photo précédente">${ic("chevron-left")}</button>
+      <button type="button" class="bv-lb-nav next" id="lb-next" title="Photo suivante" aria-label="Photo suivante">${ic("chevron-right")}</button>
+      <div class="bv-lb-foot" id="lb-foot"></div>
+      <div class="bv-lb-sheet" id="lb-sheet"><button type="button" class="bv-lb-grip" id="lb-sheet-close" aria-label="Fermer les mots"></button><div class="bv-lb-sheet-body" id="lb-sheet-body"></div></div>`;
+    $("#modal-host").appendChild(back);
+    document.body.classList.add("lb-open");
+
+    const stage = $("#lb-stage", back), frame = $("#lb-frame", back), foot = $("#lb-foot", back);
+    const sheet = $("#lb-sheet", back), sheetBody = $("#lb-sheet-body", back);
+    const cur = () => list[i];
+
+    // ----- Bouton retour du téléphone : il referme la visionneuse, il ne quitte pas la page
+    let pushed = false, closing = false;
+    try { history.pushState({ bvlb: 1 }, "", location.href); pushed = true; } catch { }
+
+    function close(fromBack) {
+      if (closing) return;
+      closing = true; lbOpen = false;
+      hushAudio(back); if (rec) { rec.stop(); rec = null; }
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("popstate", onPop);
+      document.body.classList.remove("lb-open");
+      back.classList.add("is-out");
+      setTimeout(() => back.remove(), 200);
+      if (!fromBack && pushed) history.back();
+    }
+    const onPop = () => close(true);
+    window.addEventListener("popstate", onPop);
+
+    // ----- Agrandissement et déplacement de la photo
+    let scale = 1, tx = 0, ty = 0;
+    const zoomable = () => cur().kind !== "video";
+    function apply(anim) {
+      frame.style.transition = anim ? "transform .24s cubic-bezier(.22,.61,.36,1)" : "none";
+      frame.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      back.classList.toggle("is-zoomed", scale > 1.02);
+    }
+    function bounds() {
+      const el = frame.firstElementChild;
+      const bw = stage.clientWidth, bh = stage.clientHeight;
+      const nw = (el && (el.naturalWidth || el.videoWidth)) || bw, nh = (el && (el.naturalHeight || el.videoHeight)) || bh;
+      let w = bw, h = bw * nh / nw;
+      if (h > bh) { h = bh; w = bh * nw / nh; }
+      return { x: Math.max(0, (w * scale - bw) / 2), y: Math.max(0, (h * scale - bh) / 2) };
+    }
+    function clamp() {
+      const b = bounds();
+      tx = Math.min(b.x, Math.max(-b.x, tx)); ty = Math.min(b.y, Math.max(-b.y, ty));
+    }
+    function centre() {
+      const r = stage.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    function zoomAt(pt) {
+      if (!zoomable()) return;
+      const c = centre();
+      if (scale > 1.02) { scale = 1; tx = 0; ty = 0; }
+      else { const s = 2.5; tx = -(pt.clientX - c.x) * (s - 1); ty = -(pt.clientY - c.y) * (s - 1); scale = s; clamp(); }
+      apply(true);
+    }
+
+    // ----- Les gestes
+    let g = null, lastTap = 0;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+
+    stage.addEventListener("touchstart", (e) => {
+      // Sur une vidéo, on laisse les commandes de lecture tranquilles
+      if (sheetOpen || (cur().kind === "video" && e.target.tagName === "VIDEO")) { g = null; return; }
+      if (e.touches.length === 2 && zoomable()) {
+        g = { mode: "pinch", d0: dist(e.touches) || 1, s0: scale, m0: mid(e.touches), x0: tx, y0: ty, c: centre() };
+      } else if (e.touches.length === 1) {
+        g = { mode: scale > 1.02 ? "pan" : "?", x: e.touches[0].clientX, y: e.touches[0].clientY, x0: tx, y0: ty, t: Date.now(), moved: 0 };
+      }
+    }, { passive: true });
+
+    stage.addEventListener("touchmove", (e) => {
+      if (!g) return;
+      if (g.mode === "pinch" && e.touches.length === 2) {
+        e.preventDefault();
+        const m1 = mid(e.touches);
+        scale = Math.min(4, Math.max(1, g.s0 * dist(e.touches) / g.d0));
+        tx = (m1.x - g.c.x) - scale * ((g.m0.x - g.c.x) - g.x0) / g.s0;
+        ty = (m1.y - g.c.y) - scale * ((g.m0.y - g.c.y) - g.y0) / g.s0;
+        clamp(); apply(false);
+        return;
+      }
+      if (e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - g.x, dy = e.touches[0].clientY - g.y;
+      g.moved = Math.max(g.moved, Math.hypot(dx, dy));
+      if (g.mode === "?" && g.moved > 8) g.mode = Math.abs(dx) > Math.abs(dy) ? "swipe" : "drag";
+      if (g.mode === "pan") { e.preventDefault(); tx = g.x0 + dx; ty = g.y0 + dy; clamp(); apply(false); }
+      else if (g.mode === "swipe") {
+        e.preventDefault();
+        const bord = (dx > 0 && i === 0) || (dx < 0 && i === list.length - 1);
+        tx = dx * (bord ? .28 : 1); apply(false);
+      } else if (g.mode === "drag") {
+        e.preventDefault();
+        ty = dy; back.style.setProperty("--lb-dim", String(Math.max(.3, 1 - Math.abs(dy) / 420)));
+        apply(false);
+      }
+    }, { passive: false });
+
+    stage.addEventListener("touchend", (e) => {
+      if (!g) return;
+      if (e.touches.length) { g = null; return; }   // il reste un doigt : on repart proprement
+      const gg = g; g = null;
+      if (gg.mode === "pinch") { if (scale < 1.05) { scale = 1; tx = 0; ty = 0; } clamp(); apply(true); return; }
+      // Un doigt posé sans bouger reste une tape, même sur une photo agrandie :
+      // sans cela, le double-tape ne rendrait plus la taille normale et le proche
+      // resterait prisonnier de l'agrandissement.
+      const tape = gg.moved < 10 && Date.now() - gg.t < 400;
+      if (gg.mode === "pan" && !tape) { clamp(); apply(true); return; }
+      if (gg.mode === "swipe") {
+        const dx = tx; tx = 0; apply(true);
+        if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+        return;
+      }
+      if (gg.mode === "drag") {
+        const dy = ty;
+        if (dy > 90) return close();
+        ty = 0; back.style.removeProperty("--lb-dim"); apply(true);
+        if (dy < -60) openSheet();
+        return;
+      }
+      // Tape simple : la légende s'efface et revient. Double-tape : on agrandit.
+      if (tape) {
+        const now = Date.now();
+        if (now - lastTap < 300) { lastTap = 0; zoomAt(e.changedTouches[0]); }
+        else { lastTap = now; setTimeout(() => { if (lastTap === now) { lastTap = 0; back.classList.toggle("chrome-off"); } }, 300); }
+      }
+    });
+    // Safari : sans cela, le pincer agrandit la page entière au lieu de la photo
+    ["gesturestart", "gesturechange"].forEach((n) => stage.addEventListener(n, (e) => e.preventDefault()));
+    stage.addEventListener("click", () => { if (sheetOpen) closeSheet(); });
+
+    // ----- Le tiroir des mots
+    let sheetOpen = false, rec = null;
+    const commentsOf = (x) => D.comments.filter((c) => c.media_id === x.id);
+    function openSheet() {
+      if (!sheet.dataset.has) return;
+      sheetOpen = true; back.classList.remove("chrome-off"); back.classList.add("sheet-on");
+      const cf = $("#cf", sheet);
+      if (cf && !rec) {
+        rec = CV.audioRecorder($("#cf-rec", cf), { label: "Enregistrer un message vocal", maxSeconds: 120 });
+        bindNotMe(cf);
+        cf.onsubmit = (e) => {
+          e.preventDefault();
+          submitComment(cf, rec, { mediaId: cur().id }, (c) => {
+            $("#lb-clist", sheet).insertAdjacentHTML("beforeend", commentHtml(c));
+            bindBigAudio(sheet); rec.reset(); renderFoot();
+          });
+        };
+      }
+    }
+    function closeSheet() {
+      sheetOpen = false; back.classList.remove("sheet-on");
+      if (rec) { rec.stop(); rec = null; }
+    }
+
+    // ----- Ce qui s'affiche autour de la photo (rien de vide : chaque bloc n'existe
+    //       que s'il a quelque chose à dire — pastille d'auteur comprise)
+    function renderFoot() {
+      const m2 = cur(), n = commentsOf(m2).length;
+      const when = [m2.day_date ? fmtDate(m2.day_date) : "", m2.taken_at ? CV.fmtTime(m2.taken_at) : ""].filter(Boolean).join(" · ");
+      const pill = MEMBERS.pill(m2.author_id);
+      const tab = n ? `${ic("message", "sm")} ${n} mot${n > 1 ? "s" : ""}`
+        : (D.trip.allow_comments ? `${ic("message", "sm")} Laisser un mot` : "");
+      const audio = m2.audio_path ? bigAudio(API.publicUrl(m2.audio_path), "Écouter le commentaire", true) : "";
+      const tabBtn = tab ? `<button type="button" class="bv-lb-tab" id="lb-tab">${tab}</button>` : "";
+      foot.innerHTML = `${m2.caption ? `<div class="bv-lb-caption">${esc(m2.caption)}</div>` : ""}
+        ${when || pill ? `<div class="bv-lb-meta">${when ? `<span>${when}</span>` : ""}${pill}</div>` : ""}
+        ${audio || tabBtn ? `<div class="bv-lb-actions">${audio}${tabBtn}</div>` : ""}`;
+      bindBigAudio(foot);
+      const tb = $("#lb-tab", foot); if (tb) tb.onclick = openSheet;
+      sheet.dataset.has = tab ? "1" : "";
+    }
+    function renderSheet() {
+      const m2 = cur(), cs = commentsOf(m2);
+      sheetBody.innerHTML = `<h3>${cs.length ? `${cs.length} mot${cs.length > 1 ? "s" : ""} sur cette photo` : "Aucun mot pour l'instant"}</h3>
+        <div id="lb-clist">${cs.map(commentHtml).join("") || (D.trip.allow_comments ? `<p class="muted small">Soyez le premier à laisser un mot !</p>` : "")}</div>
+        ${D.trip.allow_comments ? commentFormHtml() : ""}`;
+      bindBigAudio(sheetBody);
+    }
+
+    function show(dir) {
+      const m2 = cur();
+      hushAudio(back); closeSheet();
+      scale = 1; ty = 0; tx = dir ? dir * stage.clientWidth : 0;
+      apply(false);
+      frame.innerHTML = m2.kind === "video"
+        ? `<video src="${API.publicUrl(m2.path)}" controls playsinline autoplay></video>`
+        : `<img src="${API.publicUrl(m2.path)}" alt="${esc(m2.caption || "Photo du voyage")}">`;
+      requestAnimationFrame(() => { tx = 0; apply(!!dir); });
+      $("#lb-count", back).textContent = `${dayN ? `Jour ${dayN} · ` : ""}${i + 1} / ${list.length}`;
+      $("#lb-prev", back).disabled = i <= 0;
+      $("#lb-next", back).disabled = i >= list.length - 1;
+      back.classList.toggle("is-video", m2.kind === "video");
+      renderFoot(); renderSheet();
+    }
+    function go(dir) {
+      const n = i + dir;
+      if (n < 0 || n >= list.length) return;
+      i = n; show(dir);
+    }
+
+    $("#lb-close", back).onclick = () => close();
+    $("#lb-prev", back).onclick = () => go(-1);
+    $("#lb-next", back).onclick = () => go(1);
+    $("#lb-sheet-close", back).onclick = closeSheet;
+    const onKey = (e) => {
+      if (e.key === "Escape") { sheetOpen ? closeSheet() : close(); }
+      if (e.key === "ArrowLeft" && !sheetOpen) go(-1);
+      if (e.key === "ArrowRight" && !sheetOpen) go(1);
+    };
+    document.addEventListener("keydown", onKey);
+    show(0);
   }
 
   function commentForm({ dayId }) {

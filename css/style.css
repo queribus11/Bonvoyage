@@ -680,3 +680,81 @@ html.is-dark body { background: var(--bg); color: var(--ink); }
 .share-hero .crew { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 .day-section .author-pill { margin-left: 8px; vertical-align: 2px; }
 .story-text + .story-sign { display: block; margin-top: -6px; font-size: 13px; color: var(--muted); }
+
+/* ============================================================
+   #1 · La visionneuse plein écran (page du proche)
+   La photo seule sur fond sombre : on glisse, on pince, on tire vers le bas.
+   Rien ici ne touche à .modal ni à .viewer-media (la visionneuse de légendage).
+   ============================================================ */
+body.lb-open { overflow: hidden; }
+.bv-lb {
+  --lb-dim: 1;
+  position: fixed; inset: 0; z-index: 3500;
+  background: rgba(6, 12, 20, var(--lb-dim));
+  animation: fade var(--t-fast);
+  overscroll-behavior: contain;
+}
+.bv-lb.is-out { opacity: 0; transition: opacity .18s; }
+.bv-lb-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+.bv-lb-frame { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; will-change: transform; }
+.bv-lb-frame img, .bv-lb-frame video {
+  max-width: 100%; max-height: 100%; width: auto; height: auto; display: block;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+
+/* Barres du haut et du bas : elles s'effacent d'un toucher */
+.bv-lb-top, .bv-lb-foot { position: absolute; left: 0; right: 0; color: #fff; pointer-events: none; transition: opacity var(--t-fast); }
+.bv-lb-top > *, .bv-lb-foot > * { pointer-events: auto; }
+.bv-lb-top {
+  top: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: calc(10px + var(--safe-t)) 12px 26px;
+  background: linear-gradient(to bottom, rgba(0,0,0,.5), transparent);
+}
+.bv-lb-count { font-size: 13px; font-weight: 800; padding: 5px 12px; border-radius: 999px; background: rgba(11,22,34,.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.bv-lb-btn { width: 40px; height: 40px; border: 0; border-radius: 50%; color: #fff; background: rgba(11,22,34,.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; }
+.bv-lb-foot {
+  bottom: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
+  padding: 38px 16px calc(14px + var(--safe-b));
+  background: linear-gradient(to top, rgba(0,0,0,.75), rgba(0,0,0,.35) 55%, transparent);
+}
+.bv-lb-caption { font-size: 16px; font-weight: 700; line-height: 1.35; text-shadow: 0 1px 3px rgba(0,0,0,.45); }
+.bv-lb-meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 13px; color: rgba(255,255,255,.82); }
+.bv-lb-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
+.bv-lb-foot .big-audio { flex: 1 1 190px; max-width: 300px; margin: 0; }
+.bv-lb-tab { border: 0; border-radius: 999px; padding: 9px 16px; font: inherit; font-weight: 800; font-size: 14px; color: #fff; background: rgba(255,255,255,.18); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: inline-flex; align-items: center; gap: 7px; }
+.bv-lb.chrome-off .bv-lb-top, .bv-lb.chrome-off .bv-lb-foot, .bv-lb.chrome-off .bv-lb-nav { opacity: 0; pointer-events: none; }
+/* Une vidéo garde ses repères : on n'efface pas la barre au-dessus de ses commandes */
+.bv-lb.is-video.chrome-off .bv-lb-top, .bv-lb.is-video.chrome-off .bv-lb-foot { opacity: 1; pointer-events: none; }
+.bv-lb.is-video.chrome-off .bv-lb-top > *, .bv-lb.is-video.chrome-off .bv-lb-foot > * { pointer-events: auto; }
+
+/* Flèches : sur ordinateur seulement, où l'on ne glisse pas du doigt */
+.bv-lb-nav { display: none; }
+@media (min-width: 640px) {
+  .bv-lb-nav {
+    display: flex; position: absolute; top: 50%; transform: translateY(-50%);
+    width: 48px; height: 48px; border-radius: 50%; border: 0; color: #fff;
+    background: rgba(11,22,34,.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    align-items: center; justify-content: center; transition: opacity var(--t-fast);
+  }
+  .bv-lb-nav.prev { left: 16px; } .bv-lb-nav.next { right: 16px; }
+  .bv-lb-nav:disabled { opacity: .2; }
+}
+
+/* Le tiroir des mots : il monte par-dessus la photo */
+.bv-lb-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  max-height: 88%; display: flex; flex-direction: column;
+  background: var(--paper); color: var(--ink);
+  border-radius: var(--r-lg) var(--r-lg) 0 0; box-shadow: var(--sh-3);
+  transform: translateY(101%); visibility: hidden;
+  transition: transform var(--t-mid) var(--ease), visibility var(--t-mid);
+}
+.bv-lb.sheet-on .bv-lb-sheet { transform: none; visibility: visible; }
+.bv-lb-grip { flex: none; height: 28px; border: 0; padding: 0; background: transparent; display: flex; align-items: center; justify-content: center; }
+.bv-lb-grip::before { content: ""; width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); }
+.bv-lb-sheet-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 18px calc(20px + var(--safe-b)); }
+.bv-lb-sheet-body h3 { font-size: 17px; margin: 0 0 12px; }
+/* Le calage collant des fiches montantes n'a pas de sens ici : le bouton
+   « Envoyer » est déjà au bas de son formulaire, dans un tiroir qui défile. */
+.bv-lb-sheet .actions.sticky { position: static; background: none; border: 0; padding: 6px 0 0; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+@media (min-width: 640px) { .bv-lb-sheet { max-width: 640px; margin: 0 auto; } }
