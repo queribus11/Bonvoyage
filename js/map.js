@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.14";
+window.BV_VERSION = "10.15";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -461,22 +461,47 @@ window.BVMAP = (() => {
   function setView(M, lat, lng, zoom) { M.map.jumpTo({ center: [lng, lat], zoom: zoom ?? M.map.getZoom() }); }
   function easeTo(M, lat, lng, zoom) { M.map.easeTo({ center: [lng, lat], zoom: zoom ?? M.map.getZoom(), duration: 700 }); }
   // #37 · Aller d'un lieu à l'autre sans donner la nausée.
-  // Jusqu'ici la caméra traversait À HAUTEUR CONSTANTE, et un `Math.max(getZoom, 15)` lui
-  // interdisait de prendre du recul : sur dix kilomètres, on frôlait le sol au niveau de la
-  // rue. Désormais, au-delà de 1,5 km elle MONTE, traverse et REDESCEND (flyTo) ; en deçà
-  // elle glisse, ce qui reste agréable pour un petit déplacement. La durée grandit avec la
-  // distance et se plafonne, pour ne pas faire attendre entre deux photos.
-  // Chiffres arrêtés avec Sophie : seuil 1,5 km, plafond 3,5 s, arrivée sur le village et
-  // ses alentours (zoom 14).
-  const FLY_M = 1500, FLY_ZOOM = 14, GLIDE_ZOOM_MIN = 13;
-  const GLIDE_MS = 600, FLY_BASE_MS = 900, FLY_PER_KM_MS = 250, FLY_MAX_MS = 3500;
+  // Ce qui compte n'est PAS la distance au sol mais LA DISTANCE À L'ÉCRAN : huit cents
+  // mètres à fort zoom traversent trois écrans, à faible zoom ils ne bougent presque rien.
+  // Un seuil en mètres était donc la mauvaise mesure — il a disparu. On projette le point
+  // d'arrivée à l'écran, on mesure sa distance au centre en pixels, on divise par la largeur
+  // de la carte : c'est le nombre d'écrans à traverser, au zoom courant.
+  // `flyTo` sert TOUT LE TEMPS : sa courbe est presque plate sur un petit déplacement, et
+  // prend de l'altitude sur un grand. Le zoom d'arrivée est borné des deux côtés, pour qu'il
+  // ne reste jamais collé au précédent quand on était au ras du sol.
+  // Chiffres arrêtés avec Sophie : recul jusqu'au village (z15), plafond 3 s.
+  const FLY_ZOOM_MAX = 15, FLY_ZOOM_MIN = 12.5, FLY_CURVE = 1.6;
+  const FLY_BASE_MS = 650, FLY_PER_SCREEN_MS = 650, FLY_MAX_MS = 3000;
+  function screensAway(M, lat, lng) {
+    const el = M.container, w = el.clientWidth || 1, h = el.clientHeight || 1;
+    let p; try { p = M.map.project([lng, lat]); } catch { return 0; }
+    return Math.hypot(p.x - w / 2, p.y - h / 2) / w;
+  }
   function goTo(M, lat, lng) {
-    const map = M.map, c = map.getCenter();
-    const d = dist([c.lng, c.lat], [lng, lat]), far = d >= FLY_M;
-    const zoom = far ? FLY_ZOOM : Math.max(map.getZoom(), GLIDE_ZOOM_MIN);
+    const map = M.map;
+    const zoom = Math.min(Math.max(map.getZoom(), FLY_ZOOM_MIN), FLY_ZOOM_MAX);
     if (reducedMotion()) { map.jumpTo({ center: [lng, lat], zoom }); return; }   // pas de vol du tout
-    if (!far) { map.easeTo({ center: [lng, lat], zoom, duration: GLIDE_MS }); return; }
-    map.flyTo({ center: [lng, lat], zoom, curve: 1.5, duration: Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_KM_MS * d / 1000) });
+    const screens = screensAway(M, lat, lng);
+    map.flyTo({ center: [lng, lat], zoom, curve: FLY_CURVE, duration: Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_SCREEN_MS * screens) });
+  }
+
+  // #37 · Les gestes, réglés un par un plutôt que tout coupé d'un coup.
+  // La feuille de style de MapLibre le dit : pincement allumé + déplacement à un doigt
+  // éteint donne `touch-action: pan-x pan-y`, c'est-à-dire que LE NAVIGATEUR REPREND LE
+  // DÉFILEMENT À UN DOIGT pendant que MapLibre garde le pincement. Les deux allumés donnent
+  // `touch-action: none` — la page ne défile plus, et c'est ce qui obligeait aux « gestes
+  // coopératifs » et à leur message. Ils ne servent plus.
+  // Dans la page : un doigt fait défiler, le pincement zoome, pas de rotation ni de bascule,
+  // et la molette fait défiler la page. En plein écran : tout est manipulable.
+  function setPageGestures(M, inPage) {
+    const map = M.map, on = (h, yes) => { try { yes ? h.enable() : h.disable(); } catch { } };
+    try { map.cooperativeGestures.disable(); } catch { }
+    on(map.dragPan, !inPage);
+    on(map.dragRotate, !inPage);
+    on(map.touchPitch, !inPage);
+    on(map.scrollZoom, !inPage);
+    on(map.touchZoomRotate, true);   // le pincement zoome toujours, dans la page comme en plein écran
+    try { inPage ? map.touchZoomRotate.disableRotation() : map.touchZoomRotate.enableRotation(); } catch { }
   }
   function getZoom(M) { return M.map.getZoom(); }
   function resize(M) { try { M.map.resize(); } catch { } }
@@ -679,5 +704,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

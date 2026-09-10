@@ -152,7 +152,6 @@
       ${showTip ? `<div class="home-tip top" id="tip-top">${homeTipHtml()}<button class="btn sm" id="tip-close" style="margin-top:8px">J'ai compris</button></div>` : ""}
       <div id="map-sentinel" aria-hidden="true"></div>
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
-        <div class="map-lip" aria-hidden="true"></div>
         <div class="map-caption" id="map-caption" hidden></div>
         <div class="map-rail"><button type="button" class="map-btn" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand")}</button>${canReplay ? `<button type="button" class="map-btn" id="map-replay" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>` : ""}<button type="button" class="map-btn" id="map-layers" title="Fonds de carte" aria-label="Choisir le fond de carte" aria-expanded="false">${ic("layers")}</button></div>
         <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><div class="replay-ctls"><button class="btn sm" id="replay-pause" title="Pause">${ic("pause", "sm")}</button><button class="btn sm" id="replay-next" title="Journée suivante">${ic("chevron-right", "sm")} Suivant</button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Retour au récit</button></div></div></div>
@@ -174,8 +173,11 @@
     installManifest();
 
     renderNotifButton();
-    // Sur mobile, un doigt fait défiler la page, deux doigts bougent la carte (geste coopératif) ; « Agrandir » libère la carte
-    map = BVMAP.create("share-map", { cooperative: true, globe: true, terrain: false, controlsPos: "top-right", reading: true });
+    // #37 · Dans la page : un doigt fait défiler la page, le pincement zoome la carte, pas
+    // de rotation. En plein écran : tout est manipulable. Les « gestes coopératifs » de
+    // MapLibre et leur message « deux doigts pour bouger la carte » ne servent plus.
+    map = BVMAP.create("share-map", { globe: true, terrain: false, controlsPos: "top-right", reading: true });
+    BVMAP.setPageGestures(map, true);
     const setBig = (big) => {
       const w = $("#map-wrap"); w.classList.toggle("big", big);
       // #37 · Une infobulle ne s'affiche JAMAIS sur un écran tactile : le bouton qui fait
@@ -185,21 +187,11 @@
       eb.classList.toggle("wide", big);
       eb.title = big ? "Réduire la carte" : "Plein écran";
       eb.setAttribute("aria-label", big ? "Réduire la carte" : "Afficher la carte en plein écran");
-      BVMAP.setCooperative(map, !big);
+      BVMAP.setPageGestures(map, !big);
       document.body.classList.toggle("map-big", big);
       setTimeout(() => { BVMAP.resize(map); if (!map.replaying && introDone && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
     };
     $("#map-expand").onclick = () => setBig(!$("#map-wrap").classList.contains("big"));
-    // #37 · Dans la page, un doigt fait défiler et MapLibre refuse de bouger la carte, en
-    // affichant son propre message. C'est l'instant exact où le proche cherche comment
-    // agrandir : on fait pulser le bouton, pour que la sortie soit visible quand on la
-    // cherche. En plein écran les gestes coopératifs sont éteints, il n'y a rien à signaler.
-    map.map.on("cooperativegestureprevented", () => {
-      const b = $("#map-expand");
-      if (!b || $("#map-wrap").classList.contains("big")) return;
-      b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
-      setTimeout(() => b.classList.remove("pop"), 800);
-    });
     const startReplay = (only = null) => {
       if (!drawn || map.replaying) return;
       if (dayFilter && !only) { dayFilter = null; draw(false); refreshCaption(); }
@@ -348,7 +340,7 @@
       ${lead ? `<figure class="day-lead" data-id="${lead.id}"${lead.lat != null ? " data-geo" : ""}>
         ${MEMBERS.dot(lead.author_id)}
         <img src="${API.publicUrl(lead.path)}" alt="${esc(lead.caption)}" loading="lazy">
-        ${lead.caption ? `<figcaption>${esc(lead.caption)}</figcaption>` : ""}</figure>` : ""}
+        ${lead.caption ? `<figcaption>${lead.transport && BVMAP.MODES[lead.transport] ? BVMAP.MODES[lead.transport].icon + " " : ""}${lead.audio_path ? "🎙 " : ""}${esc(lead.caption)}</figcaption>` : ""}</figure>` : ""}
       ${rest.length ? `<div class="gallery">${rest.map((m) => `<figure data-id="${m.id}"${m.lat != null ? " data-geo" : ""} class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
           ${MEMBERS.dot(m.author_id)}
           ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${thumb(m)}" alt="${esc(m.caption)}" loading="lazy">`}
