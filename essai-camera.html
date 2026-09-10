@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="fr" class="is-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bonvoyage — essai du vol de caméra</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0E1620">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="">
+<style>
+  :root { --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0E1620; color: #fff;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #carte { position: absolute; inset: 0; }
+  .haut { position: absolute; left: 12px; right: 12px; top: calc(10px + var(--safe-t)); z-index: 5;
+    background: rgba(16,22,30,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 10px 14px; line-height: 1.4; }
+  .haut b { font-size: 15px; }
+  .haut p { margin: 4px 0 0; font-size: 12.5px; opacity: .78; }
+  .bas { position: absolute; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); z-index: 5;
+    display: flex; flex-direction: column; gap: 10px; }
+  .trajets { display: flex; gap: 8px; }
+  .trajets button { flex: 1; min-height: 46px; border-radius: 14px; border: 1px solid rgba(255,255,255,.18);
+    background: rgba(16,22,30,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: #fff; font: 600 14px/1.2 inherit; }
+  .trajets button.on { background: #fff; color: #123F66; border-color: #fff; }
+  .reglages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .reglages button { min-height: 74px; border-radius: 18px; border: 1px solid rgba(255,255,255,.22);
+    background: rgba(16,22,30,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+  .reglages .lettre { font: 800 24px/1 inherit; }
+  .reglages .mot { font: 600 10.5px/1.15 inherit; opacity: .72; text-align: center; padding: 0 3px; }
+  .reglages button:active { transform: scale(.96); }
+  .reglages button.on { background: #F97316; border-color: #F97316; }
+  .reglages button.on .mot { opacity: .95; }
+  .lu { background: rgba(16,22,30,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 9px 14px; font-size: 13px;
+    font-variant-numeric: tabular-nums; min-height: 40px; display: flex; align-items: center; }
+  .lu b { font-weight: 800; }
+  /* La mention des cartes passe au-dessus du panneau : elle ne doit recouvrir aucun bouton. */
+  .maplibregl-ctrl-bottom-right { bottom: calc(200px + var(--safe-b)) !important; }
+</style>
+</head>
+<body>
+<div id="carte"></div>
+
+<div class="haut">
+  <b>Essai du vol de caméra</b>
+  <p>Choisis un trajet, puis touche A, B, C ou D. Chaque bouton refait le même trajet avec une
+     vitesse et une prise d'altitude différentes — l'aller et le retour alternent, touche
+     autant de fois que tu veux. Dis-moi la lettre qui te convient.</p>
+</div>
+
+<div class="bas">
+  <div class="lu" id="lu">Touche un bouton pour commencer.</div>
+  <div class="trajets" id="trajets"></div>
+  <div class="reglages" id="reglages"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin=""></script>
+<script>
+(function () {
+  // Deux trajets : celui qui pose problème (deux photos du même village) et un grand saut.
+  var TRAJETS = [
+    { nom: "Deux photos proches", a: [-5.1050, 56.6835], b: [-5.0975, 56.6870], zoom: 15.5 },
+    { nom: "Deux journées",       a: [-5.1050, 56.6835], b: [-5.8290, 56.9950], zoom: 15.5 }
+  ];
+  // base et parEcran en secondes, plafond en secondes, courbe = ampleur du recul
+  var REGLAGES = [
+    { lettre: "A", mot: "en ligne<br>aujourd'hui", base: .65, parEcran: .65, plafond: 3,   courbe: 1.6 },
+    { lettre: "B", mot: "2× plus lent<br>sans recul", base: 1.3, parEcran: 1.3, plafond: 4,   courbe: 1.0 },
+    { lettre: "C", mot: "2× plus lent<br>recul doux", base: 1.3, parEcran: 1.3, plafond: 4,   courbe: 1.3 },
+    { lettre: "D", mot: "très posé<br>recul doux",    base: 2.0, parEcran: 2.0, plafond: 5.5, courbe: 1.3 }
+  ];
+  var ZOOM_MAX = 15, ZOOM_MIN = 12.5;
+
+  var iTrajet = 0, versB = true, carte = null;
+  var lu = document.getElementById("lu");
+
+  var ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+  carte = new maplibregl.Map({
+    container: "carte",
+    style: { version: 8, sources: {
+        esri:  { type: "raster", tiles: [ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19,
+                 attribution: 'Imagerie © <a href="https://www.esri.com/">Esri</a>, Maxar' },
+        rues:  { type: "raster", tiles: [ESRI + "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19 },
+        noms:  { type: "raster", tiles: [ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19 } },
+      layers: [ { id: "fond", type: "background", paint: { "background-color": "#0E1620" } },
+        { id: "esri", type: "raster", source: "esri" },
+        { id: "rues", type: "raster", source: "rues", paint: { "raster-opacity": .8 } },
+        { id: "noms", type: "raster", source: "noms" } ] },
+    center: TRAJETS[0].a, zoom: TRAJETS[0].zoom, attributionControl: { compact: true }
+  });
+
+  // Le repère de la photo, pour voir où l'on arrive
+  function marqueur(lngLat) {
+    var el = document.createElement("div");
+    el.style.cssText = "width:22px;height:22px;border-radius:50%;background:#F97316;border:3px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,.5)";
+    return new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(carte);
+  }
+  var reperes = [];
+  function poseReperes() {
+    reperes.forEach(function (m) { m.remove(); });
+    reperes = [marqueur(TRAJETS[iTrajet].a), marqueur(TRAJETS[iTrajet].b)];
+  }
+
+  // La mesure employée par l'application : la distance à l'écran, en largeurs d'écran.
+  function ecrans(lngLat) {
+    var el = carte.getContainer(), w = el.clientWidth || 1;
+    var p = carte.project(lngLat);
+    return Math.hypot(p.x - w / 2, p.y - el.clientHeight / 2) / w;
+  }
+
+  function vole(r) {
+    var t = TRAJETS[iTrajet], cible = versB ? t.b : t.a;
+    versB = !versB;
+    var n = ecrans(cible);
+    var duree = Math.min(r.plafond, r.base + r.parEcran * n);
+    var zoom = Math.min(Math.max(carte.getZoom(), ZOOM_MIN), ZOOM_MAX);
+    lu.innerHTML = "<b>" + r.lettre + "</b> &nbsp;·&nbsp; " + n.toFixed(1) + " écran" + (n >= 2 ? "s" : "") +
+                   " à traverser &nbsp;·&nbsp; <b>" + duree.toFixed(1).replace(".", ",") + " s</b>" +
+                   " &nbsp;·&nbsp; recul " + (r.courbe <= 1 ? "aucun" : r.courbe < 1.5 ? "doux" : "fort");
+    carte.flyTo({ center: cible, zoom: zoom, curve: r.courbe, duration: duree * 1000, essential: true });
+  }
+
+  // Les boutons
+  var zT = document.getElementById("trajets");
+  TRAJETS.forEach(function (t, i) {
+    var b = document.createElement("button");
+    b.textContent = t.nom;
+    b.className = i === 0 ? "on" : "";
+    b.onclick = function () {
+      iTrajet = i; versB = true;
+      [].forEach.call(zT.children, function (x, j) { x.className = j === i ? "on" : ""; });
+      carte.jumpTo({ center: t.a, zoom: t.zoom });
+      poseReperes();
+      lu.textContent = "Trajet : " + t.nom + ". Touche A, B, C ou D.";
+    };
+    zT.appendChild(b);
+  });
+
+  var zR = document.getElementById("reglages");
+  REGLAGES.forEach(function (r) {
+    var b = document.createElement("button");
+    b.innerHTML = '<span class="lettre">' + r.lettre + '</span><span class="mot">' + r.mot + '</span>';
+    b.onclick = function () {
+      [].forEach.call(zR.children, function (x) { x.className = ""; });
+      b.className = "on";
+      vole(r);
+    };
+    zR.appendChild(b);
+  });
+
+  carte.on("load", poseReperes);
+})();
+</script>
+</body>
+</html>
