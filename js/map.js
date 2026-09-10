@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.19";
+window.BV_VERSION = "10.20";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -510,12 +510,15 @@ window.BVMAP = (() => {
     let p; try { p = M.map.project([lng, lat]); } catch { return 0; }
     return Math.hypot(p.x - w / 2, p.y - h / 2) / w;
   }
+  // Retourne la durée employée : l'appelant en a besoin pour savoir jusqu'à quand la carte
+  // est occupée, et ne pas lancer un autre mouvement par-dessus celui-ci.
   function goTo(M, lat, lng) {
     const map = M.map;
     const zoom = Math.min(Math.max(map.getZoom(), FLY_ZOOM_MIN), FLY_ZOOM_MAX);
-    if (reducedMotion()) { map.jumpTo({ center: [lng, lat], zoom }); return; }   // pas de vol du tout
-    const screens = screensAway(M, lat, lng);
-    map.flyTo({ center: [lng, lat], zoom, curve: FLY_CURVE, duration: Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_SCREEN_MS * screens) });
+    if (reducedMotion()) { map.jumpTo({ center: [lng, lat], zoom }); return 0; }   // pas de vol du tout
+    const ms = Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_SCREEN_MS * screensAway(M, lat, lng));
+    map.flyTo({ center: [lng, lat], zoom, curve: FLY_CURVE, duration: ms });
+    return ms;
   }
 
   // #37 · Les gestes, réglés un par un plutôt que tout coupé d'un coup.

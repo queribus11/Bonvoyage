@@ -429,11 +429,24 @@
   const followMode = FOLLOW_MODES.includes(askedMode) ? askedMode : FOLLOW_DEFAULT;
   const seenDays = new Set(), seenShots = new Set();
   let dayIO = null, shotIO = null, followDay = null, followShot = null, touchedAt = 0, tickReq = 0, sizeReq = 0, mediaById = new Map();
-  // #37 · Jusqu'à quand la carte est occupée à recadrer une journée. `applyFollow` est
-  // rappelée à CHAQUE IMAGE du défilement : sans ce repère, le vol vers la photo prenait la
-  // place du recadrage dès l'image suivante — 60 ms après son départ — et le passage d'une
-  // journée à l'autre gardait l'ancienne vitesse malgré les 8,5 s demandées (v10.18).
-  let dayFlyUntil = 0;
+  // #37 · UN SEUL MOUVEMENT À LA FOIS. `applyFollow` est rappelée à CHAQUE IMAGE du
+  // défilement. Ce repère dit jusqu'à quand la carte est occupée — il est posé par LES DEUX
+  // mouvements du suivi : le recadrage d'une journée et le vol vers une photo.
+  // Mesuré sur la vraie page, avec un défilement de lecture ordinaire (v10.20) : un
+  // recadrage démarrait par-dessus un autre, et un recadrage coupait le vol vers une photo
+  // au bout de 0,9 s. La caméra repartait chaque fois d'un mouvement déjà lancé — d'où la
+  // brusquerie et l'accélération, qu'aucun réglage de durée ne pouvait corriger.
+  // En v10.18 ce repère ne protégeait que le vol vers la photo ; il protège désormais tout.
+  let busyUntil = 0, waitReq = 0;
+  // Le temps de respiration entre le recadrage d'une journée et le vol vers sa photo.
+  const PAUSE_MS = 300;
+  // Occupée : on ne démarre rien, et on repasse à la fin. Au retour, `applyFollow` regarde
+  // où en est VRAIMENT la lecture — si trois journées ont défilé, la carte va à la bonne,
+  // elle ne rejoue pas la file d'attente.
+  function laterOn() {
+    clearTimeout(waitReq);
+    waitReq = setTimeout(schedule, Math.max(60, busyUntil - Date.now() + 120));
+  }
 
   const canFollow = () => !!D && (D.media.some((m) => m.lat != null) || D.tracks.some((t) => (t.points || []).length));
   // Un carnet sans aucune photo située retombe sur le suivi par journée, comme avant.
@@ -558,33 +571,36 @@
     if (!iso) {
       const first = $(".day-section", root);
       if (!followDay || !first || first.getBoundingClientRect().top < innerHeight) return;
+      if (Date.now() < busyUntil) { laterOn(); return; }
       followDay = null; followShot = null;
       BVMAP.focusMedia(map, null); refreshCaption();
       // Même remède ici : remonter au-dessus du récit peut traverser tout le pays, et
       // 1,2 s y était aussi brutal que sur le passage d'une journée à l'autre.
       if (drawn && drawn.bounds) {
-        if (calm) { BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14, duration: 0 }); dayFlyUntil = 0; }
-        else dayFlyUntil = Date.now() + BVMAP.flyToDay(map, drawn.bounds, { padding: 40, maxZoom: 14 });
+        if (calm) { BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14, duration: 0 }); busyUntil = 0; }
+        else busyUntil = Date.now() + BVMAP.flyToDay(map, drawn.bounds, { padding: 40, maxZoom: 14 });
       }
       return;
     }
     // Nouvelle journée : on montre d'abord la journée entière — on voit où l'on est.
     if (followDay !== iso) {
+      // La carte est encore en mouvement : on ne coupe pas, on y va à la fin.
+      if (Date.now() < busyUntil) { laterOn(); return; }
       followDay = iso; followShot = null;
       BVMAP.focusMedia(map, null);
       refreshCaption();
-      // Le vol vers la première photo attend la FIN du recadrage : sinon les deux
-      // mouvements se battraient, le recadrage pouvant durer jusqu'à 8,5 s.
       const ms = highlight(iso, calm);
-      dayFlyUntil = Date.now() + ms;
-      if (photoFollow()) setTimeout(schedule, calm ? 60 : ms + 300);
+      // La carte reste occupée le temps du recadrage ET de la respiration qui suit : c'est
+      // ce qui garantit que le vol vers la photo part d'une carte immobile.
+      busyUntil = Date.now() + ms + (ms ? PAUSE_MS : 0);
+      if (photoFollow()) setTimeout(schedule, calm ? 60 : ms + PAUSE_MS);
       return;
     }
     if (!photoFollow()) return;
-    // Le recadrage de la journée va jusqu'au bout : on ne le coupe pas. `followShot` n'est
-    // pas consommé ici, donc le vol vers la photo aura bien lieu ensuite — au rendez-vous
-    // déjà pris, ou à la première image de défilement qui suit.
-    if (Date.now() < dayFlyUntil) return;
+    // Le mouvement en cours va jusqu'au bout : on ne le coupe pas. `followShot` n'est pas
+    // consommé ici, donc le vol vers la photo aura bien lieu ensuite — au rendez-vous déjà
+    // pris, ou au repassage que `laterOn` programme.
+    if (Date.now() < busyUntil) { laterOn(); return; }
     const fig = nearestToLine(seenShots);
     const m = fig ? mediaById.get(fig.dataset.id) : null;
     if (!m || m.lat == null || m.day_date !== iso || followShot === m.id) return;
@@ -594,7 +610,7 @@
     if (isLonely(m)) return;   // photo perdue au loin : la carte reste sur la journée
     BVMAP.focusMedia(map, m.id);
     refreshCaption(m);
-    BVMAP.goTo(map, m.lat, m.lng);
+    busyUntil = Date.now() + BVMAP.goTo(map, m.lat, m.lng);
   }
 
   // La pastille qui dit ce que la carte montre. Rien à dire → pas de pastille.
