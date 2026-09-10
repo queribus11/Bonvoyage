@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.15";
+window.BV_VERSION = "10.16";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -469,9 +469,14 @@ window.BVMAP = (() => {
   // `flyTo` sert TOUT LE TEMPS : sa courbe est presque plate sur un petit déplacement, et
   // prend de l'altitude sur un grand. Le zoom d'arrivée est borné des deux côtés, pour qu'il
   // ne reste jamais collé au précédent quand on était au ras du sol.
-  // Chiffres arrêtés avec Sophie : recul jusqu'au village (z15), plafond 3 s.
-  const FLY_ZOOM_MAX = 15, FLY_ZOOM_MIN = 12.5, FLY_CURVE = 1.6;
-  const FLY_BASE_MS = 650, FLY_PER_SCREEN_MS = 650, FLY_MAX_MS = 3000;
+  // Chiffres choisis par Sophie AU DOIGT, sur une page d'essai à quatre réglages (v10.16),
+  // après trois tentatives devinées qui ont toutes raté. C'est le réglage « D ».
+  // Le coupable principal n'était pas la durée mais LE RECUL : une courbe de 1,6 fait
+  // s'éloigner la caméra puis se rapprocher, et tout ce mouvement devait tenir dans moins
+  // d'une seconde. Courbe ramenée à 1,3, et durées triplées.
+  // Ne pas re-régler ces cinq nombres sans le lui redemander au doigt.
+  const FLY_ZOOM_MAX = 15, FLY_ZOOM_MIN = 12.5, FLY_CURVE = 1.3;
+  const FLY_BASE_MS = 2000, FLY_PER_SCREEN_MS = 2000, FLY_MAX_MS = 5500;
   function screensAway(M, lat, lng) {
     const el = M.container, w = el.clientWidth || 1, h = el.clientHeight || 1;
     let p; try { p = M.map.project([lng, lat]); } catch { return 0; }
