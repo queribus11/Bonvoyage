@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.8**
+- Version actuelle : **v10.13**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -106,9 +106,11 @@ relecture qui coûte, pas l'écriture. Et **vérifier l'hypothèse de regroupeme
 d'écrire quoi que ce soit** — elle tombe parfois.
 
 **8. Une mise en page se vérifie en image avant de la montrer à Sophie.** Reconstituer
-l'écran avec le vrai `css/style.css`, dans un conteneur de **393 px** (largeur d'un
-iPhone, à fixer dans la page, pas par la fenêtre du navigateur), `html class="is-dark"`
-pour son thème sombre, puis capture. Restent hors de portée : le tactile, le clavier de
+l'écran avec le vrai `css/style.css`, dans un conteneur de **440 × 956 px** (la taille de
+l'iPhone de Sophie, à fixer dans la page, pas par la fenêtre du navigateur),
+`html class="is-dark"` pour son thème sombre, puis capture. **Ne jamais déduire la taille
+de son écran des dimensions d'une capture qu'elle envoie** : elles sont redimensionnées en
+chemin. Restent hors de portée : le tactile, le clavier de
 l'iPhone, le partage natif, et tout ce qui demande un vrai compte.
 
 **9. À chaque version vérifiée en ligne, rappeler à Sophie de reprendre sa copie.**

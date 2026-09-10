@@ -128,9 +128,13 @@
     const cover = t.cover_path ? API.publicUrl(t.cover_path) : (D.media.find((m) => m.kind === "photo") ? API.publicUrl(D.media.find((m) => m.kind === "photo").path) : "");
     const newDays = days.filter((iso) => { const d = D.days.find((x) => x.day_date === iso); return (d && isNew(d.published_at)) || D.media.some((m) => m.day_date === iso && isNew(m.created_at)); });
     const showTip = isMobile() && !isStandalone() && !lastVisit;
+    // #37 · « Du nouveau » quittait la carte pour ne pas rester posé dessus en permanence :
+    // il descend en tête du récit, sur une ligne discrète, une seule fois par page.
+    const newsLine = newDays.length
+      ? `<div class="news-line"><i></i>Du nouveau depuis ta dernière visite : ${newDays.map((iso) => { const n = dayNumber(D.trip, iso); return `<a href="#day-${iso}">${n ? "Jour " + n : CV.fmtDateShort(iso)}</a>`; }).join(", ")}</div>`
+      : "";
     root.innerHTML = `
       ${preview ? previewBarHtml() : ""}
-      ${newDays.length ? `<div class="news-pill"><div><i></i>Du nouveau : ${newDays.map((iso) => { const n = dayNumber(D.trip, iso); return `<a href="#day-${iso}">${n ? "Jour " + n : CV.fmtDateShort(iso)}</a>`; }).join(", ")}</div></div>` : ""}
       <header class="share-hero" ${cover ? `style="background-image:url('${cover}')"` : ""}>
         <div class="inner">${t.subtitle ? `<div class="sub">${esc(t.subtitle)}</div>` : ""}<h1>${esc(t.title)}</h1>
           ${MEMBERS.isShared() ? `<div class="crew">${(D.authors || []).map((a) => MEMBERS.pill(a.id, { solid: true, force: true })).join("")}</div>` : ""}
@@ -148,10 +152,12 @@
       ${showTip ? `<div class="home-tip top" id="tip-top">${homeTipHtml()}<button class="btn sm" id="tip-close" style="margin-top:8px">J'ai compris</button></div>` : ""}
       <div id="map-sentinel" aria-hidden="true"></div>
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
-        <div class="map-hud"><div class="map-caption" id="map-caption" hidden></div><div class="legend" id="legend"></div></div>
-        <div class="map-actions"><button class="btn sm glass" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand", "sm")}<span class="lbl">Plein écran</span></button>${canReplay ? `<button class="btn sm glass" id="map-replay" title="Suivre le parcours" aria-label="Suivre le parcours sur la carte">${ic("play", "sm")}<span class="lbl">Suivre le parcours</span></button>` : ""}</div>
+        <div class="map-lip" aria-hidden="true"></div>
+        <div class="map-caption" id="map-caption" hidden></div>
+        <div class="map-rail"><button type="button" class="map-btn" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand")}</button>${canReplay ? `<button type="button" class="map-btn" id="map-replay" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>` : ""}<button type="button" class="map-btn" id="map-layers" title="Fonds de carte" aria-label="Choisir le fond de carte" aria-expanded="false">${ic("layers")}</button></div>
         <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><div class="replay-ctls"><button class="btn sm" id="replay-pause" title="Pause">${ic("pause", "sm")}</button><button class="btn sm" id="replay-next" title="Journée suivante">${ic("chevron-right", "sm")} Suivant</button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Retour au récit</button></div></div></div>
       <main class="story">
+        ${newsLine}
         ${t.description ? `<div class="intro">${nl2p(t.description)}</div>` : ""}
         ${days.map((iso) => daySection(iso, days)).join("")}
         ${!days.length ? `<p class="muted" style="text-align:center">Le récit n'a pas encore commencé… revenez bientôt !</p>` : ""}
@@ -169,12 +175,12 @@
 
     renderNotifButton();
     // Sur mobile, un doigt fait défiler la page, deux doigts bougent la carte (geste coopératif) ; « Agrandir » libère la carte
-    map = BVMAP.create("share-map", { cooperative: true, globe: true, terrain: false, controlsPos: "bottom-right" });
+    map = BVMAP.create("share-map", { cooperative: true, globe: true, terrain: false, controlsPos: "bottom-right", reading: true });
     const setBig = (big) => {
       const w = $("#map-wrap"); w.classList.toggle("big", big);
-      // Sur téléphone le mot est masqué : c'est l'infobulle qui dit ce que fait le bouton, elle doit suivre.
+      // Les boutons du rail sont muets : c'est l'infobulle qui dit ce qu'ils font, elle doit suivre.
       const eb = $("#map-expand");
-      eb.innerHTML = big ? `${ic("close", "sm")}<span class="lbl">Réduire</span>` : `${ic("expand", "sm")}<span class="lbl">Plein écran</span>`;
+      eb.innerHTML = big ? ic("close") : ic("expand");
       eb.title = big ? "Réduire la carte" : "Plein écran";
       eb.setAttribute("aria-label", big ? "Réduire la carte" : "Afficher la carte en plein écran");
       BVMAP.setCooperative(map, !big);
@@ -184,8 +190,8 @@
     $("#map-expand").onclick = () => setBig(!$("#map-wrap").classList.contains("big"));
     const startReplay = (only = null) => {
       if (!drawn || map.replaying) return;
-      if (dayFilter && !only) { dayFilter = null; draw(false); renderLegend(days); }
-      if (only && dayFilter !== only) { dayFilter = only; draw(false); renderLegend(days); }
+      if (dayFilter && !only) { dayFilter = null; draw(false); refreshCaption(); }
+      if (only && dayFilter !== only) { dayFilter = only; draw(false); refreshCaption(); }
       const wasBig = $("#map-wrap").classList.contains("big");
       if (isMobile()) setBig(true);
       $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -205,7 +211,6 @@
       };
       if (introDone) setTimeout(go, isMobile() ? 400 : 700); else replayWanted = only || true;
     };
-    $$(".day-replay", root).forEach((b) => b.onclick = () => startReplay(b.dataset.iso));
     $("#replay-stop").onclick = () => { if (map.stopReplay) map.stopReplay(); };
     $("#replay-pause").onclick = () => { const c = map.replayCtl; if (!c) return; c.paused ? c.resume() : c.pause(); };
     $("#replay-next").onclick = () => { const c = map.replayCtl; if (c) c.next(); };
@@ -223,9 +228,20 @@
     };
 
     const rb = $("#btn-replay"); if (rb) rb.onclick = () => startReplay();
-    const mr = $("#map-replay"); if (mr) mr.onclick = () => startReplay();
+    // #37 · Le ▶ du rail joue LA JOURNÉE QU'ON EST EN TRAIN DE LIRE (il remplace le bouton
+    // « Suivre cette journée » qui le doublait sous la carte). Tant qu'aucune journée n'est
+    // lue, il joue tout le voyage — comme le bouton du haut de page.
+    const mr = $("#map-replay"); if (mr) mr.onclick = () => startReplay(dayFilter || followDay || null);
+    // Les quatre onglets de fond et le zoom + / − se replient derrière le 3e bouton du rail :
+    // on garde la rangée existante telle quelle, on ne fait que la montrer et la cacher.
+    const ml = $("#map-layers");
+    if (ml) ml.onclick = () => {
+      const on = !$("#map-wrap").classList.contains("show-layers");
+      $("#map-wrap").classList.toggle("show-layers", on);
+      ml.classList.toggle("on", on);
+      ml.setAttribute("aria-expanded", on ? "true" : "false");
+    };
     draw(false);
-    renderLegend(days);
     // Intro : le globe tourne vers le voyage quand la carte arrive à l'écran (une seule fois)
     const runIntro = () => {
       if (introStarted) return; introStarted = true;
@@ -238,17 +254,16 @@
       mo.observe($("#map-wrap"));
     } else runIntro();
     bindBigAudio(root);
-    $$(".gallery figure", root).forEach((f) => f.onclick = () => viewer(D.media.find((m) => m.id === f.dataset.id)));
+    $$(".gallery figure, .day-lead", root).forEach((f) => f.onclick = () => viewer(D.media.find((m) => m.id === f.dataset.id)));
     $$(".day-comment-btn", root).forEach((b) => b.onclick = () => commentForm({ dayId: b.dataset.day }));
-    $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { if (map.replaying) return; dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); renderLegend(days); refreshCaption(); showMap(); });
-    $$(".step-card.has-cover", root).forEach((c) => c.onclick = () => viewer(D.media.find((m) => m.id === c.dataset.id)));
+    $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { if (map.replaying) return; dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); refreshCaption(); showMap(); });
     // Toucher un arrêt recentre la carte dessus — même geste que le clic sur une journée
     $$(".stop-trail li", root).forEach((li) => li.onclick = () => {
       if (map.replaying) return;
       const st = (D.stops || []).find((x) => x.id === li.dataset.stop);
       if (!st) return;
       const iso = st.day_date;
-      if (dayFilter !== iso) { dayFilter = iso; draw(false); renderLegend(dayList()); refreshCaption(); }
+      if (dayFilter !== iso) { dayFilter = iso; draw(false); refreshCaption(); }
       showMap();
       setTimeout(() => { BVMAP.easeTo(map, st.lat, st.lng, Math.max(BVMAP.getZoom(map), 15)); BVMAP.ping(map, st.lat, st.lng); }, 420);
     });
@@ -289,21 +304,30 @@
     const comments = D.comments.filter((c) => c.day_id && c.day_id === d.id);
     const color = CV.colorForDay(days, iso);
     const st = CV.dayStats(D.tracks.filter((x) => x.day_date === iso));
-    const cover = media.find((m) => m.kind === "photo") || null;
-    const hasPath = D.tracks.some((t) => t.day_date === iso && (t.points || []).length >= 2) || media.filter((m) => m.lat != null).length >= 2;
-    const chips = [km ? `${ic("route", "sm")} ${fmtDistance(km)}` : "", st.duration_s ? `${ic("clock", "sm")} ${CV.fmtDuration(st.duration_s)}` : "", st.hasAlt && st.gain ? `↗ ${st.gain} m` : "", st.hasAlt && st.maxAlt != null ? `⛰ ${st.maxAlt} m` : "", media.length ? `${ic("camera", "sm")} ${media.length}` : ""].filter(Boolean);
+    // #37 · La première photo sort de la grille : pleine largeur, avec sa légende
+    // manuscrite en dessous. Les autres restent dans la grille, bord à bord.
+    const lead = media.find((m) => m.kind === "photo") || null;
+    const rest = lead ? media.filter((m) => m !== lead) : media;
+    // La distance est passée sur la ligne de date : elle ne s'affiche plus deux fois.
+    const chips = [st.duration_s ? `${ic("clock", "sm")} ${CV.fmtDuration(st.duration_s)}` : "", st.hasAlt && st.gain ? `↗ ${st.gain} m` : "", st.hasAlt && st.maxAlt != null ? `⛰ ${st.maxAlt} m` : "", media.length ? `${ic("camera", "sm")} ${media.length}` : ""].filter(Boolean);
+    const mark = isNew(d.published_at) ? `<span class="new-mark">nouveau</span>` : "";
+    const pill = MEMBERS.pill(d.author_id);
+    // Le titre de repli « Jour n » a disparu : la carte le dit déjà, juste au-dessus.
+    // Le récit n'affiche que le VRAI titre de la journée — et rien quand elle n'en a pas.
     return `<section class="day-section" data-iso="${iso}" id="day-${iso}">
-      <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${n ? `Jour ${n} · ` : ""}${fmtDate(iso)}</div>
-      <h2>${esc(d.title || (n ? `Jour ${n}` : fmtDate(iso, false)))}${isNew(d.published_at) ? `<span class="new-mark">nouveau</span>` : ""}${MEMBERS.pill(d.author_id)}</h2>
-      ${hasPath ? `<button class="btn sm day-replay" data-iso="${iso}" style="margin:-4px 0 12px">${ic("play", "sm")} Suivre cette journée</button>` : ""}
-      ${cover || d.place || chips.length ? `<div class="step-card${cover ? " has-cover" : ""}" ${cover ? `style="background-image:url('${API.publicUrl(cover.path)}')"` : ""} data-id="${cover ? cover.id : ""}"${cover && cover.lat != null ? " data-geo" : ""}>
-        <div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
-      ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
-      ${stopTrailHtml(iso)}
-      ${media.length ? `<div class="gallery">${media.map((m) => `<figure data-id="${m.id}"${m.lat != null ? " data-geo" : ""} class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
+      <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${fmtDate(iso)}${km ? ` · ${fmtDistance(km)}` : ""}${d.title ? "" : mark + pill}</div>
+      ${d.title ? `<h2>${esc(d.title)}${mark}${pill}</h2>` : ""}
+      ${lead ? `<figure class="day-lead" data-id="${lead.id}"${lead.lat != null ? " data-geo" : ""}>
+        ${MEMBERS.dot(lead.author_id)}
+        <img src="${API.publicUrl(lead.path)}" alt="${esc(lead.caption)}" loading="lazy">
+        ${lead.caption ? `<figcaption>${esc(lead.caption)}</figcaption>` : ""}</figure>` : ""}
+      ${rest.length ? `<div class="gallery">${rest.map((m) => `<figure data-id="${m.id}"${m.lat != null ? " data-geo" : ""} class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
           ${MEMBERS.dot(m.author_id)}
           ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${thumb(m)}" alt="${esc(m.caption)}" loading="lazy">`}
           ${m.caption || m.kind === "video" || m.audio_path || m.transport ? `<figcaption>${m.transport && BVMAP.MODES[m.transport] ? BVMAP.MODES[m.transport].icon + " " : ""}${m.kind === "video" ? "▶ " : ""}${m.audio_path ? "🎙 " : ""}${esc(m.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : ""}
+      ${d.place || chips.length ? `<div class="step-card"><div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
+      ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
+      ${stopTrailHtml(iso)}
       ${d.audio_path ? bigAudio(API.publicUrl(d.audio_path), "Écouter le récit du jour") : ""}
       ${MEMBERS.signedList((D.voices || []).filter((v) => v.day_id === d.id), { label: "Le mot du jour", icon: ic("mic", "sm"),
         render: (v) => bigAudio(API.publicUrl(v.audio_path), "Écouter " + (MEMBERS.name(v.author_id) || "le mot du jour"), true) })}
@@ -372,18 +396,60 @@
   // Et si le carnet n'a aucune photo située ni aucune trace, rien ne s'arme : pas de
   // contenu, pas de bloc.
   //
-  // Sophie a tranché après essai sur son iPhone (v10.12) : ce sera « jour ».
-  // « photo » reste en sommeil, jamais montré aux proches, mais réveillable en ajoutant
-  // `&suivi=photo` à un lien de partage — pour le rejuger un jour sur un vrai carnet,
-  // avec de vraies photos (l'essai s'était fait sur un faux voyage). Ne pas le retirer
-  // sans le lui demander. `&suivi=off` coupe tout suivi.
-  const FOLLOW_MODES = ["photo", "jour", "off"], FOLLOW_DEFAULT = "jour";
+  // Sophie a d'abord choisi « jour » (v10.12), puis rejugé « photo » sur son vrai carnet
+  // d'Écosse : c'est « photo » que voient les proches depuis la v10.13, sans rien ajouter
+  // au lien. `&suivi=jour` et `&suivi=off` restent l'aiguilleur de retour arrière.
+  const FOLLOW_MODES = ["photo", "jour", "off"], FOLLOW_DEFAULT = "photo";
   const askedMode = (params.get("suivi") || "").toLowerCase();
   const followMode = FOLLOW_MODES.includes(askedMode) ? askedMode : FOLLOW_DEFAULT;
   const seenDays = new Set(), seenShots = new Set();
   let dayIO = null, shotIO = null, followDay = null, followShot = null, touchedAt = 0, tickReq = 0, sizeReq = 0, mediaById = new Map();
 
   const canFollow = () => !!D && (D.media.some((m) => m.lat != null) || D.tracks.some((t) => (t.points || []).length));
+  // Un carnet sans aucune photo située retombe sur le suivi par journée, comme avant.
+  const photoFollow = () => followMode === "photo" && !!D && D.media.some((m) => m.lat != null);
+
+  // #37 · Une photo prise loin de tout le reste de la journée — à la maison avant le départ,
+  // ou mal située par le téléphone — n'emmène pas la carte avec elle. On mesure sa distance
+  // à sa plus proche voisine du jour (autre photo située, ou point de trace) : au-delà de
+  // 8 km ET de quatre fois l'écart habituel de la journée, la carte reste sur la journée
+  // entière. Une journée de 300 km de route n'est pas gênée : ses photos y sont régulièrement
+  // espacées. La trace est échantillonnée (120 points au plus) : mesurer point à point
+  // gèlerait la page sur une trace GPS d'une journée entière.
+  const LONELY_M = 8000, LONELY_RATIO = 4;
+  const lonelyById = new Map(), daySampleCache = new Map();
+  function daySample(iso) {
+    if (daySampleCache.has(iso)) return daySampleCache.get(iso);
+    const photos = D.media.filter((m) => m.day_date === iso && m.lat != null).map((m) => ({ lat: m.lat, lng: m.lng, id: m.id }));
+    const line = [];
+    for (const t of D.tracks) {
+      if (t.day_date !== iso) continue;
+      const ps = (t.points || []).filter((p) => p && p.lat != null);
+      const step = Math.max(1, Math.ceil(ps.length / 120));
+      for (let i = 0; i < ps.length; i += step) line.push({ lat: ps[i].lat, lng: ps[i].lng });
+    }
+    const v = { photos, all: photos.concat(line) };
+    daySampleCache.set(iso, v);
+    return v;
+  }
+  function nearestOther(pts, p, skipId) {
+    let best = Infinity;
+    for (const q of pts) { if (skipId && q.id === skipId) continue; const dd = CV.haversine(p, q); if (dd < best) best = dd; }
+    return best;
+  }
+  function isLonely(m) {
+    if (lonelyById.has(m.id)) return lonelyById.get(m.id);
+    const { photos, all } = daySample(m.day_date);
+    let out = false;
+    if (all.length >= 2) {
+      const d0 = nearestOther(all, { lat: m.lat, lng: m.lng }, m.id);
+      const gaps = photos.filter((p) => p.id !== m.id).map((p) => nearestOther(all, p, p.id)).filter((x) => isFinite(x)).sort((a, b) => a - b);
+      const usual = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0;
+      out = isFinite(d0) && d0 > LONELY_M && d0 > LONELY_RATIO * usual;
+    }
+    lonelyById.set(m.id, out);
+    return out;
+  }
   // Collée, la carte est déjà sous les yeux : inutile de remonter la page jusqu'à elle.
   function showMap() { if (!stuck) $("#map-wrap")?.scrollIntoView({ behavior: "smooth", block: "center" }); }
 
@@ -445,9 +511,9 @@
     const rootMargin = bandMargin();
     dayIO = new IntersectionObserver((es) => { for (const e of es) e.isIntersecting ? seenDays.add(e.target) : seenDays.delete(e.target); schedule(); }, { rootMargin });
     $$(".day-section", root).forEach((s) => dayIO.observe(s));
-    if (followMode !== "photo") return;
+    if (!photoFollow()) return;
     shotIO = new IntersectionObserver((es) => { for (const e of es) e.isIntersecting ? seenShots.add(e.target) : seenShots.delete(e.target); schedule(); }, { rootMargin });
-    $$(".gallery figure[data-geo], .step-card[data-geo]", root).forEach((f) => shotIO.observe(f));
+    $$(".gallery figure[data-geo], .day-lead[data-geo]", root).forEach((f) => shotIO.observe(f));
   }
 
   function applyFollow() {
@@ -473,15 +539,16 @@
       BVMAP.focusMedia(map, null);
       refreshCaption();
       highlight(iso, calm);
-      if (followMode === "photo") setTimeout(schedule, calm ? 60 : 1500);
+      if (photoFollow()) setTimeout(schedule, calm ? 60 : 1500);
       return;
     }
-    if (followMode !== "photo") return;
+    if (!photoFollow()) return;
     const fig = nearestToLine(seenShots);
     const m = fig ? mediaById.get(fig.dataset.id) : null;
     if (!m || m.lat == null || m.day_date !== iso || followShot === m.id) return;
     // On garde le zoom : la carte glisse d'une photo à l'autre, les tuiles sont déjà là.
     followShot = m.id;
+    if (isLonely(m)) return;   // photo perdue au loin : la carte reste sur la journée
     BVMAP.focusMedia(map, m.id);
     refreshCaption(m);
     const z = Math.max(BVMAP.getZoom(map), 13.5);
@@ -492,24 +559,28 @@
   function refreshCaption(m) {
     const el = $("#map-caption"); if (!el) return;
     const iso = dayFilter || followDay;
+    BVMAP.setActiveDay(map, iso);   // c'est elle qui garde sa couleur sur le tracé
+    // Le ▶ du rail dit ce qu'il va jouer : la journée qu'on lit, ou tout le voyage.
+    const mr = $("#map-replay");
+    if (mr) { const lbl = iso ? "Suivre cette journée" : "Suivre le parcours"; mr.title = lbl; mr.setAttribute("aria-label", lbl + " sur la carte"); }
     const html = followMode === "off" || !canFollow() ? "" : (iso ? dayLabel(iso, m) : `<b>Tout le voyage</b>`);
     el.innerHTML = html; el.hidden = !html;
+  }
+  // #37 · Le numéro du jour dans un disque de couleur, puis LE LIEU de la photo qu'on
+  // regarde : le nom de l'arrêt (#5) auquel elle appartient, précédé de la commune.
+  // Jamais la légende écrite sous la photo : elle est déjà là, et peut faire trois lignes.
+  function stopOfMedia(m) {
+    if (!m || !m.id) return null;
+    return (D.stops || []).find((x) => x.day_date === m.day_date && (x.media_ids || []).includes(m.id)) || null;
   }
   function dayLabel(iso, m) {
     const d = D.days.find((x) => x.day_date === iso) || {};
     const n = dayNumber(D.trip, iso);
-    const where = (m && m.caption) || d.place || d.title || "";
-    return `<b>${n ? "Jour " + n : esc(CV.fmtDateShort(iso))}</b>${where ? `<span>${esc(where)}</span>` : ""}`;
-  }
-  function renderLegend(days) {
-    const lg = $("#legend");
-    lg.innerHTML = days.map((iso) => { const n = dayNumber(D.trip, iso); return `<button style="background:${CV.colorForDay(days, iso)}" class="${!dayFilter || dayFilter === iso ? "active" : ""}" data-iso="${iso}">${n ? "J" + n : CV.fmtDateShort(iso)}</button>`; }).join("");
-    $$("button", lg).forEach((b) => b.onclick = () => {
-      if (map.replaying) return;
-      dayFilter = dayFilter === b.dataset.iso ? null : b.dataset.iso;
-      draw(introDone); renderLegend(days); refreshCaption();
-      if (dayFilter) $(`#day-${dayFilter}`)?.scrollIntoView({ behavior: "smooth" });
-    });
+    const st = stopOfMedia(m);
+    const commune = d.place || "", precis = (st && st.name) || "";
+    const strong = commune || precis || (n ? "" : CV.fmtDateShort(iso));
+    const light = commune && precis ? precis : "";
+    return `${n ? `<i class="num" style="background:${CV.colorForDay(dayList(), iso)}">${n}</i>` : ""}${strong ? `<b>${esc(strong)}</b>` : ""}${light ? `<span>${esc(light)}</span>` : ""}`;
   }
 
   // ---------- Notifications : « Me prévenir des nouveautés » ----------

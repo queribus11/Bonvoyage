@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.12";
+window.BV_VERSION = "10.13";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -44,7 +44,7 @@ window.BVMAP = (() => {
   }
 
   // ---------- Style MapLibre : toutes les sources, la visibilité fait le choix du fond ----------
-  function buildStyle(base, dark) {
+  function buildStyle(base, dark, reading) {
     const vis = (b) => ({ visibility: base === b ? "visible" : "none" });
     return {
       version: 8,
@@ -72,11 +72,7 @@ window.BVMAP = (() => {
         { id: "b-topo", type: "raster", source: "topo", layout: vis("relief"), paint: dark ? { "raster-brightness-max": .8, "raster-saturation": -.2 } : {} },
         { id: "b-osm", type: "raster", source: "osm", layout: vis("plan"), paint: dark ? { "raster-brightness-max": .72, "raster-saturation": -.35, "raster-contrast": .1 } : {} },
         { id: "b-hill", type: "hillshade", source: "demhill", layout: vis("plan"), paint: { "hillshade-exaggeration": .35, "hillshade-shadow-color": "#123F66", "hillshade-highlight-color": "#ffffff", "hillshade-accent-color": "#123F66" } },
-        { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 8, 14, 12], "line-opacity": .45, "line-blur": 4 } },
-        { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 5.5], "line-dasharray": [1.6, 1.4], "line-opacity": 1 } },
-        { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 12], "line-opacity": .35, "line-blur": 3 } },
-        { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4.5, 14, 7], "line-opacity": .9 } },
-        { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 14, 4.5], "line-opacity": 1 } },
+        ...trackLayers(reading),
         { id: "progress-halo", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": .9 } },
         { id: "progress-line", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5 } },
         { id: "dots", type: "circle", source: "dots", paint: { "circle-radius": 6, "circle-color": ["get", "color"], "circle-stroke-color": "#fff", "circle-stroke-width": 2.5 } },
@@ -87,20 +83,72 @@ window.BVMAP = (() => {
   }
   function empty() { return { type: "FeatureCollection", features: [] }; }
 
+  // #37 · Deux habillages de trace. Dans l'app, celui d'origine. Sur la page des proches,
+  // la hiérarchie est renversée : jusqu'ici l'itinéraire ESTIMÉ était dessiné plus gros
+  // (3,5 → 5,5 px, halo blanc flou de 12 px à 45 %) que la vraie trace (2,5 → 4,5 px) —
+  // la ligne la moins sûre était la plus voyante de la carte. Désormais : la journée qu'on
+  // lit garde sa couleur, plus fine, posée sur un liseré SOMBRE ; les autres reculent en
+  // blanc fin. La distinction pointillé (estimé) / trait plein (vraie trace) reste des deux
+  // côtés : c'est une vraie information.
+  const READ = { w: 3.2, otherW: 1.8, otherOp: .34, edge: "rgba(8,14,20,.40)", edgeW: 6 };
+  const DASH = [1.6, 1.4];
+  // Le pointillé est exprimé en multiples de la largeur du trait : pour que le liseré
+  // sombre suive exactement les tirets de la couleur, son motif est mis à l'échelle.
+  const DASH_EDGE = [DASH[0] * READ.w / READ.edgeW, DASH[1] * READ.w / READ.edgeW];
+  function trackLayers(reading) {
+    if (!reading) return [
+      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 8, 14, 12], "line-opacity": .45, "line-blur": 4 } },
+      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 5.5], "line-dasharray": DASH, "line-opacity": 1 } },
+      { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 12], "line-opacity": .35, "line-blur": 3 } },
+      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4.5, 14, 7], "line-opacity": .9 } },
+      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 14, 4.5], "line-opacity": 1 } },
+    ];
+    return [
+      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": READ.edgeW, "line-dasharray": DASH_EDGE, "line-opacity": 1 } },
+      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": READ.w, "line-dasharray": DASH, "line-opacity": 1 } },
+      { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 0, "line-opacity": 0 } },
+      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": READ.edgeW, "line-opacity": 1 } },
+      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": READ.w, "line-opacity": 1 } },
+    ];
+  }
+  // Sans journée en cours (vue de tout le voyage), toutes gardent leur couleur.
+  function applyTrackStyle(M) {
+    if (!M.reading || !M.ready) return;
+    const map = M.map, iso = M.activeDay || null;
+    const pick = (a, b) => (iso ? ["case", ["==", ["get", "day"], iso], a, b] : a);
+    for (const id of ["track-line", "track-dash"]) {
+      map.setPaintProperty(id, "line-color", pick(["get", "color"], "#ffffff"));
+      map.setPaintProperty(id, "line-width", pick(READ.w, READ.otherW));
+      map.setPaintProperty(id, "line-opacity", pick(1, READ.otherOp));
+    }
+    for (const id of ["track-edge", "track-dash-edge"]) {
+      map.setPaintProperty(id, "line-width", pick(READ.edgeW, 0));
+      map.setPaintProperty(id, "line-opacity", 1);
+    }
+    map.setPaintProperty("track-halo", "line-opacity", 0);
+  }
+  // La journée qu'on est en train de lire : c'est la seule à garder sa couleur.
+  function setActiveDay(M, iso) {
+    iso = iso || null;
+    if (M.activeDay === iso) return;
+    M.activeDay = iso;
+    if (!M.replaying) applyTrackStyle(M);
+  }
+
   function colorForDay(dayList, iso) {
     const i = dayList.indexOf(iso);
     return DAY_COLORS[(i < 0 ? 0 : i) % DAY_COLORS.length];
   }
 
   // ---------- Création ----------
-  // opts : { cooperative (page des proches : deux doigts pour bouger la carte), terrain (3D au départ), globe (zoom monde au départ), controlsPos }
+  // opts : { cooperative (page des proches : deux doigts pour bouger la carte), terrain (3D au départ), globe (zoom monde au départ), controlsPos, reading (#37 : l'habillage de la page des proches) }
   function create(el, opts = {}) {
     const container = typeof el === "string" ? document.getElementById(el) : el;
     const isDark = () => !!(window.THEME && THEME.isDark());
-    const M = { base: defaultBase(), terrain: false, ready: false, markers: new Map(), dayMarkers: [], stopMarkers: [], me: null, data: null, drawOpts: {}, replaying: false, container };
+    const M = { base: defaultBase(), terrain: false, ready: false, markers: new Map(), dayMarkers: [], stopMarkers: [], me: null, data: null, drawOpts: {}, replaying: false, reading: !!opts.reading, activeDay: null, container };
 
     const map = new maplibregl.Map({
-      container, style: buildStyle(M.base, isDark()),
+      container, style: buildStyle(M.base, isDark(), M.reading),
       center: [2.5, 46.6], zoom: opts.globe ? 1.4 : 4.6, pitch: 0, bearing: 0,
       maxPitch: 72, attributionControl: false, cooperativeGestures: !!opts.cooperative,
       dragRotate: true, touchPitch: true, fadeDuration: 150, hash: false,
@@ -111,6 +159,7 @@ window.BVMAP = (() => {
     map.addControl(new maplibregl.NavigationControl({ showCompass: !isPhone(), visualizePitch: true }), opts.controlsPos || "bottom-right");
     map.on("load", () => {
       M.ready = true;
+      applyTrackStyle(M);
       if (M.pendingDraw) { draw(M, M.pendingDraw.data, M.pendingDraw.options); M.pendingDraw = null; }
       const want3d = opts.terrain != null ? opts.terrain : LS.get(TERRAIN_KEY) === "1";
       if (want3d && !opts.globe) setTerrain(M, true, false);
@@ -504,7 +553,8 @@ window.BVMAP = (() => {
       if (ctl.stopped) return; ctl.stopped = true; cancelAnimationFrame(raf);
       M.replaying = false; M.replayCtl = null; M.container.classList.remove("replaying"); M.container.parentElement && M.container.parentElement.classList.remove("replaying");
       map.getSource("progress").setData(empty()); walker.remove(); M.revealed = null;
-      map.setPaintProperty("track-line", "line-opacity", 1); map.setPaintProperty("track-halo", "line-opacity", .35); map.setPaintProperty("track-edge", "line-opacity", .9);
+      if (M.reading) applyTrackStyle(M);
+      else { map.setPaintProperty("track-line", "line-opacity", 1); map.setPaintProperty("track-halo", "line-opacity", .35); map.setPaintProperty("track-edge", "line-opacity", .9); }
       for (const mk of M.dayMarkers) mk.getElement().classList.remove("hidden");
       for (const mk of M.stopMarkers) mk.getElement().classList.remove("hidden");
       for (const e of M.markers.values()) e.el.classList.remove("hidden", "pop");
@@ -611,5 +661,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

@@ -38,6 +38,7 @@
 
   --font-title: "Fredoka", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-hand: "Caveat", "Segoe Print", cursive;
+  --lead-ink: #5E6142;                      /* la légende manuscrite sous la photo de tête */
   --font-body: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
@@ -59,6 +60,7 @@ html.is-dark {
   --sh-1: 0 1px 2px rgba(0,0,0,.25), 0 2px 8px rgba(0,0,0,.25);
   --sh-2: 0 4px 12px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
   --sh-3: 0 20px 50px rgba(0,0,0,.55);
+  --lead-ink: #EADFCF;
   color-scheme: dark;
 }
 
@@ -342,48 +344,80 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
 .share-hero .stats svg.i { width: 16px; height: 16px; }
 #notif-zone { margin-top: 18px; }
 #notif-zone .btn { background: #fff; color: var(--night); border-color: #fff; min-height: 52px; font-size: 16px; width: min(100%, 360px); box-shadow: var(--sh-2); }
-.news-pill { position: sticky; top: 12px; z-index: 30; display: flex; justify-content: center; pointer-events: none; height: 0; }
-.news-pill div { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; background: var(--glass-strong); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: var(--ink); border-radius: 999px; padding: 8px 14px 8px 10px; box-shadow: var(--sh-2); font-size: 14px; font-weight: 700; max-width: 92vw; }
-.news-pill i { width: 10px; height: 10px; border-radius: 50%; background: var(--lime); flex: none; }
-.news-pill a { color: var(--azur); }
-/* #8 · La carte du proche reste sous les yeux pendant la lecture, et rétrécit
-   quand le récit passe dessous. Le plein écran (.big) reprend la main plus bas. */
+/* #37 · « Du nouveau » ne reste plus posé sur la carte : une ligne discrète en tête du
+   récit, une seule fois par page. */
+.news-line { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); margin: 0 0 16px; }
+.news-line i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--lime); }
+.news-line a { color: var(--azur); font-weight: 700; }
+/* #8 · La carte du proche reste sous les yeux pendant la lecture.
+   #37 · Collée, elle rendait permanent tout ce qui était posé dessus : sept pastilles de
+   journée, quatre onglets de fond, « Du nouveau », deux boutons, le zoom. Elle va désormais
+   au bord — pleine largeur, sans marge, sans arrondi, sans ombre — et ne porte plus que
+   TROIS choses : le rail, la légende, la mention Esri. Deux dégradés gardent l'heure et la
+   légende lisibles ; une lèvre arrondie annonce le récit. Le plein écran (.big) reprend la
+   main plus bas. */
 #map-sentinel { height: 1px; margin-bottom: -1px; }
-.share-map-wrap { position: sticky; top: 8px; z-index: 20; margin: 16px; border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--sh-2); }
-#share-map { height: 60vh; min-height: 340px; background: #DCEBF7; transition: height var(--t-mid) var(--ease); }
-.share-map-wrap.stuck #share-map { height: 42vh; min-height: 260px; }
+.share-map-wrap { position: sticky; top: 0; z-index: 20; margin: 0; border-radius: 0; overflow: hidden; }
+#share-map { height: 65vh; min-height: 420px; background: #DCEBF7; }
+/* Les dégradés ne prennent aucun geste : la carte reste manipulable dessous. */
+.share-map-wrap::before, .share-map-wrap::after { content: ""; position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; }
+.share-map-wrap::before { top: 0; height: 120px; background: linear-gradient(to bottom, rgba(10,16,24,.55), rgba(10,16,24,0)); }
+.share-map-wrap::after { bottom: 0; height: 170px; background: linear-gradient(to top, rgba(10,16,24,.62), rgba(10,16,24,0)); }
+/* La lèvre du récit : le bord haut du panneau, posé sur la carte. */
+.map-lip { position: absolute; left: 0; right: 0; bottom: 0; height: 20px; z-index: 2; background: var(--bg); border-radius: 20px 20px 0 0; border-top: 1px solid rgba(255,255,255,.09); box-shadow: 0 -10px 30px rgba(0,0,0,.35); pointer-events: none; }
+.share-map-wrap.big .map-lip { display: none; }
+/* La mention Esri : présente, discrète, jamais recouverte. */
+.share-map-wrap .maplibregl-ctrl-bottom-right { z-index: 3; bottom: 34px; right: 12px; }
+.share-map-wrap .maplibregl-ctrl-attrib { font-size: 8.5px; opacity: .42; }
 /* Les journées se posent sous la carte collée quand on saute à l'une d'elles */
-body.map-stuck .day-section { scroll-margin-top: calc(46vh + 20px); }
-/* Le bandeau du bas de la carte : la pastille de lecture au-dessus des pastilles de journée */
-.share-map-wrap .map-hud { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 5; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
-.share-map-wrap .map-hud > * { pointer-events: auto; }
-.share-map-wrap .legend { position: static; display: flex; gap: 6px; flex-wrap: wrap; max-width: 75%; }
-/* La pastille qui dit ce que la carte montre. Rien à dire, rien à afficher. */
-.map-caption { max-width: 100%; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 16px; padding: 7px 14px; box-shadow: var(--sh-2); font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.35; }
-.map-caption b { font-family: var(--font-title); font-weight: 600; font-size: 16px; }
-.map-caption b + span { color: var(--muted); }
-.map-caption span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.legend button { border: 0; border-radius: 999px; min-width: 44px; height: 44px; padding: 0 12px; font-size: 14px; font-weight: 800; color: #fff; box-shadow: var(--sh-1); opacity: .7; transition: opacity var(--t-fast), transform var(--t-fast); }
-.legend button.active { opacity: 1; }
-.legend button, .day-card .dc-num, .day-item .num { text-shadow: 0 1px 2px rgba(18,63,102,.45); }
-.legend button:active { transform: scale(.94); }
-.story { max-width: 680px; margin: 0 auto; padding: 36px 20px 100px; font-size: 16px; }
+body.map-stuck .day-section { scroll-margin-top: calc(65vh + 16px); }
+/* #37 · Le rail : trois boutons ronds, muets, avec infobulle — le motif du bouton Pause
+   du survol, déjà en place sur cette page. */
+.map-rail { position: absolute; right: 12px; top: calc(12px + var(--safe-t)); z-index: 6; display: flex; flex-direction: column; gap: 8px; }
+.map-btn { width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.20); border-radius: 50%; background: rgba(16,22,30,.52); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #fff; transition: background var(--t-fast), transform var(--t-fast); }
+.map-btn svg.i { width: 19px; height: 19px; stroke-width: 1.9; }
+.map-btn:active { transform: scale(.94); }
+.map-btn.on { background: rgba(255,255,255,.92); color: var(--night); border-color: rgba(255,255,255,.6); }
+/* #37 · La légende : le numéro du jour dans un disque de couleur, puis le lieu de la photo
+   qu'on regarde. C'est le SEUL endroit de la carte où une couleur de journée subsiste. */
+.map-caption { position: absolute; left: 14px; bottom: 30px; z-index: 5; display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 320px; background: rgba(16,22,30,.58); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 8px 15px 8px 9px; box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff; }
+/* Rond à un chiffre, il s'allonge tout seul pour « 12 » : le comportement des anciennes
+   pastilles J1-J7, repris en plus petit. */
+.map-caption .num { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 21px; min-width: 21px; padding: 0 5px; border-radius: 999px; font-style: normal; font-size: 12px; font-weight: 800; color: #fff; }
+.map-caption b { font-size: 15px; font-weight: 800; }
+.map-caption span { font-size: 13.5px; opacity: .74; }
+.map-caption b, .map-caption span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-caption .num, .day-card .dc-num, .day-item .num { text-shadow: 0 1px 2px rgba(18,63,102,.45); }
+/* Sous 900 px, les fonds de carte et le zoom se replient derrière le 3e bouton du rail.
+   Au-dessus, rien ne change : ils restent affichés et le bouton n'existe pas. */
+@media (max-width: 899px) {
+  /* La visibilité bascule tout de suite à l'ouverture, et attend la fin du fondu à la
+     fermeture : sans cela, la rangée reste invisible le temps de l'animation. */
+  .share-map-wrap .bv-layers, .share-map-wrap .maplibregl-ctrl-group { opacity: 0; visibility: hidden; transition: opacity var(--t-fast), visibility 0s var(--t-fast); }
+  .share-map-wrap.show-layers .bv-layers, .share-map-wrap.show-layers .maplibregl-ctrl-group { opacity: 1; visibility: visible; transition: opacity var(--t-fast), visibility 0s; }
+}
+@media (min-width: 900px) { #map-layers { display: none; } }
+.story { max-width: 680px; margin: 0 auto; padding: 18px 16px 100px; font-size: 16px; position: relative; background: var(--bg); }
 .story .intro { font-size: 19px; font-weight: 600; line-height: 1.6; color: var(--khaki-text); margin-bottom: 44px; }
 .story .intro::first-letter { font-family: var(--font-title); font-weight: 400; font-size: 3.4em; float: left; line-height: .85; padding: 6px 10px 0 0; color: var(--night); }
 html.is-dark .story .intro::first-letter { color: var(--ink); }
-.day-section { position: relative; padding-left: 30px; margin-bottom: 56px; scroll-margin-top: 20px; }
-.day-section::before { content: ""; position: absolute; left: 6px; top: 8px; bottom: -40px; width: 2px; background: var(--line-strong); }
-.day-section:last-of-type::before { bottom: 0; }
-.day-section .kicker { cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; min-height: 32px; }
-.day-section .kicker .dot { position: absolute; left: 0; top: 6px; width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--bg); box-shadow: 0 0 0 2px var(--line-strong); }
-.day-section h2 { font-size: 30px; margin: 6px 0 14px; }
+/* #37 · La date seule, en petites capitales, avec la distance : le titre de repli
+   « Jour n » a quitté le récit, la carte le dit déjà juste au-dessus. Le rail vertical de
+   la frise a suivi : la photo va maintenant d'un bord à l'autre. */
+.day-section { position: relative; margin-bottom: 44px; scroll-margin-top: 20px; }
+.day-section .kicker { cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .10em; min-height: 28px; color: var(--ink); }
+.day-section .kicker .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.day-section h2 { font-size: 26px; margin: 4px 0 12px; }
+/* La photo de tête : pleine largeur, bord à bord, et sa légende manuscrite en dessous. */
+.day-lead { margin: 12px -16px 0; cursor: pointer; }
+.day-lead img { display: block; width: 100%; height: 200px; object-fit: cover; }
+.day-lead figcaption { font-family: var(--font-hand); font-weight: 700; font-size: 17px; line-height: 1.3; color: var(--lead-ink); padding: 10px 16px 0; }
 .day-section .story-text { font-size: 18px; line-height: 1.75; max-width: 62ch; }
 .day-section .story-text p { margin-bottom: 1em; }
-.day-section .gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 18px 0; }
-.day-section .gallery figure { margin: 0; cursor: pointer; border-radius: var(--r-sm); overflow: hidden; background: var(--cream); box-shadow: var(--sh-1); position: relative; }
+.day-section .gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; margin: 14px -16px 18px; }
+.day-section .gallery figure { margin: 0; cursor: pointer; overflow: hidden; background: var(--cream); position: relative; }
 .day-section .gallery figure:nth-child(3n) { grid-column: span 2; }
-.day-section .gallery img, .day-section .gallery video { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; transition: transform var(--t-mid) var(--ease); }
-.day-section .gallery figure:nth-child(3n) img { aspect-ratio: 16 / 9; }
+.day-section .gallery img, .day-section .gallery video { width: 100%; height: 148px; object-fit: cover; display: block; transition: transform var(--t-mid) var(--ease); }
 .day-section .gallery figure:hover img { transform: scale(1.03); }
 .day-section .gallery figcaption { font-size: 14px; color: var(--muted); padding: 8px 10px; }
 .day-section .gallery figure.has-comments figcaption::after { content: " · 💬"; }
@@ -400,9 +434,6 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .home-tip.top #tip-close { display: block; margin: 10px 0 0 auto; }
 @media (max-width: 640px) {
   .share-hero { min-height: 82svh; }
-  #share-map { height: 52vh; min-height: 300px; }
-  .share-map-wrap.stuck #share-map { height: 38svh; min-height: 220px; }
-  body.map-stuck .day-section { scroll-margin-top: calc(42svh + 16px); }
 }
 
 /* ---------- Carte immersive (MapLibre) : fonds, 3D, vignettes photos, survol ---------- */
@@ -419,7 +450,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-layers button.active { background: var(--paper); color: var(--azur); box-shadow: var(--sh-1); }
 .bv-layers button[data-3d].active { background: var(--mandarine); color: #fff; }
 .bv-layers.in-app { bottom: 14px; }
-.share-map-wrap .bv-layers { bottom: auto; top: 12px; left: 12px; }
+.share-map-wrap .bv-layers { bottom: auto; top: calc(12px + var(--safe-t)); left: 12px; }
 @media (max-width: 640px) { .share-map-wrap .bv-layers button { padding: 0 9px; font-size: 12px; } }
 /* Vignette photo posée sur la carte (MapLibre place le marqueur via transform : le visuel est dans .in) */
 .bv-photo { width: 46px; height: 46px; cursor: pointer; }
@@ -491,7 +522,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .stop-pick .nm { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .stop-pick .meta { display: block; font-size: 12px; color: var(--muted); }
 
-.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .legend, .replaying .map-caption, .replaying .map-actions { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
+.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .map-caption, .replaying .map-rail { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
 /* Valdo qui marche sur le trajet pendant le survol */
 .bv-walker { width: 66px; height: 44px; pointer-events: none; }
 .bv-walker .in { width: 66px; height: 44px; position: relative; filter: drop-shadow(0 5px 7px rgba(18,63,102,.45)); }
@@ -531,19 +562,6 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .leg select { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--paper); font-size: 15px; }
 .speed-btn { min-width: 44px; padding: 0 10px; font-size: 16px; }
 .day-card .dc-num { min-width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-body); font-weight: 800; padding: 0 8px; }
-/* Survol du voyage : légende et bouton Arrêter */
-.map-actions { position: absolute; right: 12px; top: 12px; z-index: 6; display: flex; gap: 8px; }
-/* Téléphone : les mots s'en vont et les boutons deviennent ronds. Avec eux, la rangée
-   du haut demandait ~482 px pour 337 disponibles : elle débordait de la carte et
-   recouvrait Relief, Plan et 3D. Le sens passe par l'infobulle, comme pour le bouton
-   Pause du survol juste à côté. S'il n'y a qu'un bouton (carnet sans parcours à
-   suivre), la place existe et le mot reste. */
-@media (max-width: 640px) {
-  .share-map-wrap .map-actions .btn { width: 44px; min-height: 44px; padding: 0; }
-  .share-map-wrap .map-actions .lbl { display: none; }
-  .share-map-wrap .map-actions .btn:only-child { width: auto; padding: 0 14px; }
-  .share-map-wrap .map-actions .btn:only-child .lbl { display: inline; }
-}
 .replay-overlay { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 7; display: flex; align-items: center; gap: 12px; pointer-events: none; }
 .replay-overlay .caption { flex: 1; min-width: 0; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 18px; padding: 10px 16px; box-shadow: var(--sh-2); font-size: 15px; color: var(--ink); }
 .replay-overlay .caption b { font-family: var(--font-title); font-weight: 600; font-size: 18px; }
@@ -648,7 +666,6 @@ html.is-dark body { background: var(--bg); color: var(--ink); }
 .is-dark .modal-back { background: rgba(0,0,0,.6); }
 .is-dark .switch::after { background: #F6EDE3; }
 .is-dark .gps-box.on { background: rgba(124,181,24,.1); }
-.is-dark .legend button { box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .is-dark .day-section .gallery figure.is-new::after { border-color: var(--paper); }
 
 /* ============================================================
@@ -685,7 +702,9 @@ html.is-dark body { background: var(--bg); color: var(--ink); }
     si elles existent déjà plus haut dans le fichier, elles ne changent rien) */
 .media-tile { position: relative; }
 .gallery figure { position: relative; }
+.day-lead { position: relative; }
 .media-tile .author-dot,
+.day-lead .author-dot,
 .gallery figure .author-dot {
   position: absolute; top: 6px; left: 6px; z-index: 2;
   border: 1.5px solid rgba(255, 255, 255, .85);
