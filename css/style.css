@@ -368,19 +368,41 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
 .share-map-wrap.big .map-lip { display: none; }
 /* La mention Esri : présente, discrète, jamais recouverte. */
 .share-map-wrap .maplibregl-ctrl-bottom-right { z-index: 3; bottom: 34px; right: 12px; }
-.share-map-wrap .maplibregl-ctrl-attrib { font-size: 8.5px; opacity: .42; }
+.share-map-wrap .maplibregl-ctrl-attrib, .is-dark .share-map-wrap .maplibregl-ctrl-attrib { font-size: 8.5px; opacity: .42; background: transparent; }
 /* Les journées se posent sous la carte collée quand on saute à l'une d'elles */
 body.map-stuck .day-section { scroll-margin-top: calc(65vh + 16px); }
 /* #37 · Le rail : trois boutons ronds, muets, avec infobulle — le motif du bouton Pause
    du survol, déjà en place sur cette page. */
-.map-rail { position: absolute; right: 12px; top: calc(12px + var(--safe-t)); z-index: 6; display: flex; flex-direction: column; gap: 8px; }
-.map-btn { width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,.20); border-radius: 50%; background: rgba(16,22,30,.52); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #fff; transition: background var(--t-fast), transform var(--t-fast); }
+.map-rail { position: absolute; right: 12px; top: calc(12px + var(--safe-t)); z-index: 6; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.map-btn { width: 44px; height: 44px; padding: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid rgba(255,255,255,.20); border-radius: 999px; background: rgba(16,22,30,.52); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #fff; transition: background var(--t-fast), transform var(--t-fast); }
 .map-btn svg.i { width: 19px; height: 19px; stroke-width: 1.9; }
 .map-btn:active { transform: scale(.94); }
 .map-btn.on { background: rgba(255,255,255,.92); color: var(--night); border-color: rgba(255,255,255,.6); }
+/* #37 · Une infobulle ne s'affiche jamais au doigt : le bouton qui fait SORTIR porte son
+   mot. Les autres restent ronds et muets. */
+.map-btn.wide { width: auto; padding: 0 16px 0 13px; }
+.map-btn .lbl { font-size: 14px; font-weight: 700; white-space: nowrap; }
+/* Quand MapLibre refuse un geste à un doigt, le bouton se signale : c'est la sortie. */
+.map-btn.pop { animation: pop-btn var(--t-fast) var(--ease) 3; }
+/* #37 · Les fonds de carte et le zoom se rangent DANS le rail : une seule zone de
+   contrôles sur la carte, plus rien ne peut en recouvrir un autre. */
+.map-rail .bv-layers, .map-rail .maplibregl-ctrl-group { position: static; margin: 0; width: 44px; }
+.map-rail .bv-layers { flex-direction: column; gap: 3px; padding: 4px; border-radius: 22px; background: rgba(16,22,30,.52); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.20); box-shadow: none; }
+.map-rail .bv-layers button { width: 100%; min-height: 32px; padding: 0 2px; font-size: 10px; letter-spacing: 0; color: #fff; }
+.map-rail .bv-layers button.active { background: rgba(255,255,255,.92); color: var(--night); box-shadow: none; }
+.map-rail .maplibregl-ctrl-group { border-radius: 22px !important; background: rgba(16,22,30,.52); border: 1px solid rgba(255,255,255,.20); box-shadow: none !important; }
+.map-rail .maplibregl-ctrl-group button { width: 42px; height: 42px; background: transparent; border: 0; }
+.map-rail .maplibregl-ctrl-group button + button { border-top-color: rgba(255,255,255,.18); }
+.map-rail .maplibregl-ctrl button .maplibregl-ctrl-icon { filter: invert(1) hue-rotate(180deg); }
+.map-rail .bv-layers button[data-3d].active { background: var(--mandarine); color: #fff; }
+.is-dark .map-rail .bv-layers, .is-dark .map-rail .maplibregl-ctrl-group { background: rgba(16,22,30,.52); }
+.is-dark .map-rail .bv-layers button { color: #fff; }
+.is-dark .map-rail .bv-layers button.active { color: var(--night); }
+/* Le coin où MapLibre avait posé le zoom est désormais vide : il ne prend aucune place. */
+.share-map-wrap .maplibregl-ctrl-top-right { display: none; }
 /* #37 · La légende : le numéro du jour dans un disque de couleur, puis le lieu de la photo
    qu'on regarde. C'est le SEUL endroit de la carte où une couleur de journée subsiste. */
-.map-caption { position: absolute; left: 14px; bottom: 30px; z-index: 5; display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 320px; background: rgba(16,22,30,.58); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 8px 15px 8px 9px; box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff; }
+.map-caption { position: absolute; left: 14px; bottom: 30px; z-index: 5; display: flex; align-items: center; gap: 9px; min-width: 0; max-width: min(320px, calc(100% - 128px)); background: rgba(16,22,30,.58); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 8px 15px 8px 9px; box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff; }
 /* Rond à un chiffre, il s'allonge tout seul pour « 12 » : le comportement des anciennes
    pastilles J1-J7, repris en plus petit. */
 .map-caption .num { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 21px; min-width: 21px; padding: 0 5px; border-radius: 999px; font-style: normal; font-size: 12px; font-weight: 800; color: #fff; }
@@ -391,10 +413,7 @@ body.map-stuck .day-section { scroll-margin-top: calc(65vh + 16px); }
 /* Sous 900 px, les fonds de carte et le zoom se replient derrière le 3e bouton du rail.
    Au-dessus, rien ne change : ils restent affichés et le bouton n'existe pas. */
 @media (max-width: 899px) {
-  /* La visibilité bascule tout de suite à l'ouverture, et attend la fin du fondu à la
-     fermeture : sans cela, la rangée reste invisible le temps de l'animation. */
-  .share-map-wrap .bv-layers, .share-map-wrap .maplibregl-ctrl-group { opacity: 0; visibility: hidden; transition: opacity var(--t-fast), visibility 0s var(--t-fast); }
-  .share-map-wrap.show-layers .bv-layers, .share-map-wrap.show-layers .maplibregl-ctrl-group { opacity: 1; visibility: visible; transition: opacity var(--t-fast), visibility 0s; }
+  .share-map-wrap:not(.show-layers) .bv-layers, .share-map-wrap:not(.show-layers) .maplibregl-ctrl-group { display: none; }
 }
 @media (min-width: 900px) { #map-layers { display: none; } }
 .story { max-width: 680px; margin: 0 auto; padding: 18px 16px 100px; font-size: 16px; position: relative; background: var(--bg); }
@@ -450,8 +469,6 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .bv-layers button.active { background: var(--paper); color: var(--azur); box-shadow: var(--sh-1); }
 .bv-layers button[data-3d].active { background: var(--mandarine); color: #fff; }
 .bv-layers.in-app { bottom: 14px; }
-.share-map-wrap .bv-layers { bottom: auto; top: calc(12px + var(--safe-t)); left: 12px; }
-@media (max-width: 640px) { .share-map-wrap .bv-layers button { padding: 0 9px; font-size: 12px; } }
 /* Vignette photo posée sur la carte (MapLibre place le marqueur via transform : le visuel est dans .in) */
 .bv-photo { width: 46px; height: 46px; cursor: pointer; }
 .bv-photo .in { width: 46px; height: 46px; border-radius: 50%; border: 3px solid #fff; background: var(--cream); box-shadow: 0 6px 16px rgba(18,63,102,.35); position: relative; transition: transform var(--t-mid) var(--ease), opacity var(--t-mid) var(--ease); transform-origin: 50% 100%; }
@@ -576,6 +593,10 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
   .replay-overlay:not(.compact) .caption { flex: none; width: 100%; padding: 8px 14px; }
   .replay-overlay:not(.compact) .replay-ctls { justify-content: center; }
 }
+/* #37 · La lèvre arrondie du récit occupe les 20 derniers pixels de la carte, et la barre
+   d'accueil de l'iPhone le bas de l'écran en plein écran : le cartouche du survol s'ancre
+   au-dessus des deux. Le bloc du survol (#36) et ses exclusions ne sont pas touchés. */
+.share-map-wrap .replay-overlay:not(.app):not(.compact) { bottom: calc(56px + var(--safe-b)); }
 .recap { text-align: center; }
 .recap-valdo { width: 72px; height: 72px; margin: 0 auto 8px; display: block; }
 .recap-stats { display: flex; gap: 10px; justify-content: center; margin: 14px 0 20px; }

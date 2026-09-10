@@ -175,12 +175,14 @@
 
     renderNotifButton();
     // Sur mobile, un doigt fait défiler la page, deux doigts bougent la carte (geste coopératif) ; « Agrandir » libère la carte
-    map = BVMAP.create("share-map", { cooperative: true, globe: true, terrain: false, controlsPos: "bottom-right", reading: true });
+    map = BVMAP.create("share-map", { cooperative: true, globe: true, terrain: false, controlsPos: "top-right", reading: true });
     const setBig = (big) => {
       const w = $("#map-wrap"); w.classList.toggle("big", big);
-      // Les boutons du rail sont muets : c'est l'infobulle qui dit ce qu'ils font, elle doit suivre.
+      // #37 · Une infobulle ne s'affiche JAMAIS sur un écran tactile : le bouton qui fait
+      // SORTIR porte donc un mot lisible. Les deux autres peuvent rester muets.
       const eb = $("#map-expand");
-      eb.innerHTML = big ? ic("close") : ic("expand");
+      eb.innerHTML = big ? `${ic("close")}<span class="lbl">Retour au récit</span>` : ic("expand");
+      eb.classList.toggle("wide", big);
       eb.title = big ? "Réduire la carte" : "Plein écran";
       eb.setAttribute("aria-label", big ? "Réduire la carte" : "Afficher la carte en plein écran");
       BVMAP.setCooperative(map, !big);
@@ -188,6 +190,16 @@
       setTimeout(() => { BVMAP.resize(map); if (!map.replaying && introDone && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
     };
     $("#map-expand").onclick = () => setBig(!$("#map-wrap").classList.contains("big"));
+    // #37 · Dans la page, un doigt fait défiler et MapLibre refuse de bouger la carte, en
+    // affichant son propre message. C'est l'instant exact où le proche cherche comment
+    // agrandir : on fait pulser le bouton, pour que la sortie soit visible quand on la
+    // cherche. En plein écran les gestes coopératifs sont éteints, il n'y a rien à signaler.
+    map.map.on("cooperativegestureprevented", () => {
+      const b = $("#map-expand");
+      if (!b || $("#map-wrap").classList.contains("big")) return;
+      b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
+      setTimeout(() => b.classList.remove("pop"), 800);
+    });
     const startReplay = (only = null) => {
       if (!drawn || map.replaying) return;
       if (dayFilter && !only) { dayFilter = null; draw(false); refreshCaption(); }
@@ -232,8 +244,14 @@
     // « Suivre cette journée » qui le doublait sous la carte). Tant qu'aucune journée n'est
     // lue, il joue tout le voyage — comme le bouton du haut de page.
     const mr = $("#map-replay"); if (mr) mr.onclick = () => startReplay(dayFilter || followDay || null);
-    // Les quatre onglets de fond et le zoom + / − se replient derrière le 3e bouton du rail :
-    // on garde la rangée existante telle quelle, on ne fait que la montrer et la cacher.
+    // #37 · La carte n'a qu'UNE SEULE zone de contrôles. Les quatre onglets de fond et le
+    // zoom + / − viennent se ranger SOUS le rail, dans la même colonne : plus rien ne peut
+    // recouvrir la légende ni la mention Esri. On garde les deux rangées telles quelles, on
+    // ne fait que les déplacer, puis les montrer et les cacher.
+    const rail = $(".map-rail");
+    const layersRow = $("#share-map .bv-layers"), zoomRow = $("#share-map .maplibregl-ctrl-group");
+    if (rail && layersRow) rail.appendChild(layersRow);
+    if (rail && zoomRow) rail.appendChild(zoomRow);
     const ml = $("#map-layers");
     if (ml) ml.onclick = () => {
       const on = !$("#map-wrap").classList.contains("show-layers");
@@ -265,7 +283,7 @@
       const iso = st.day_date;
       if (dayFilter !== iso) { dayFilter = iso; draw(false); refreshCaption(); }
       showMap();
-      setTimeout(() => { BVMAP.easeTo(map, st.lat, st.lng, Math.max(BVMAP.getZoom(map), 15)); BVMAP.ping(map, st.lat, st.lng); }, 420);
+      setTimeout(() => { BVMAP.goTo(map, st.lat, st.lng); BVMAP.ping(map, st.lat, st.lng); }, 420);
     });
 
     // #8 · La carte suit la lecture : elle se colle en haut et se recadre toute seule
@@ -546,13 +564,13 @@
     const fig = nearestToLine(seenShots);
     const m = fig ? mediaById.get(fig.dataset.id) : null;
     if (!m || m.lat == null || m.day_date !== iso || followShot === m.id) return;
-    // On garde le zoom : la carte glisse d'une photo à l'autre, les tuiles sont déjà là.
+    // #37 · Un petit déplacement glisse, un grand fait monter la caméra avant de redescendre :
+    // traverser dix kilomètres au ras du sol donnait la nausée. C'est `goTo` qui décide.
     followShot = m.id;
     if (isLonely(m)) return;   // photo perdue au loin : la carte reste sur la journée
     BVMAP.focusMedia(map, m.id);
     refreshCaption(m);
-    const z = Math.max(BVMAP.getZoom(map), 13.5);
-    if (calm) BVMAP.setView(map, m.lat, m.lng, z); else BVMAP.easeTo(map, m.lat, m.lng, z);
+    BVMAP.goTo(map, m.lat, m.lng);
   }
 
   // La pastille qui dit ce que la carte montre. Rien à dire → pas de pastille.

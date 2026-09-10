@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.13**
+- Version actuelle : **v10.14**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -119,6 +119,17 @@ Le dépôt est la référence ; sa copie sur le Mac est son filet à elle. Une p
 Code → Download ZIP, à décompresser dans `Documents/App/Bonvoyage/app-en-ligne` en
 remplaçant l'ancienne. »* Ne jamais le laisser passer : c'est le seul geste manuel qui
 subsiste, et il ne coûte qu'une minute.
+
+**10. Un bouton qui fait SORTIR porte toujours un mot lisible.**
+Une infobulle ne s'affiche **jamais** sur un écran tactile : un bouton muet qui referme le
+plein écran, une visionneuse ou un formulaire est une sortie invisible, et Sophie s'est
+retrouvée enfermée dans la carte en v10.13 à cause de cela. Les autres boutons peuvent
+rester muets et se contenter d'une infobulle ; celui qui fait sortir, non.
+
+**11. La carte n'a qu'UNE SEULE zone de contrôles.**
+Fonds de carte, zoom, boutons d'action : tout vit dans le même rail. Rien de ce qui est
+posé sur la carte ne doit jamais en recouvrir un autre — ni la légende, ni la mention des
+cartes. Toute commande nouvelle rejoint le rail, elle ne se pose pas dans un coin libre.
 
 ---
 

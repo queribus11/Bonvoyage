@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.13";
+window.BV_VERSION = "10.14";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -460,6 +460,24 @@ window.BVMAP = (() => {
   function flyToBounds(M, bounds, opts = {}) { fitBounds(M, bounds, { ...opts, duration: opts.duration ?? 1400 }); }
   function setView(M, lat, lng, zoom) { M.map.jumpTo({ center: [lng, lat], zoom: zoom ?? M.map.getZoom() }); }
   function easeTo(M, lat, lng, zoom) { M.map.easeTo({ center: [lng, lat], zoom: zoom ?? M.map.getZoom(), duration: 700 }); }
+  // #37 · Aller d'un lieu à l'autre sans donner la nausée.
+  // Jusqu'ici la caméra traversait À HAUTEUR CONSTANTE, et un `Math.max(getZoom, 15)` lui
+  // interdisait de prendre du recul : sur dix kilomètres, on frôlait le sol au niveau de la
+  // rue. Désormais, au-delà de 1,5 km elle MONTE, traverse et REDESCEND (flyTo) ; en deçà
+  // elle glisse, ce qui reste agréable pour un petit déplacement. La durée grandit avec la
+  // distance et se plafonne, pour ne pas faire attendre entre deux photos.
+  // Chiffres arrêtés avec Sophie : seuil 1,5 km, plafond 3,5 s, arrivée sur le village et
+  // ses alentours (zoom 14).
+  const FLY_M = 1500, FLY_ZOOM = 14, GLIDE_ZOOM_MIN = 13;
+  const GLIDE_MS = 600, FLY_BASE_MS = 900, FLY_PER_KM_MS = 250, FLY_MAX_MS = 3500;
+  function goTo(M, lat, lng) {
+    const map = M.map, c = map.getCenter();
+    const d = dist([c.lng, c.lat], [lng, lat]), far = d >= FLY_M;
+    const zoom = far ? FLY_ZOOM : Math.max(map.getZoom(), GLIDE_ZOOM_MIN);
+    if (reducedMotion()) { map.jumpTo({ center: [lng, lat], zoom }); return; }   // pas de vol du tout
+    if (!far) { map.easeTo({ center: [lng, lat], zoom, duration: GLIDE_MS }); return; }
+    map.flyTo({ center: [lng, lat], zoom, curve: 1.5, duration: Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_KM_MS * d / 1000) });
+  }
   function getZoom(M) { return M.map.getZoom(); }
   function resize(M) { try { M.map.resize(); } catch { } }
   function onClick(M, cb) { M.map.on("click", (e) => { if (e.defaultPrevented) return; cb({ lat: e.lngLat.lat, lng: e.lngLat.lng }); }); }
@@ -661,5 +679,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
