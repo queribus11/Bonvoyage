@@ -399,13 +399,18 @@
       onStopClick: (st) => { $(`#day-${st.day_date}`)?.scrollIntoView({ behavior: "smooth" }); },
     });
   }
+  // #37 · Le recadrage sur la journée qu'on vient d'atteindre, au tempo des journées
+  // (réglage « D », choisi au doigt). Retourne la durée employée : celui qui appelle doit
+  // savoir combien de temps la carte est occupée, pour ne pas enchaîner par-dessus.
   function highlight(iso, calm) {
-    if (!introDone || map.replaying) return;
+    if (!introDone || map.replaying) return 0;
     const trs = D.tracks.filter((t) => t.day_date === iso), ms = D.media.filter((m) => m.day_date === iso && m.lat != null);
     const pts = [...trs.flatMap((t) => t.points.filter((p) => p && p.lat != null)), ...ms];
     const b = BVMAP.boundsOf(pts);
     showStopsFor(iso);
-    if (b) BVMAP.flyToBounds(map, b, { padding: 48, maxZoom: 13, duration: calm ? 0 : 1200, keepPitch: true });
+    if (!b) return 0;
+    if (calm) { BVMAP.fitBounds(map, b, { padding: 48, maxZoom: 13, duration: 0, keepPitch: true }); return 0; }
+    return BVMAP.flyToDay(map, b, { padding: 48, maxZoom: 13, keepPitch: true });
   }
 
   // ---------- #8 · La carte suit la lecture ----------
@@ -550,7 +555,12 @@
       if (!followDay || !first || first.getBoundingClientRect().top < innerHeight) return;
       followDay = null; followShot = null;
       BVMAP.focusMedia(map, null); refreshCaption();
-      if (drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14, duration: calm ? 0 : 1200 });
+      // Même remède ici : remonter au-dessus du récit peut traverser tout le pays, et
+      // 1,2 s y était aussi brutal que sur le passage d'une journée à l'autre.
+      if (drawn && drawn.bounds) {
+        if (calm) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14, duration: 0 });
+        else BVMAP.flyToDay(map, drawn.bounds, { padding: 40, maxZoom: 14 });
+      }
       return;
     }
     // Nouvelle journée : on montre d'abord la journée entière — on voit où l'on est.
@@ -558,8 +568,10 @@
       followDay = iso; followShot = null;
       BVMAP.focusMedia(map, null);
       refreshCaption();
-      highlight(iso, calm);
-      if (photoFollow()) setTimeout(schedule, calm ? 60 : 1500);
+      // Le vol vers la première photo attend la FIN du recadrage : sinon les deux
+      // mouvements se battraient, le recadrage pouvant durer jusqu'à 8,5 s.
+      const ms = highlight(iso, calm);
+      if (photoFollow()) setTimeout(schedule, calm ? 60 : ms + 300);
       return;
     }
     if (!photoFollow()) return;

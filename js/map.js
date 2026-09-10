@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.16";
+window.BV_VERSION = "10.17";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -455,7 +455,9 @@ window.BVMAP = (() => {
     const pad = opts.padding == null ? 48 : opts.padding;
     const same = bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1];
     if (same) { M.map[opts.animate === false ? "jumpTo" : "easeTo"]({ center: bounds[0], zoom: Math.min(opts.maxZoom || 15, 14), duration: opts.duration ?? 800 }); return; }
-    M.map.fitBounds(bounds, { padding: pad, maxZoom: opts.maxZoom || 15, duration: opts.animate === false ? 0 : (opts.duration ?? 900), pitch: opts.keepPitch ? M.map.getPitch() : (M.terrain ? Math.min(M.map.getPitch(), 45) : 0), bearing: opts.keepPitch ? M.map.getBearing() : 0 });
+    const o = { padding: pad, maxZoom: opts.maxZoom || 15, duration: opts.animate === false ? 0 : (opts.duration ?? 900), pitch: opts.keepPitch ? M.map.getPitch() : (M.terrain ? Math.min(M.map.getPitch(), 45) : 0), bearing: opts.keepPitch ? M.map.getBearing() : 0 };
+    if (opts.curve) o.curve = opts.curve;   // jamais `undefined` : MapLibre en ferait un calcul impossible
+    M.map.fitBounds(bounds, o);
   }
   function flyToBounds(M, bounds, opts = {}) { fitBounds(M, bounds, { ...opts, duration: opts.duration ?? 1400 }); }
   function setView(M, lat, lng, zoom) { M.map.jumpTo({ center: [lng, lat], zoom: zoom ?? M.map.getZoom() }); }
@@ -477,6 +479,24 @@ window.BVMAP = (() => {
   // Ne pas re-régler ces cinq nombres sans le lui redemander au doigt.
   const FLY_ZOOM_MAX = 15, FLY_ZOOM_MIN = 12.5, FLY_CURVE = 1.3;
   const FLY_BASE_MS = 2000, FLY_PER_SCREEN_MS = 2000, FLY_MAX_MS = 5500;
+  // #37 · Passer d'une JOURNÉE à l'autre — en lisant le récit comme pendant le survol.
+  // Même défaut que d'une photo à l'autre : le recadrage traversait 6,7 largeurs d'écran en
+  // 1,2 seconde, et l'approche du survol glissait à hauteur constante. Réglage « D » choisi
+  // au doigt par Sophie (v10.17), plus posé encore que celui des photos.
+  // Ne pas re-régler ces quatre nombres sans le lui redemander au doigt.
+  const DAY_BASE_MS = 3000, DAY_PER_SCREEN_MS = 3000, DAY_MAX_MS = 8500, DAY_CURVE = 1.5;
+  function dayFlyMs(M, lat, lng) {
+    return Math.min(DAY_MAX_MS, DAY_BASE_MS + DAY_PER_SCREEN_MS * screensAway(M, lat, lng));
+  }
+  // Le recadrage sur une journée entière, au tempo des journées. Retourne la durée employée :
+  // l'appelant en a besoin pour ne pas enchaîner un autre mouvement par-dessus celui-ci.
+  function flyToDay(M, bounds, opts = {}) {
+    if (!bounds) return 0;
+    const lng = (bounds[0][0] + bounds[1][0]) / 2, lat = (bounds[0][1] + bounds[1][1]) / 2;
+    const ms = reducedMotion() ? 0 : dayFlyMs(M, lat, lng);
+    fitBounds(M, bounds, { ...opts, duration: ms, curve: DAY_CURVE });
+    return ms;
+  }
   function screensAway(M, lat, lng) {
     const el = M.container, w = el.clientWidth || 1, h = el.clientHeight || 1;
     let p; try { p = M.map.project([lng, lat]); } catch { return 0; }
@@ -656,9 +676,9 @@ window.BVMAP = (() => {
         if (calm) { const b = boundsOf(d.coords.map((c) => ({ lng: c[0], lat: c[1] }))); map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 0, pitch: 0, bearing: 0 }); }
         else {
           const target = { center: d.coords[0], zoom, pitch, bearing: bearing0 };
-          const far = dist([map.getCenter().lng, map.getCenter().lat], d.coords[0]);
-          const approach = di === 0 ? 3000 : Math.max(3500, Math.min(7000, 2500 + far / 1000 * 40));
-          if (far > 300000 || di === 0) map.flyTo({ ...target, duration: approach, curve: 1.1, speed: .5, easing: ease }); else map.easeTo({ ...target, duration: approach, easing: ease });
+          // #37 · Toujours un vol, jamais un glissement à plat : la caméra prend de l'altitude,
+          // traverse et redescend, au même tempo que le recadrage de la lecture.
+          map.flyTo({ ...target, duration: dayFlyMs(M, d.coords[0][1], d.coords[0][0]), curve: DAY_CURVE, easing: ease });
           await moveEnd();
         }
         if (ctl.stopped) return;
@@ -709,5 +729,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
