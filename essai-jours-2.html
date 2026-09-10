@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="fr" class="is-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bonvoyage — essai : du jour 3 au jour 4</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0E1620">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="">
+<style>
+  :root { --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0E1620; color: #fff;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #carte { position: absolute; inset: 0; }
+  #fondu { position: absolute; inset: 0; z-index: 4; background: #0E1620; opacity: 0;
+    pointer-events: none; transition: opacity .22s linear; }
+  .haut { position: absolute; left: 12px; right: 12px; top: calc(10px + var(--safe-t)); z-index: 5;
+    background: rgba(16,22,30,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 10px 14px; line-height: 1.4; }
+  .haut b { font-size: 15px; }
+  .haut p { margin: 4px 0 0; font-size: 12.5px; opacity: .78; }
+  .bas { position: absolute; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); z-index: 5;
+    display: flex; flex-direction: column; gap: 10px; }
+  .trajets { display: flex; gap: 8px; }
+  .trajets button { flex: 1; min-height: 50px; border-radius: 14px; border: 1px solid rgba(255,255,255,.18);
+    background: rgba(16,22,30,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: #fff; font: 600 13.5px/1.25 inherit; padding: 4px 6px; }
+  .trajets button.on { background: #fff; color: #123F66; border-color: #fff; }
+  .reglages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .reglages button { min-height: 74px; border-radius: 18px; border: 1px solid rgba(255,255,255,.22);
+    background: rgba(16,22,30,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+  .reglages .lettre { font: 800 24px/1 inherit; }
+  .reglages .mot { font: 600 10.5px/1.15 inherit; opacity: .72; text-align: center; padding: 0 3px; }
+  .reglages button:active { transform: scale(.96); }
+  .reglages button.on { background: #F97316; border-color: #F97316; }
+  .reglages button.on .mot { opacity: .95; }
+  .lu { background: rgba(16,22,30,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 9px 14px; font-size: 13px;
+    font-variant-numeric: tabular-nums; min-height: 40px; display: flex; align-items: center; }
+  .lu b { font-weight: 800; }
+  .maplibregl-ctrl-bottom-right { bottom: calc(210px + var(--safe-b)) !important; }
+</style>
+</head>
+<body>
+<div id="carte"></div>
+<div id="fondu"></div>
+
+<div class="haut">
+  <b>Du jour 3 au jour 4</b>
+  <p>Cette fois le départ est le bon : la carte est <b>posée sur une photo</b>, comme quand tu
+     lis. Touche A, B, C ou D — l'aller et le retour alternent. A est ce qui est en ligne
+     aujourd'hui. Dis-moi la lettre.</p>
+</div>
+
+<div class="bas">
+  <div class="lu" id="lu">Touche un bouton pour commencer.</div>
+  <div class="trajets" id="trajets"></div>
+  <div class="reglages" id="reglages"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin=""></script>
+<script>
+(function () {
+  // Deux journées d'Écosse, à une trentaine de kilomètres l'une de l'autre.
+  var J3 = [[-5.130, 56.670], [-5.070, 56.700]];      // le cadre de la journée 3
+  var J4 = [[-5.520, 56.860], [-5.430, 56.900]];      // le cadre de la journée 4
+  // La photo sur laquelle la carte est posée juste avant de changer de journée. C'est ce
+  // départ-là qui manquait à la page d'essai précédente : elle partait du cadre de la
+  // journée entière, beaucoup plus haut, donc d'un mouvement beaucoup plus court.
+  var PHOTO3 = [-5.075, 56.697], PHOTO4 = [-5.515, 56.862];
+  var ZOOM_PHOTO = 15.5;                               // le zoom de lecture d'une photo
+
+  var TRAJETS = [
+    { nom: "En lisant le récit", genre: "recit" },
+    { nom: "Pendant « Revoir le voyage »", genre: "survol" }
+  ];
+  var REGLAGES = [
+    { lettre: "A", mot: "en ligne<br>aujourd'hui" },
+    { lettre: "B", mot: "vol plus court<br>monte moins" },
+    { lettre: "C", mot: "d'un coup<br>comme une page" },
+    { lettre: "D", mot: "en deux temps<br>recule, se pose" }
+  ];
+
+  var iTrajet = 0, versQuatre = true, carte, occupe = false;
+  var lu = document.getElementById("lu"), fondu = document.getElementById("fondu");
+  var ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+
+  carte = new maplibregl.Map({
+    container: "carte",
+    style: { version: 8, sources: {
+        esri: { type: "raster", tiles: [ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19,
+                attribution: 'Imagerie © <a href="https://www.esri.com/">Esri</a>, Maxar' },
+        rues: { type: "raster", tiles: [ESRI + "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19 },
+        noms: { type: "raster", tiles: [ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19 } },
+      layers: [ { id: "fond", type: "background", paint: { "background-color": "#0E1620" } },
+        { id: "esri", type: "raster", source: "esri" },
+        { id: "rues", type: "raster", source: "rues", paint: { "raster-opacity": .8 } },
+        { id: "noms", type: "raster", source: "noms" } ] },
+    center: PHOTO3, zoom: ZOOM_PHOTO, maxPitch: 72, attributionControl: { compact: true }
+  });
+
+  function ecrans(lngLat) {
+    var el = carte.getContainer(), w = el.clientWidth || 1;
+    var p = carte.project(lngLat);
+    return Math.hypot(p.x - w / 2, p.y - el.clientHeight / 2) / w;
+  }
+  function centre(b) { return [(b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2]; }
+  // Le compte d'écrans n'a de sens que sur une carte à plat : dès qu'elle est inclinée
+  // (le survol), la projection d'un point lointain ne veut plus rien dire. On ne l'affiche
+  // alors pas, même si le calcul en ligne, lui, s'en sert quand même.
+  function dit(r, n, d, quoi) {
+    lu.innerHTML = "<b>" + r.lettre + "</b> &nbsp;·&nbsp; " + quoi +
+      (n == null ? "" : " &nbsp;·&nbsp; départ à " + Math.round(n) + " écrans") +
+      " &nbsp;·&nbsp; <b>" + d.toFixed(1).replace(".", ",") + " s</b>";
+  }
+  function voile(o) { fondu.style.opacity = o; }
+  function libre(ms) { occupe = true; setTimeout(function () { occupe = false; }, ms); }
+
+  // Chaque essai repart du même endroit : posé sur la photo de la journée de départ.
+  function auDepart(genre, versQ) {
+    if (genre === "recit") carte.jumpTo({ center: versQ ? PHOTO3 : PHOTO4, zoom: ZOOM_PHOTO, pitch: 0, bearing: 0 });
+    else carte.jumpTo({ center: versQ ? PHOTO3 : PHOTO4, zoom: ZOOM_PHOTO, pitch: 35, bearing: versQ ? 305 : 125 });
+  }
+
+  // La cible : le cadre de la journée d'arrivée, ramené à un centre et un zoom pour pouvoir
+  // enchaîner les mouvements à la main.
+  function cible(genre, versQ) {
+    var b = versQ ? J4 : J3;
+    var cam = carte.cameraForBounds(b, { padding: 48, maxZoom: 13 });
+    var t = { center: cam ? cam.center : centre(b), zoom: cam ? Math.min(cam.zoom, 13) : 12.5 };
+    if (genre === "survol") { t.pitch = 35; t.bearing = versQ ? 305 : 125; } else { t.pitch = 0; t.bearing = 0; }
+    return t;
+  }
+
+  function joue(r) {
+    if (occupe) return;
+    var genre = TRAJETS[iTrajet].genre, versQ = versQuatre;
+    versQuatre = !versQuatre;
+    auDepart(genre, versQ);
+    var t = cible(genre, versQ);
+    var quoi = (versQ ? "jour 3 → jour 4" : "jour 4 → jour 3");
+    setTimeout(function () {
+      var n = ecrans(t.center), vu = carte.getPitch() ? null : n;
+      if (r.lettre === "A") {            // ce qui est en ligne : un seul vol, plafonné à 8,5 s
+        var d = Math.min(8.5, 3 + 3 * n);
+        dit(r, vu, d, quoi); libre(d * 1000 + 200);
+        carte.flyTo(Object.assign({ duration: d * 1000, curve: 1.5, essential: true }, t));
+      } else if (r.lettre === "B") {     // le même vol, plus court et qui prend moins d'altitude
+        dit(r, vu, 4.0, quoi); libre(4200);
+        carte.flyTo(Object.assign({ duration: 4000, curve: 1.1, essential: true }, t));
+      } else if (r.lettre === "C") {     // pas de vol : on tourne la page
+        dit(r, vu, 0.8, quoi); libre(1000);
+        voile(1);
+        setTimeout(function () { carte.jumpTo(t); voile(0); }, 260);
+      } else {                           // en deux temps : reculer sur place, puis se poser
+        dit(r, vu, 2.7, quoi); libre(2900);
+        var haut = Math.max(t.zoom + 1.5, carte.getZoom() - 3.5);
+        carte.easeTo({ zoom: haut, duration: 900, essential: true });
+        setTimeout(function () { voile(1); }, 900);
+        setTimeout(function () {
+          carte.jumpTo({ center: t.center, zoom: haut, pitch: t.pitch, bearing: t.bearing });
+          voile(0);
+        }, 1160);
+        setTimeout(function () {
+          carte.easeTo(Object.assign({ duration: 1000, essential: true }, t));
+        }, 1400);
+      }
+    }, 260);
+  }
+
+  var zT = document.getElementById("trajets");
+  TRAJETS.forEach(function (t, i) {
+    var b = document.createElement("button");
+    b.textContent = t.nom;
+    b.className = i === 0 ? "on" : "";
+    b.onclick = function () {
+      if (occupe) return;
+      iTrajet = i; versQuatre = true;
+      [].forEach.call(zT.children, function (x, j) { x.className = j === i ? "on" : ""; });
+      auDepart(t.genre, true);
+      lu.textContent = t.nom + " — touche A, B, C ou D.";
+    };
+    zT.appendChild(b);
+  });
+
+  var zR = document.getElementById("reglages");
+  REGLAGES.forEach(function (r) {
+    var b = document.createElement("button");
+    b.innerHTML = '<span class="lettre">' + r.lettre + '</span><span class="mot">' + r.mot + '</span>';
+    b.onclick = function () {
+      if (occupe) return;
+      [].forEach.call(zR.children, function (x) { x.className = ""; });
+      b.className = "on";
+      joue(r);
+    };
+    zR.appendChild(b);
+  });
+})();
+</script>
+</body>
+</html>
