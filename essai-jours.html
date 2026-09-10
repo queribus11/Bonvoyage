@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="fr" class="is-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bonvoyage — essai : passer d'une journée à l'autre</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0E1620">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="">
+<style>
+  :root { --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0E1620; color: #fff;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  #carte { position: absolute; inset: 0; }
+  .haut { position: absolute; left: 12px; right: 12px; top: calc(10px + var(--safe-t)); z-index: 5;
+    background: rgba(16,22,30,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 10px 14px; line-height: 1.4; }
+  .haut b { font-size: 15px; }
+  .haut p { margin: 4px 0 0; font-size: 12.5px; opacity: .78; }
+  .bas { position: absolute; left: 12px; right: 12px; bottom: calc(12px + var(--safe-b)); z-index: 5;
+    display: flex; flex-direction: column; gap: 10px; }
+  .trajets { display: flex; gap: 8px; }
+  .trajets button { flex: 1; min-height: 50px; border-radius: 14px; border: 1px solid rgba(255,255,255,.18);
+    background: rgba(16,22,30,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: #fff; font: 600 13.5px/1.25 inherit; padding: 4px 6px; }
+  .trajets button.on { background: #fff; color: #123F66; border-color: #fff; }
+  .reglages { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .reglages button { min-height: 74px; border-radius: 18px; border: 1px solid rgba(255,255,255,.22);
+    background: rgba(16,22,30,.62); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+  .reglages .lettre { font: 800 24px/1 inherit; }
+  .reglages .mot { font: 600 10.5px/1.15 inherit; opacity: .72; text-align: center; padding: 0 3px; }
+  .reglages button:active { transform: scale(.96); }
+  .reglages button.on { background: #F97316; border-color: #F97316; }
+  .reglages button.on .mot { opacity: .95; }
+  .lu { background: rgba(16,22,30,.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 9px 14px; font-size: 13px;
+    font-variant-numeric: tabular-nums; min-height: 40px; display: flex; align-items: center; }
+  .lu b { font-weight: 800; }
+  .maplibregl-ctrl-bottom-right { bottom: calc(210px + var(--safe-b)) !important; }
+</style>
+</head>
+<body>
+<div id="carte"></div>
+
+<div class="haut">
+  <b>Passer d'une journée à l'autre</b>
+  <p>Deux moments à essayer : en lisant le récit, et pendant « Revoir le voyage ».
+     Touche A, B, C ou D — l'aller et le retour alternent. A est ce qui est en ligne
+     aujourd'hui, D est le plus posé. Dis-moi la lettre.</p>
+</div>
+
+<div class="bas">
+  <div class="lu" id="lu">Touche un bouton pour commencer.</div>
+  <div class="trajets" id="trajets"></div>
+  <div class="reglages" id="reglages"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin=""></script>
+<script>
+(function () {
+  // Deux journées d'Écosse, à une trentaine de kilomètres l'une de l'autre.
+  var J7 = [[-5.130, 56.670], [-5.070, 56.700]];      // le cadre de la journée 7
+  var J8 = [[-5.520, 56.860], [-5.430, 56.900]];      // le cadre de la journée 8
+  var FIN7 = [-5.070, 56.700], DEBUT8 = [-5.520, 56.860];
+
+  var TRAJETS = [
+    { nom: "En lisant le récit", genre: "cadre" },
+    { nom: "Pendant « Revoir le voyage »", genre: "survol" }
+  ];
+  // base et parEcran en secondes, plafond en secondes, courbe = ampleur du recul
+  var REGLAGES = [
+    { lettre: "A", mot: "en ligne<br>aujourd'hui", tel: true },
+    { lettre: "B", mot: "le tempo<br>des photos", base: 2.0, parEcran: 2.0, plafond: 5.5, courbe: 1.3 },
+    { lettre: "C", mot: "plus lent<br>recul doux",  base: 2.5, parEcran: 2.5, plafond: 7.0, courbe: 1.3 },
+    { lettre: "D", mot: "très posé<br>recul marqué", base: 3.0, parEcran: 3.0, plafond: 8.5, courbe: 1.5 }
+  ];
+
+  var iTrajet = 0, versB = true, carte;
+  var lu = document.getElementById("lu");
+  var ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+
+  carte = new maplibregl.Map({
+    container: "carte",
+    style: { version: 8, sources: {
+        esri: { type: "raster", tiles: [ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19,
+                attribution: 'Imagerie © <a href="https://www.esri.com/">Esri</a>, Maxar' },
+        rues: { type: "raster", tiles: [ESRI + "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19 },
+        noms: { type: "raster", tiles: [ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, maxzoom: 19 } },
+      layers: [ { id: "fond", type: "background", paint: { "background-color": "#0E1620" } },
+        { id: "esri", type: "raster", source: "esri" },
+        { id: "rues", type: "raster", source: "rues", paint: { "raster-opacity": .8 } },
+        { id: "noms", type: "raster", source: "noms" } ] },
+    bounds: J7, fitBoundsOptions: { padding: 48 }, maxPitch: 72, attributionControl: { compact: true }
+  });
+
+  function ecrans(lngLat) {
+    var el = carte.getContainer(), w = el.clientWidth || 1;
+    var p = carte.project(lngLat);
+    return Math.hypot(p.x - w / 2, p.y - el.clientHeight / 2) / w;
+  }
+  function centre(b) { return [(b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2]; }
+  function duree(r, n) { return Math.min(r.plafond, r.base + r.parEcran * n); }
+  function dit(r, n, d, quoi) {
+    lu.innerHTML = "<b>" + r.lettre + "</b> &nbsp;·&nbsp; " + quoi + " &nbsp;·&nbsp; " +
+      n.toFixed(1) + " écran" + (n >= 2 ? "s" : "") + " &nbsp;·&nbsp; <b>" +
+      d.toFixed(1).replace(".", ",") + " s</b>";
+  }
+
+  // A · le recadrage de la lecture : d'un cadre de journée à l'autre
+  function cadre(r) {
+    var b = versB ? J8 : J7; versB = !versB;
+    var n = ecrans(centre(b));
+    if (r.tel) { // ce qui est en ligne aujourd'hui : 1,2 s, courbe par défaut
+      dit(r, n, 1.2, "recadrage");
+      carte.fitBounds(b, { padding: 48, maxZoom: 13, duration: 1200, essential: true });
+      return;
+    }
+    var d = duree(r, n);
+    dit(r, n, d, "recadrage");
+    carte.fitBounds(b, { padding: 48, maxZoom: 13, duration: d * 1000, curve: r.courbe, essential: true });
+  }
+
+  // B · l'approche du survol : de la fin d'une journée au départ de la suivante,
+  //     avec l'inclinaison et l'orientation que le survol applique vraiment
+  function survol(r) {
+    var vers8 = versB; versB = !versB;
+    var cible = vers8 ? DEBUT8 : FIN7;
+    var cap = vers8 ? 305 : 125;
+    var t = { center: cible, zoom: 13, pitch: 35, bearing: cap };
+    var n = ecrans(cible);
+    if (r.tel) { // ce qui est en ligne aujourd'hui : glissement plat, sans prise d'altitude
+      var d0 = Math.max(3.5, Math.min(7, 2.5 + 30 * 0.04));
+      dit(r, n, d0, "approche du survol");
+      carte.easeTo(Object.assign({ duration: d0 * 1000, essential: true }, t));
+      return;
+    }
+    var d = duree(r, n);
+    dit(r, n, d, "approche du survol");
+    carte.flyTo(Object.assign({ duration: d * 1000, curve: r.courbe, essential: true }, t));
+  }
+
+  var zT = document.getElementById("trajets");
+  TRAJETS.forEach(function (t, i) {
+    var b = document.createElement("button");
+    b.textContent = t.nom;
+    b.className = i === 0 ? "on" : "";
+    b.onclick = function () {
+      iTrajet = i; versB = true;
+      [].forEach.call(zT.children, function (x, j) { x.className = j === i ? "on" : ""; });
+      if (t.genre === "cadre") carte.fitBounds(J7, { padding: 48, duration: 0 });
+      else carte.jumpTo({ center: FIN7, zoom: 13, pitch: 35, bearing: 125 });
+      lu.textContent = t.nom + " — touche A, B, C ou D.";
+    };
+    zT.appendChild(b);
+  });
+
+  var zR = document.getElementById("reglages");
+  REGLAGES.forEach(function (r) {
+    var b = document.createElement("button");
+    b.innerHTML = '<span class="lettre">' + r.lettre + '</span><span class="mot">' + r.mot + '</span>';
+    b.onclick = function () {
+      [].forEach.call(zR.children, function (x) { x.className = ""; });
+      b.className = "on";
+      TRAJETS[iTrajet].genre === "cadre" ? cadre(r) : survol(r);
+    };
+    zR.appendChild(b);
+  });
+})();
+</script>
+</body>
+</html>
