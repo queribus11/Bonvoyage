@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.14**
+- Version actuelle : **v10.19**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -130,6 +130,17 @@ rester muets et se contenter d'une infobulle ; celui qui fait sortir, non.
 Fonds de carte, zoom, boutons d'action : tout vit dans le même rail. Rien de ce qui est
 posé sur la carte ne doit jamais en recouvrir un autre — ni la légende, ni la mention des
 cartes. Toute commande nouvelle rejoint le rail, elle ne se pose pas dans un coin libre.
+
+**12. Une page d'essai se vérifie contre la vraie page AVANT de la faire juger au doigt.**
+Publier quatre réglages pour que Sophie choisisse au doigt est la bonne méthode — trois
+réglages devinés avaient raté avant elle. Mais une page d'essai qui n'est pas fidèle fait
+choisir un réglage pour un mouvement qui n'existe pas : la première version de
+`essai-jours-2.html` partait du zoom 15,5, en plein écran, et ne jouait qu'un mouvement sur
+deux. Or en lisant, la carte est au zoom **12,5** (`goTo` ne rapproche jamais, le recadrage
+plafonne à 13), dans une bande de **440 × 554**, et le passage à une journée est **deux
+vols** enchaînés. Avant de publier une page d'essai : mesurer le **zoom de départ**, la
+**taille de la carte** et la **chaîne complète des mouvements**, et charger le vrai carnet
+par le jeton d'un lien de partage plutôt que d'inventer des lieux.
 
 ---
 
