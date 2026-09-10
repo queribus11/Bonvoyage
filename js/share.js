@@ -213,7 +213,17 @@
         BVMAP.replay(map, D, {
           dayList: days, only, speed: +D.trip.replay_speed || 1, dayNumber: (iso) => dayNumber(D.trip, iso),
           onPause: (p) => { pauseBtn.innerHTML = p ? ic("play", "sm") : ic("pause", "sm"); pauseBtn.title = p ? "Reprendre" : "Pause"; },
-          onDay: (iso, info) => { const d = D.days.find((x) => x.day_date === iso) || {}; $("#replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}${info.photos ? ` · ${info.photos} photo${info.photos > 1 ? "s" : ""}` : ""}</span>` : ""}`; },
+          // #37 · Le cartouche du survol parle la même langue que la légende de la carte :
+          // le disque de couleur du jour, le nom fort, le nom discret. Les chiffres passent
+          // sur une seconde ligne dans la même bulle. Sans titre, la commune passe en gras ;
+          // sans chiffres, la seconde ligne n'existe pas.
+          onDay: (iso, info) => {
+            const d = D.days.find((x) => x.day_date === iso) || {};
+            const strong = d.title || d.place || (info.n ? "Jour " + info.n : fmtDate(iso, false));
+            const light = d.title && d.place ? d.place : "";
+            const meta = [info.km ? fmtDistance(info.km * 1000) : "", info.photos ? `${info.photos} photo${info.photos > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+            $("#replay-caption").innerHTML = `<div class="line">${info.n ? `<i class="num" style="background:${CV.colorForDay(days, iso)}">${info.n}</i>` : ""}<b>${esc(strong)}</b>${light ? `<span>${esc(light)}</span>` : ""}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}`;
+          },
           onDone: () => {
             $("#replay-overlay").hidden = true;
             if (isMobile() && !wasBig) setBig(false);   // on ne laisse personne enfermé dans la carte plein écran

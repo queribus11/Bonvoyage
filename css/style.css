@@ -405,11 +405,11 @@ body.map-stuck .day-section { scroll-margin-top: calc(65vh + 16px); }
 .map-caption { position: absolute; left: 14px; bottom: 30px; z-index: 5; display: flex; align-items: center; gap: 9px; min-width: 0; max-width: min(320px, calc(100% - 128px)); background: rgba(16,22,30,.58); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 8px 15px 8px 9px; box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff; }
 /* Rond à un chiffre, il s'allonge tout seul pour « 12 » : le comportement des anciennes
    pastilles J1-J7, repris en plus petit. */
-.map-caption .num { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 21px; min-width: 21px; padding: 0 5px; border-radius: 999px; font-style: normal; font-size: 12px; font-weight: 800; color: #fff; }
-.map-caption b { font-size: 15px; font-weight: 800; }
-.map-caption span { font-size: 13.5px; opacity: .74; }
-.map-caption b, .map-caption span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.map-caption .num, .day-card .dc-num, .day-item .num { text-shadow: 0 1px 2px rgba(18,63,102,.45); }
+.map-caption .num, .replay-overlay .caption .num { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 21px; min-width: 21px; padding: 0 5px; border-radius: 999px; font-style: normal; font-size: 12px; font-weight: 800; color: #fff; }
+.map-caption b, .share-map-wrap .replay-overlay .caption b { font-size: 15px; font-weight: 800; font-family: var(--font-body); }
+.map-caption span, .share-map-wrap .replay-overlay .caption span { display: inline; font-size: 13.5px; font-weight: 400; opacity: .74; color: inherit; }
+.map-caption b, .map-caption span, .share-map-wrap .replay-overlay .caption b, .share-map-wrap .replay-overlay .caption span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-caption .num, .replay-overlay .caption .num, .day-card .dc-num, .day-item .num { text-shadow: 0 1px 2px rgba(18,63,102,.45); }
 /* Sous 900 px, les fonds de carte et le zoom se replient derrière le 3e bouton du rail.
    Au-dessus, rien ne change : ils restent affichés et le bouton n'existe pas. */
 @media (max-width: 899px) {
@@ -597,6 +597,18 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
    d'accueil de l'iPhone le bas de l'écran en plein écran : le cartouche du survol s'ancre
    au-dessus des deux. Le bloc du survol (#36) et ses exclusions ne sont pas touchés. */
 .share-map-wrap .replay-overlay:not(.app):not(.compact) { bottom: calc(56px + var(--safe-b)); }
+/* #37 · Le cartouche du survol reprend la bulle de la légende : même fond, même filet,
+   même disque de couleur. Les chiffres passent sur une seconde ligne, plus discrète.
+   Portée limitée à la page des proches : le bandeau de l'app garde le sien. */
+.share-map-wrap .replay-overlay .caption { background: rgba(16,22,30,.58); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 8px 15px 8px 9px; box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff; font-size: 15px; }
+.share-map-wrap .replay-overlay .caption .line { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.share-map-wrap .replay-overlay .caption .meta { margin: 3px 0 0 30px; font-size: 12.5px; font-weight: 700; opacity: .62; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Sur téléphone, le bandeau du survol s'empile et sa bulle prenait toute la largeur :
+   elle épouse son texte, comme la légende. Le bloc du survol (#36) n'est pas modifié —
+   cette règle est simplement plus précise que la sienne. */
+@media (max-width: 640px) {
+  .share-map-wrap .replay-overlay:not(.compact) .caption { width: auto; max-width: 100%; align-self: flex-start; }
+}
 .recap { text-align: center; }
 .recap-valdo { width: 72px; height: 72px; margin: 0 auto 8px; display: block; }
 .recap-stats { display: flex; gap: 10px; justify-content: center; margin: 14px 0 20px; }
