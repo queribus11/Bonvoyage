@@ -429,6 +429,11 @@
   const followMode = FOLLOW_MODES.includes(askedMode) ? askedMode : FOLLOW_DEFAULT;
   const seenDays = new Set(), seenShots = new Set();
   let dayIO = null, shotIO = null, followDay = null, followShot = null, touchedAt = 0, tickReq = 0, sizeReq = 0, mediaById = new Map();
+  // #37 · Jusqu'à quand la carte est occupée à recadrer une journée. `applyFollow` est
+  // rappelée à CHAQUE IMAGE du défilement : sans ce repère, le vol vers la photo prenait la
+  // place du recadrage dès l'image suivante — 60 ms après son départ — et le passage d'une
+  // journée à l'autre gardait l'ancienne vitesse malgré les 8,5 s demandées (v10.18).
+  let dayFlyUntil = 0;
 
   const canFollow = () => !!D && (D.media.some((m) => m.lat != null) || D.tracks.some((t) => (t.points || []).length));
   // Un carnet sans aucune photo située retombe sur le suivi par journée, comme avant.
@@ -558,8 +563,8 @@
       // Même remède ici : remonter au-dessus du récit peut traverser tout le pays, et
       // 1,2 s y était aussi brutal que sur le passage d'une journée à l'autre.
       if (drawn && drawn.bounds) {
-        if (calm) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14, duration: 0 });
-        else BVMAP.flyToDay(map, drawn.bounds, { padding: 40, maxZoom: 14 });
+        if (calm) { BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14, duration: 0 }); dayFlyUntil = 0; }
+        else dayFlyUntil = Date.now() + BVMAP.flyToDay(map, drawn.bounds, { padding: 40, maxZoom: 14 });
       }
       return;
     }
@@ -571,10 +576,15 @@
       // Le vol vers la première photo attend la FIN du recadrage : sinon les deux
       // mouvements se battraient, le recadrage pouvant durer jusqu'à 8,5 s.
       const ms = highlight(iso, calm);
+      dayFlyUntil = Date.now() + ms;
       if (photoFollow()) setTimeout(schedule, calm ? 60 : ms + 300);
       return;
     }
     if (!photoFollow()) return;
+    // Le recadrage de la journée va jusqu'au bout : on ne le coupe pas. `followShot` n'est
+    // pas consommé ici, donc le vol vers la photo aura bien lieu ensuite — au rendez-vous
+    // déjà pris, ou à la première image de défilement qui suit.
+    if (Date.now() < dayFlyUntil) return;
     const fig = nearestToLine(seenShots);
     const m = fig ? mediaById.get(fig.dataset.id) : null;
     if (!m || m.lat == null || m.day_date !== iso || followShot === m.id) return;
