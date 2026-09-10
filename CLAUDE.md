@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.19**
+- Version actuelle : **v10.20**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -240,6 +240,15 @@ fiche journée**, **le proche** (qui lit) et **le co-auteur** (qui écrit), **le
   gardées un mois dans `localStorage`, un appel à la fois et 1,1 s d'écart. Rien n'est
   demandé tant que Sophie n'a pas touché le bouton. `out center` et non `out center tags` :
   `tags` retirerait les coordonnées des nœuds.
+- **Le suivi de lecture ne joue qu'UN mouvement à la fois.** `applyFollow` est rappelée à
+  chaque image du défilement. Mesuré sur la vraie page avec un défilement de lecture
+  ordinaire (v10.20) : un recadrage de journée démarrait par-dessus un autre, et un
+  recadrage coupait le vol vers une photo au bout de 0,9 s. La caméra repartait chaque fois
+  d'un mouvement déjà lancé — d'où une brusquerie qu'aucun réglage de durée ne corrige.
+  Le repère `busyUntil` de `share.js` est posé par **les deux** mouvements ; tant qu'il n'est
+  pas passé, rien ne démarre. Tout mouvement nouveau du suivi doit le poser aussi.
+  Et un réglage de confort jugé au doigt l'est toujours **carte immobile** : si l'application
+  ne garantit pas cette condition, le réglage choisi ne veut rien dire.
 - **OSRM ne renvoie jamais d'altitude** — d'où l'estimation par le relief (#22).
 - **Une trace qui a déjà ne serait-ce qu'un point avec altitude n'est jamais
   ré-estimée**, pour ne pas mélanger une estimation avec une vraie mesure GPS. Et
