@@ -15,6 +15,9 @@
   let carte = null, dansFit = false, ouvert = null, releves = [], lie = false;
   let dernierY = 0, dernierT = 0, vitesseDefile = 0;
   let reglage = LS.get("bv_essai_passage") || "B";
+  // Les deux limites de confort, tirées du survol que Sophie accepte (relevé du 11/09 sur
+  // son iPhone : 3,6 crans en 8,5 s, et 1,0 écran/s au sol).
+  const TAUX_Z = .42, TAUX_X = 1.0, FACTEUR = 1.6, T_MIN = 3000, T_MAX = 9000;
 
   // ---------- le défilement : sa vitesse à l'instant où un mouvement démarre ----------
   addEventListener("scroll", () => {
@@ -129,6 +132,36 @@
         setTimeout(ferme, ms);
         return ms;
       }
+      if (reglage === "E") {
+        // E · UN VRAI VOL, mais dont le PLONGEON est bridé.
+        // MapLibre sait le faire : `minZoom` fixe le zoom au sommet du vol — mais il est
+        // IGNORÉ si on lui donne aussi `curve`, ce que l'application fait toujours. D'où
+        // un plongeon jamais maîtrisé jusqu'ici.
+        // Le plongeon et la durée sont déduits des DEUX limites que Sophie accepte déjà sur
+        // le survol, mesurées sur son iPhone : 0,42 cran de zoom par seconde en descente,
+        // et 1,0 largeur d'écran par seconde au sol. On cherche le plongeon qui satisfait
+        // les deux dans le temps le plus court : plonger moins oblige à filer plus vite au
+        // sol, plonger plus coûte du temps en descente. Il y a un creux entre les deux.
+        const zDep = map.getZoom();
+        const ecrans = (() => {
+          try {
+            const el = M.container, w = el.clientWidth || 1, h = el.clientHeight || 1;
+            const q = map.project(cible);
+            return Math.max(.2, Math.hypot(q.x - w / 2, q.y - h / 2) / w);
+          } catch { return 1; }
+        })();
+        let mieux = null;
+        for (let d = 1; d <= 5.01; d += .25) {
+          const t = Math.max(d / TAUX_Z, (ecrans / Math.pow(2, d)) * FACTEUR / TAUX_X) * 1000;
+          if (!mieux || t < mieux.t) mieux = { d, t };
+        }
+        const ms = Math.max(T_MIN, Math.min(T_MAX, mieux.t));
+        ouvre("passage E", { duration: ms }, bougeait, true);
+        const sommet = Math.max(0, Math.min(zDep, zFin) - mieux.d);
+        map.flyTo({ center: cible, zoom: zFin, minZoom: sommet, duration: ms, ...garde });
+        setTimeout(ferme, ms + 60);
+        return ms;
+      }
       // D : reculer sur place, tourner la page, se poser — aucun plongeon
       const ms = 2700;
       ouvre("passage D", { duration: ms }, bougeait, true);
@@ -153,7 +186,8 @@
     '<div id="mesure-court"></div>' +
     '<div id="mesure-texte">Fais défiler du jour 3 au jour 4.</div>' +
     '<div id="mesure-choix"><span>façon de passer :</span>' +
-      '<button data-r="B">B</button><button data-r="C">C</button><button data-r="D">D</button></div>' +
+      '<button data-r="B">B</button><button data-r="C">C</button>' +
+      '<button data-r="D">D</button><button data-r="E">E</button></div>' +
     '<div id="mesure-btns"><button id="mesure-copier">Copier le relevé</button>' +
     '<button id="mesure-vider">Effacer</button></div>';
   const css = document.createElement("style");
