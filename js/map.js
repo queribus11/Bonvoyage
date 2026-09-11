@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.22";
+window.BV_VERSION = "10.23";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -126,6 +126,7 @@ window.BVMAP = (() => {
       map.setPaintProperty(id, "line-opacity", pick(1, V.otherOp));
     }
     for (const id of ["track-edge", "track-dash-edge"]) {
+      map.setPaintProperty(id, "line-color", V.edge);   // la vue d'ensemble a son propre liseré
       map.setPaintProperty(id, "line-width", pick(V.edgeW, 0));
       map.setPaintProperty(id, "line-opacity", 1);
     }
@@ -194,6 +195,7 @@ window.BVMAP = (() => {
   function setOverview(M, on, iso, opts = {}) {
     M.overview = !!on;
     M.container.classList.toggle("bv-overview", !!on);
+    clearTimeout(M.endsTimer);            // un replacement d'étiquettes en attente ne survit pas au changement d'état
     if (on) { M.activeDay = iso || null; applyTrackStyle(M); syncPhotoMarkers(M); return overviewEnds(M, iso, opts); }
     clearEnds(M);
     applyTrackStyle(M);
@@ -202,16 +204,21 @@ window.BVMAP = (() => {
   }
   // Le cadrage d'une journée dans cet état, au tempo que Sophie a validé au doigt pour les
   // photos (2 s + 2 s par largeur d'écran, plafond 5,5 s), avec départ et arrivée adoucis.
+  // `opts.animate === false` : le cadrage se pose d'un coup, sans aucun mouvement.
   function flyOverview(M, bounds, opts = {}) {
     if (!bounds) return 0;
+    clearTimeout(M.endsTimer);
     const lng = (bounds[0][0] + bounds[1][0]) / 2, lat = (bounds[0][1] + bounds[1][1]) / 2;
-    const ms = reducedMotion() ? 0
+    const ms = (opts.animate === false || reducedMotion()) ? 0
       : Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_SCREEN_MS * screensAway(M, lat, lng));
     fitBounds(M, bounds, {
       ...opts, duration: ms, curve: ms ? FLY_CURVE : undefined,
       easing: ms ? ((t) => (t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2)) : undefined,
     });
-    if (M.overview && M.activeDay) setTimeout(() => overviewEnds(M, M.activeDay, opts), ms + 40);
+    // Les étiquettes se replacent une fois la caméra arrivée — et seulement si l'on est ENCORE
+    // dans l'état : la garde se vérifie à l'exécution, pas au moment de programmer. Sans cela,
+    // un minuteur de cinq secondes rallumait les cercles en plein survol.
+    M.endsTimer = setTimeout(() => { if (M.overview && M.activeDay) overviewEnds(M, M.activeDay, opts); }, ms + 40);
     return ms;
   }
 

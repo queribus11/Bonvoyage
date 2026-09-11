@@ -157,6 +157,7 @@
         <div class="jour-ui" id="jour-ui" hidden>
           <button type="button" class="jour-sortie" id="jour-sortie">${ic("chevron-left")}<span>Retour au récit</span></button>
           <button type="button" class="jour-play" id="jour-play" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>
+          <div class="jour-vide" id="jour-vide" hidden></div>
           <div class="jour-barre">
             <div class="jour-ligne">
               <button type="button" class="jour-nav" id="jour-prec" aria-label="Journée précédente">${ic("chevron-left")}</button>
@@ -210,11 +211,19 @@
     // recouvre jamais le tracé.
     const JOUR_PAD = { top: 64, left: 48, right: 48, bottom: 150 };
     let overviewDay = null, memo = null;
+    // #42 · Entre l'appui sur ▶ et le vrai départ du survol, il s'écoule 400 ms. Pendant cette
+    // fenêtre la carte n'était officiellement « pas en train de survoler » : on pouvait
+    // ré-entrer dans la journée immobile, et le survol démarrait dans cet état — où les
+    // pastilles photo sont effacées à chaque mouvement de carte. D'où leur disparition.
+    let replayArming = false;
 
+    // Ce qu'une journée a à montrer : sa trace, ses photos situées, ses arrêts. Rien des
+    // trois — pas de carte au hasard, un mot au centre (règle 5 : pas de contenu, pas de bloc).
     const dayBounds = (iso) => {
       const trs = D.tracks.filter((t) => t.day_date === iso);
       const ms = D.media.filter((m) => m.day_date === iso && m.lat != null);
-      return BVMAP.boundsOf([...trs.flatMap((t) => (t.points || []).filter((p) => p && p.lat != null)), ...ms]);
+      const st = (D.stops || []).filter((x) => x.day_date === iso && x.lat != null);
+      return BVMAP.boundsOf([...trs.flatMap((t) => (t.points || []).filter((p) => p && p.lat != null)), ...ms, ...st]);
     };
 
     function jourRender(iso, noms) {
@@ -240,21 +249,43 @@
         ? `<i class="on" style="background:${couleur}"></i>` : "<i></i>").join("");
     }
 
-    function jourShow(iso) {
+    // `net` : le cadrage se pose d'un coup, sans aucun mouvement de caméra. C'est le cas de
+    // ‹ et › — cet écran est fait pour l'immobilité, même un mouvement demandé y est de trop.
+    function jourShow(iso, net) {
       overviewDay = iso;
+      const b = dayBounds(iso);
+      const vide = $("#jour-vide");
+      if (!b) {                       // ni tracé, ni arrêt, ni photo située : on ne bouge pas
+        BVMAP.setOverview(map, true, iso, JOUR_PAD);
+        jourRender(iso, { depart: null, arrivee: null });
+        vide.textContent = "Cette journée n'a rien à montrer sur la carte — ni tracé, ni arrêt, ni photo située.";
+        vide.hidden = false;
+        $("#jour-play").disabled = true;   // rien à survoler : le bouton ne doit pas mener dans le vide
+        return;
+      }
+      vide.hidden = true; vide.textContent = "";
+      $("#jour-play").disabled = false;
       const noms = BVMAP.setOverview(map, true, iso, JOUR_PAD);
       jourRender(iso, noms);
-      const b = dayBounds(iso);
-      if (b) BVMAP.flyOverview(map, b, { padding: JOUR_PAD, maxZoom: 15 });
+      BVMAP.flyOverview(map, b, { padding: JOUR_PAD, maxZoom: 15, animate: net ? false : undefined });
     }
 
     function jourOpen() {
-      if (!drawn || map.replaying || overview) return;
-      const iso = followDay || days[0];
+      if (!drawn || map.replaying || replayArming || overview) return;
+      // La journée qu'on lisait — filtre compris. Sans cela, un filtre posé (titre de journée,
+      // arrêt, survol d'un seul jour) vide `followDay` et l'on ouvrait sur la PREMIÈRE journée
+      // du carnet, dont le tracé n'était même pas dans la carte : d'où les deux cercles seuls.
+      const iso = dayFilter || followDay || days[0];
       if (!iso) return;
       const c = map.map.getCenter();
-      memo = { scroll: window.scrollY, day: followDay, shot: followShot,
+      memo = { scroll: window.scrollY, day: followDay, shot: followShot, filtre: dayFilter,
                cam: { center: [c.lng, c.lat], zoom: map.map.getZoom(), pitch: map.map.getPitch(), bearing: map.map.getBearing() } };
+      // Cet écran montre TOUTES les journées — celle du jour en couleur, les autres en blanc
+      // discret. Un filtre posé les supprimait de la carte : il n'a pas cours ici.
+      if (dayFilter) { dayFilter = null; draw(false); }
+      // La pastille de légende est celle de la lecture : dans la vue d'ensemble elle ferait
+      // doublon avec la barre du bas, et elle resterait figée sur la journée d'entrée.
+      const cap = $("#map-caption"); if (cap) { cap.hidden = true; cap.innerHTML = ""; }
       overview = true;
       $("#map-wrap").classList.add("big", "jour");
       document.body.classList.add("map-big");
@@ -270,12 +301,14 @@
       overview = false; overviewDay = null;
       BVMAP.setOverview(map, false);
       $("#jour-ui").hidden = true;
+      const vide = $("#jour-vide"); if (vide) { vide.hidden = true; vide.textContent = ""; }
       $("#map-wrap").classList.remove("big", "jour");
       document.body.classList.remove("map-big");
       BVMAP.setPageGestures(map, true);
       BVMAP.resize(map);
       if (memo) {
         followDay = memo.day; followShot = memo.shot;
+        if (memo.filtre !== dayFilter) { dayFilter = memo.filtre; draw(false); }   // le filtre revient tel qu'il était
         map.map.jumpTo({ center: memo.cam.center, zoom: memo.cam.zoom, pitch: memo.cam.pitch, bearing: memo.cam.bearing });
         window.scrollTo(0, memo.scroll);
         if (followShot) BVMAP.focusMedia(map, followShot);
@@ -292,7 +325,7 @@
       if (!overview) return;
       const i = days.indexOf(overviewDay) + pas;
       if (i < 0 || i >= days.length) return;
-      jourShow(days[i]);
+      jourShow(days[i], true);      // d'un coup : aucun mouvement de caméra entre les jours
     };
 
     $("#map-expand").onclick = jourOpen;
@@ -302,8 +335,10 @@
     $("#jour-play").onclick = () => startReplay(overviewDay);
 
     const startReplay = (only = null) => {
-      if (!drawn || map.replaying) return;
+      if (!drawn || map.replaying || replayArming) return;
       const fromJour = overview;
+      const filtreAvant = dayFilter;      // un survol d'une seule journée ne le laisse plus posé
+      replayArming = true;
       if (fromJour) jourPause();
       if (dayFilter && !only) { dayFilter = null; draw(false); refreshCaption(); }
       if (only && dayFilter !== only) { dayFilter = only; draw(false); refreshCaption(); }
@@ -311,6 +346,8 @@
       if (isMobile()) setBig(true);
       $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
       const go = () => {
+        replayArming = false;
+        BVMAP.setOverview(map, false);    // ré-affirmé : le survol part toujours d'un état propre
         $("#replay-overlay").hidden = false; $("#replay-next").hidden = !!only;
         const pauseBtn = $("#replay-pause"); pauseBtn.innerHTML = ic("pause", "sm"); pauseBtn.title = "Pause";
         BVMAP.replay(map, D, {
@@ -329,13 +366,15 @@
           },
           onDone: () => {
             $("#replay-overlay").hidden = true;
+            if (dayFilter !== filtreAvant) { dayFilter = filtreAvant; draw(false); refreshCaption(); }
             if (fromJour) { jourResume(); return; }
             if (isMobile() && !wasBig) setBig(false);   // on ne laisse personne enfermé dans la carte plein écran
             if (!only) showRecap();
           },
         });
       };
-      if (introDone) setTimeout(go, isMobile() ? 400 : 700); else replayWanted = only || true;
+      if (introDone) setTimeout(go, isMobile() ? 400 : 700);
+      else { replayArming = false; replayWanted = only || true; }   // reporté : le verrou se relâche
     };
     $("#replay-stop").onclick = () => { if (map.stopReplay) map.stopReplay(); };
     $("#replay-pause").onclick = () => { const c = map.replayCtl; if (!c) return; c.paused ? c.resume() : c.pause(); };
