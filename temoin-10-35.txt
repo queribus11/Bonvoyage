@@ -1,0 +1,3 @@
+v10.35
+Ce fichier ne sert qu'à une chose : prouver que GitHub Pages sert bien le dernier envoi.
+Il n'existe que depuis la v10.35. S'il répond, la publication est à jour.
