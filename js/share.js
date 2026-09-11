@@ -587,6 +587,27 @@
       // La carte est encore en mouvement : on ne coupe pas, on y va à la fin.
       if (Date.now() < busyUntil) { laterOn(); return; }
       followDay = iso; followShot = null;
+      // #37 · DROIT À LA PHOTO (v10.21), choisi au doigt par Sophie sur la page de mesure.
+      // Le recadrage sur la journée entière disparaît du suivi par photo. Deux raisons,
+      // mesurées sur son iPhone : il faisait plonger la caméra de 4,9 crans de zoom en 4 s
+      // (1,22 cran/s, quand le survol qu'elle accepte fait 0,42), et il doublait le nombre
+      // de mouvements. Le plongeon et le balayage au sol sont couplés par la distance : à
+      // durée constante on ne supprime pas l'inconfort, on le déplace — il aurait fallu
+      // douze secondes. La seule vraie sortie est de RACCOURCIR LA DISTANCE : de la dernière
+      // photo du jour n à la première du jour n+1, au lieu de toute l'étendue d'une journée.
+      // Ce qu'on perd, et qui était voulu en v10.13 : la vue d'ensemble de la journée. Sophie
+      // a tranché en connaissance de cause. Le suivi « par jour » (&suivi=jour), lui, garde
+      // le recadrage : c'est ce qu'il est.
+      const first = photoFollow() ? BVMAP.dayPhotosSorted(D.media, iso)[0] : null;
+      if (first && !isLonely(first)) {
+        showStopsFor(iso);
+        followShot = first.id;
+        BVMAP.focusMedia(map, first.id);
+        refreshCaption(first);
+        busyUntil = Date.now() + BVMAP.goTo(map, first.lat, first.lng);
+        return;
+      }
+      // Repli : journée sans photo située, photo perdue au loin, ou suivi par jour.
       BVMAP.focusMedia(map, null);
       refreshCaption();
       const ms = highlight(iso, calm);
