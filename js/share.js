@@ -202,7 +202,13 @@
       eb.setAttribute("aria-label", big ? "Réduire la carte" : "Afficher la carte en plein écran");
       BVMAP.setPageGestures(map, !big);
       document.body.classList.toggle("map-big", big);
-      setTimeout(() => { BVMAP.resize(map); if (!map.replaying && introDone && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
+      // #37 · Ce recadrage sur TOUT le voyage ne doit jamais partir quand un survol s'arme :
+      // mesuré sur la vraie page, il se déclenchait 250 ms après l'appui sur ▶ et l'approche
+      // du survol le coupait 9 ms plus tard — la caméra était alors arrachée à une vue
+      // d'ensemble du voyage (zoom 7,7), et l'approche partait de là. D'où un mouvement
+      // brusque, et qui n'était pas celui que Sophie avait choisi au doigt : il ne partait
+      // pas du même endroit. `map.replaying` ne suffit pas : il n'est vrai que 400 ms plus tard.
+      setTimeout(() => { BVMAP.resize(map); if (!map.replaying && !replayArming && introDone && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
     };
     // ---------- #42 · La journée immobile ----------
     // Le bouton plein écran n'agrandit plus la carte telle quelle : il ouvre un état où l'on
@@ -215,7 +221,8 @@
     // fenêtre la carte n'était officiellement « pas en train de survoler » : on pouvait
     // ré-entrer dans la journée immobile, et le survol démarrait dans cet état — où les
     // pastilles photo sont effacées à chaque mouvement de carte. D'où leur disparition.
-    let replayArming = false;
+    // (le drapeau `replayArming` est déclaré plus haut : `applyFollow` le lit aussi)
+
 
     // Ce qu'une journée a à montrer : sa trace, ses photos situées, ses arrêts. Rien des
     // trois — pas de carte au hasard, un mot au centre (règle 5 : pas de contenu, pas de bloc).
@@ -348,6 +355,9 @@
       const go = () => {
         replayArming = false;
         BVMAP.setOverview(map, false);    // ré-affirmé : le survol part toujours d'un état propre
+        // …et d'une carte IMMOBILE : un vol de lecture encore en cours était coupé par
+        // l'approche du survol, qui partait alors d'une caméra lancée, à un zoom quelconque.
+        try { map.map.stop(); } catch { }
         $("#replay-overlay").hidden = false; $("#replay-next").hidden = !!only;
         const pauseBtn = $("#replay-pause"); pauseBtn.innerHTML = ic("pause", "sm"); pauseBtn.title = "Pause";
         BVMAP.replay(map, D, {
@@ -582,6 +592,8 @@
   let dayIO = null, shotIO = null, followDay = null, followShot = null, touchedAt = 0, tickReq = 0, sizeReq = 0, mediaById = new Map();
   // #42 · Vrai quand la journée immobile est ouverte : le suivi de lecture s'y tait.
   let overview = false;
+  // #37 · Vrai entre l'appui sur ▶ et le vrai départ du survol (400 ms plus tard).
+  let replayArming = false;
   // #37 · UN SEUL MOUVEMENT À LA FOIS. `applyFollow` est rappelée à CHAQUE IMAGE du
   // défilement. Ce repère dit jusqu'à quand la carte est occupée — il est posé par LES DEUX
   // mouvements du suivi : le recadrage d'une journée et le vol vers une photo.
@@ -714,7 +726,7 @@
 
   function applyFollow() {
     if (followMode === "off" || !canFollow()) return;
-    if (overview) return;                        // #42 · la journée immobile ne bouge pas toute seule
+    if (overview || replayArming) return;        // #42 · ni dans la journée immobile, ni pendant qu'un survol s'arme
     if (!introDone || map.replaying || dayFilter) { followDay = null; followShot = null; return; }
     if (document.visibilityState === "hidden") return;
     if (Date.now() - touchedAt < 6000) return;
