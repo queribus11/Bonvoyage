@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.33";
+window.BV_VERSION = "10.34";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -846,13 +846,18 @@ window.BVMAP = (() => {
           // vitesse dès le premier pas. L'arc entre journées, lui, n'est pas touché.
           const zAvant = map.getZoom();
           const reculMs = Math.min(6000, Math.abs(zoom - zAvant) / .65 * 1000);
-          if (reculMs > 80) { map.easeTo({ zoom, pitch, duration: reculMs, essential: true }); await moveEnd(); }
+          // Le nord est remis d'aplomb ici, pendant que la carte est immobile : une rotation
+          // qui arriverait en marchant serait exactement ce qu'on veut éviter.
+          const tourne = Math.abs(((map.getBearing() + 540) % 360) - 180);
+          const remiseMs = Math.min(6000, Math.max(reculMs, tourne / 30 * 1000));   // 30°/s au plus
+          if (remiseMs > 80) { map.easeTo({ zoom, pitch, bearing: 0, duration: remiseMs, essential: true }); await moveEnd(); }
+          else if (map.getBearing() !== 0) map.setBearing(0);
         }
         if (ctl.stopped) return;
         walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
 
         const photoAt = d.photos.map((m) => ({ m, at: nearestDist(d.coords, cum, [m.lng, m.lat]) })).sort((a, b) => a.at - b.at);
-        let pi = 0, seg = 1, bearing = calm ? 0 : map.getBearing(), lastT = performance.now(), elapsed = 0;
+        let pi = 0, seg = 1, bearing = 0, lastT = performance.now(), elapsed = 0;
         // L'inclinaison, le zoom et l'orientation de la journée se prennent au début de la
         // marche : la caméra bouge déjà, rien ne s'y voit comme un à-coup — au lieu d'être
         // imposés d'un bloc pendant l'approche.
@@ -878,11 +883,11 @@ window.BVMAP = (() => {
             const cur = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
             map.getSource("progress").setData({ type: "FeatureCollection", features: [{ type: "Feature", properties: { color: d.color }, geometry: { type: "LineString", coordinates: d.coords.slice(0, seg).concat([cur]) } }] });
             if (!calm) {
-              // Regard loin devant (≈ 1/6 du tracé), rotation limitée à 6°/s : caméra posée
-              const look = d.coords[Math.min(seg + Math.max(8, Math.floor(d.coords.length / 6)), d.coords.length - 1)];
-              const want = dist(cur, look) > 150 ? heading(cur, look) : bearing;
-              const delta = ((want - bearing + 540) % 360) - 180;
-              bearing = (bearing + Math.max(-6 * dt, Math.min(6 * dt, delta * dt * 1.2)) + 360) % 360;
+              // #45 · LE NORD RESTE EN HAUT. La caméra tournait pour regarder devant : le tracé
+              // montait donc toujours vers le haut de l'écran, et on ne pouvait plus savoir si
+              // la journée allait au nord, au sud, à l'est ou à l'ouest. Sophie : « le tracé va
+              // toujours dans la même direction ». Une carte qui tourne ne se lit plus.
+              // Valdo, lui, continue de se retourner selon son vrai cap (voir `walkTo`).
               pose = Math.min(1, pose + dt * 1000 / POSE_MS);
               const k = pose < .5 ? 2 * pose * pose : 1 - Math.pow(-2 * pose + 2, 2) / 2;
               map.jumpTo({ center: cur, bearing,
@@ -907,7 +912,6 @@ window.BVMAP = (() => {
   }
   function dist(a, b) { const R = 6371000, dLat = (b[1] - a[1]) * Math.PI / 180, dLng = (b[0] - a[0]) * Math.PI / 180, s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); }
   function heading(a, b) { const y = Math.sin((b[0] - a[0]) * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180), x = Math.cos(a[1] * Math.PI / 180) * Math.sin(b[1] * Math.PI / 180) - Math.sin(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.cos((b[0] - a[0]) * Math.PI / 180); return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; }
-  function lerpAngle(a, b, t) { let d = ((b - a + 540) % 360) - 180; return (a + d * t + 360) % 360; }
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
