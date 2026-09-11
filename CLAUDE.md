@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.34**
+- Version actuelle : **v10.35**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -47,9 +47,6 @@ bases de données.
 ```
 index.html            l'app (côté Sophie)
 share.html            la page du proche, ouverte par un lien de partage
-mesure-valdo.html     l'enregistreur du survol (#45) : copie de share.html + js/mesure-valdo.js,
-                      qui ne fait que REGARDER. Sophie le garde en ligne exprès — ne pas le
-                      retirer sans qu'elle le demande.
 vapid.html  sw.js  manifest.webmanifest
 css/style.css
 icons/                dont valdo.svg (la mascotte) et partage.jpg (vignette de partage)
@@ -285,15 +282,13 @@ immobile** (#42 : la vue d'ensemble d'un jour, qu'ouvre le bouton plein écran).
 - **Une trace qui a déjà ne serait-ce qu'un point avec altitude n'est jamais
   ré-estimée**, pour ne pas mélanger une estimation avec une vraie mesure GPS. Et
   l'estimation ne doit jamais bloquer ni faire échouer un import.
-- **Le bouton de vitesse du survol, dans l'app auteur, reste muet — décision de Sophie.**
-  Sur la fiche d'une journée, à côté de « Revoir », un bouton n'affichant qu'un animal
-  (🐢 lent · ▶ normal · 🐇 rapide). **Une seule pression le change et l'enregistre pour elle
-  et pour tous ses proches**, sans rien demander, et son seul libellé est une infobulle — qui
-  ne s'affiche jamais sur un écran tactile. Il a déjà mis son carnet sur ×2 à son insu, ce qui
-  divisait par deux toutes les durées du survol et a faussé une séance entière de réglage
-  (#45). **Elle a dit « ne change rien » le 11/09/2026 : ne pas y revenir sans qu'elle le
-  redemande.** Si un survol paraît deux fois trop rapide ou deux fois trop lent, regarder
-  `trips.replay_speed` avant toute autre hypothèse.
+- **Un survol deux fois trop rapide ou deux fois trop lent : regarder `trips.replay_speed`
+  AVANT toute autre hypothèse.** Ce réglage multiplie toutes les durées du survol, chez Sophie
+  comme chez ses proches. Le bouton qui le change (fiche journée, à côté de « Revoir ») n'affichait
+  qu'un animal, avec une infobulle pour seul libellé — qui ne s'affiche jamais sur un écran
+  tactile : un doigt qui a glissé a mis le carnet sur ×2 à son insu et faussé une séance entière
+  de réglage (#45). Corrigé en v10.35 : il porte un mot lisible et demande confirmation.
+  C'était la règle 10 prise en défaut.
 - **`supabase/functions/notify/` est dans le dépôt mais n'a jamais été déployée**, et
   `VAPID_PUBLIC_KEY` est vide dans `config.js`. Le code de l'app attend ces deux
   éléments, pas le fichier (#23).

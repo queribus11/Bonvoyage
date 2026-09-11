@@ -403,9 +403,29 @@
   }
   // Vitesse du survol : un réglage du voyage, choisi par Sophie, appliqué aussi chez les proches
   function tripSpeed() { const v = +(S.cur && S.cur.trip.replay_speed); return BVMAP.SPEEDS.some((s) => s.k === v) ? v : 1; }
-  function updateSpeedBtns() { const s = BVMAP.SPEEDS.find((x) => x.k === tripSpeed()); $$(".speed-btn").forEach((b) => { b.textContent = s.icon; b.title = "Vitesse du survol : " + s.label; }); }
+  // RÈGLE 10 · Ce bouton n'affichait qu'un animal, et son seul libellé était une infobulle —
+  // qui ne s'affiche JAMAIS sur un écran tactile. Une seule pression changeait la vitesse du
+  // survol et l'enregistrait pour Sophie ET pour tous ses proches, sans rien demander. Un doigt
+  // qui a glissé à côté de « Revoir » a mis son carnet sur ×2 à son insu : toutes les durées
+  // du survol étaient divisées par deux, et une séance entière de réglage a été faussée (#45).
+  // Il porte donc maintenant un mot lisible, et il demande confirmation avant d'engager tout
+  // le monde. Ne pas le rendre muet à nouveau.
+  function updateSpeedBtns() {
+    const s = BVMAP.SPEEDS.find((x) => x.k === tripSpeed());
+    $$(".speed-btn").forEach((b) => {
+      b.textContent = `${s.icon} ${s.label}`;
+      b.title = `Vitesse du survol : ${s.label} — pour toi et tes proches`;
+      b.setAttribute("aria-label", b.title);
+    });
+  }
   async function cycleSpeed() {
-    const i = BVMAP.SPEEDS.findIndex((s) => s.k === tripSpeed()); const n = BVMAP.SPEEDS[(i + 1) % BVMAP.SPEEDS.length];
+    const i = BVMAP.SPEEDS.findIndex((s) => s.k === tripSpeed()), a = BVMAP.SPEEDS[i];
+    const n = BVMAP.SPEEDS[(i + 1) % BVMAP.SPEEDS.length];
+    const ok = await confirm(
+      `Passer la vitesse du survol de « ${a.label} » à « ${n.label} » ? `
+      + `Ce réglage vaut pour toi ET pour tous tes proches qui ouvriront le lien de partage.`,
+      `Mettre sur « ${n.label} »`);
+    if (!ok) return;
     S.cur.trip.replay_speed = n.k; updateSpeedBtns();
     try { S.cur.trip = await API.updateTrip(S.cur.trip.id, { replay_speed: n.k }); saveLocal(); toast(`Vitesse du survol : ${n.label} — pour toi et tes proches (à partir de la prochaine journée)`, "info", 3000); }
     catch (err) { errToast(err); }
@@ -419,7 +439,7 @@
     S.dayFilter = iso; redraw(true); renderPanel();
     const card = $("#day-card");
     card.innerHTML = `<div class="dc-head"><span class="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b>${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted">${d?.place ? esc(d.place) + " · " : ""}${ph.length} photo${ph.length > 1 ? "s" : ""}${d?.story ? " · récit" : ""}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
-      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
+      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse du survol"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
     card.hidden = false;
     $("#dc-open").onclick = () => dayForm(iso);
     // Marquer un arrêt : on arme le mode, puis c'est le doigt sur la carte qui décide
