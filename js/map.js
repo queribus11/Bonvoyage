@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.24";
+window.BV_VERSION = "10.26";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -591,15 +591,9 @@ window.BVMAP = (() => {
   // Ne pas re-régler ces cinq nombres sans le lui redemander au doigt.
   const FLY_ZOOM_MAX = 15, FLY_ZOOM_MIN = 12.5, FLY_CURVE = 1.3;
   const FLY_BASE_MS = 2000, FLY_PER_SCREEN_MS = 2000, FLY_MAX_MS = 5500;
-  // #37 · Passer d'une JOURNÉE à l'autre PENDANT LE SURVOL — réglage « A », celui que Sophie
-  // a gardé au doigt (v10.19) après l'avoir comparé à trois autres sur une page d'essai.
-  // Là, la caméra part de haut et l'approche a de la place : la loi « tant de secondes par
-  // largeur d'écran » y garde du sens. Ne pas re-régler ces quatre nombres sans le lui
-  // redemander au doigt.
-  const DAY_BASE_MS = 3000, DAY_PER_SCREEN_MS = 3000, DAY_MAX_MS = 8500, DAY_CURVE = 1.5;
-  function dayFlyMs(M, lat, lng) {
-    return Math.min(DAY_MAX_MS, DAY_BASE_MS + DAY_PER_SCREEN_MS * screensAway(M, lat, lng));
-  }
+  // #37 · Passer d'une JOURNÉE à l'autre PENDANT LE SURVOL : c'est `goTo`, la fonction du
+  // récit, appelée telle quelle (voir `replay`). Il n'existe plus de tempo propre au survol —
+  // les quatre nombres du réglage « A » de la v10.19 ont disparu avec lui.
   // #37 · Passer d'une JOURNÉE à l'autre EN LISANT — réglage « B », choisi au doigt par
   // Sophie (v10.19). Un seul vol, plus court, qui prend beaucoup moins d'altitude.
   // Pourquoi la loi par largeurs d'écran a disparu ici : en lisant, la carte est au zoom 12,5
@@ -793,22 +787,37 @@ window.BVMAP = (() => {
         // Durée : 2,5 s par km, entre 6 et 20 s par journée (à vitesse normale) — un voyage de dix jours dure moins de trois minutes
         const speed = speedOf();
         const duration = Math.max(6000, Math.min(20000, total / 1000 * 2500)) / speed;
-        const bearing0 = calm ? 0 : heading(d.coords[0], d.coords[d.coords.length - 1]);
         const pitch = calm ? 0 : (isPhone() ? 35 : (d.est ? 40 : 45));
         // Approche : depuis là où est la caméra (fin de la veille) jusqu'au départ du jour, en douceur
         if (calm) { const b = boundsOf(d.coords.map((c) => ({ lng: c[0], lat: c[1] }))); map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 0, pitch: 0, bearing: 0 }); }
         else {
-          const target = { center: d.coords[0], zoom, pitch, bearing: bearing0 };
-          // #37 · Toujours un vol, jamais un glissement à plat : la caméra prend de l'altitude,
-          // traverse et redescend, au même tempo que le recadrage de la lecture.
-          map.flyTo({ ...target, duration: dayFlyMs(M, d.coords[0][1], d.coords[0][0]), curve: DAY_CURVE, easing: ease });
+          // #37 · EXACTEMENT LE MÊME MOUVEMENT QUE DANS LE RÉCIT — demande de Sophie (v10.26).
+          // Dans le récit, passer d'une journée à l'autre c'est un ARC : la caméra dézoome,
+          // traverse, et rezoome au même niveau. Mesuré sur le même carnet : creux de 2,69
+          // crans côté récit, 0,10 côté survol — ce dernier était donc à plat, et c'est
+          // justement ce que Sophie ne veut pas.
+          // La cause : `goTo` vole à zoom CONSTANT (il le borne entre 12,5 et 15 et n'en
+          // change pas), ce qui donne un arc symétrique et creusé. L'approche du survol, elle,
+          // visait le zoom de la journée — une arrivée à un zoom différent aplatit l'arc.
+          // Elle vole donc maintenant à zoom constant, comme `goTo`, sans inclinaison ni
+          // rotation ; le zoom de la journée et l'inclinaison se prennent ENSUITE, pendant la
+          // marche, progressivement — là où l'œil est déjà en mouvement.
+          // Littéralement la fonction du récit : aucune divergence possible, ni aujourd'hui
+          // ni plus tard. Si un jour le vol du récit change, celui du survol change avec lui.
+          goTo(M, d.coords[0][1], d.coords[0][0]);
           await moveEnd();
         }
         if (ctl.stopped) return;
         walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
 
         const photoAt = d.photos.map((m) => ({ m, at: nearestDist(d.coords, cum, [m.lng, m.lat]) })).sort((a, b) => a.at - b.at);
-        let pi = 0, seg = 1, bearing = bearing0, lastT = performance.now(), elapsed = 0;
+        let pi = 0, seg = 1, bearing = calm ? 0 : map.getBearing(), lastT = performance.now(), elapsed = 0;
+        // L'inclinaison, le zoom et l'orientation de la journée se prennent sur les deux
+        // premières secondes de la marche : la caméra bouge déjà, rien ne s'y voit comme un
+        // à-coup — au lieu d'être imposés d'un bloc pendant l'approche.
+        const POSE_MS = 2000;
+        const zDepart = map.getZoom(), pDepart = map.getPitch();
+        let pose = 0;
         await new Promise((resolve) => {
           const frame = (now) => {
             if (ctl.stopped) return resolve();
@@ -828,7 +837,11 @@ window.BVMAP = (() => {
               const want = dist(cur, look) > 150 ? heading(cur, look) : bearing;
               const delta = ((want - bearing + 540) % 360) - 180;
               bearing = (bearing + Math.max(-6 * dt, Math.min(6 * dt, delta * dt * 1.2)) + 360) % 360;
-              map.jumpTo({ center: cur, bearing, zoom: map.getZoom(), pitch: map.getPitch() });
+              pose = Math.min(1, pose + dt * 1000 / POSE_MS);
+              const k = pose < .5 ? 2 * pose * pose : 1 - Math.pow(-2 * pose + 2, 2) / 2;
+              map.jumpTo({ center: cur, bearing,
+                           zoom: zDepart + (zoom - zDepart) * k,
+                           pitch: pDepart + (pitch - pDepart) * k });
             }
             walkTo(cur, heading(a, b), d.modes ? d.modes[seg] : null);
             while (pi < photoAt.length && photoAt[pi].at <= target) { reveal(photoAt[pi].m); pi++; }
