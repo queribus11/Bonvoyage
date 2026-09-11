@@ -15,6 +15,8 @@
   let carte = null, dansFit = false, ouvert = null, releves = [], lie = false;
   let dernierY = 0, dernierT = 0, vitesseDefile = 0;
   let reglage = LS.get("bv_essai_passage") || "B";
+  let habillageDecale = LS.get("bv_essai_habillage") === "1";
+  let jourCourant = null, enAttente = [], videur = 0;
   // Les deux limites de confort, tirées du survol que Sophie accepte (relevé du 11/09 sur
   // son iPhone : 3,6 crans en 8,5 s, et 1,0 écran/s au sol).
   const TAUX_Z = .42, TAUX_X = 1.0, FACTEUR = 1.6, T_MIN = 3000, T_MAX = 9000;
@@ -57,6 +59,7 @@
 
   function ferme() {
     if (!ouvert) return;
+    if (ouvert.force) vide();
     ouvert.duree = performance.now() - ouvert.t0;
     ouvert.parSeconde = ouvert.duree > 0 ? ouvert.images / (ouvert.duree / 1000) : 0;
     releves.push(ouvert); if (releves.length > 6) releves.shift();
@@ -89,6 +92,22 @@
     };
   }
 
+  // ---------- l'habillage décalé (piste 4) ----------
+  // Aujourd'hui, DANS LA MÊME IMAGE que le départ du mouvement : la couleur de toutes les
+  // traces change, les pastilles d'arrêts sont détruites et refaites, les vignettes changent
+  // d'état. Tout bascule d'un coup. Ici on peut repousser ces trois-là à la FIN du mouvement.
+  function differe(fn) {
+    if (!habillageDecale) return fn();
+    enAttente.push(fn);
+    clearTimeout(videur);
+    videur = setTimeout(vide, 600);          // filet : si aucun passage ne démarre
+  }
+  function vide() {
+    clearTimeout(videur);
+    const l = enAttente; enAttente = [];
+    for (const f of l) { try { f(); } catch { } }
+  }
+
   // ---------- le voile, pour les façons qui tournent la page ----------
   let voileEl = null;
   function voile(o) {
@@ -107,6 +126,19 @@
   function poseVariantes() {
     if (!window.BVMAP || BVMAP.__essai) return;
     BVMAP.__essai = true;
+    // On retient la journée visée : `setActiveDay` est appelée juste avant le recadrage.
+    const vraiActive = BVMAP.setActiveDay, vraiFocus = BVMAP.focusMedia, vraiStops = BVMAP.drawStopMarkers;
+    BVMAP.setActiveDay = function (M, iso) { jourCourant = iso; differe(() => vraiActive(M, iso)); };
+    BVMAP.focusMedia = function (M, id) { differe(() => vraiFocus(M, id)); };
+    BVMAP.drawStopMarkers = function (M, d, o) { differe(() => vraiStops(M, d, o)); };
+    // La durée qu'emploiera `goTo` : la même formule que l'application.
+    const dureePhoto = (M, m) => {
+      try {
+        const el = M.container, w = el.clientWidth || 1, h = el.clientHeight || 1;
+        const q = M.map.project([m.lng, m.lat]);
+        return Math.min(5500, 2000 + 2000 * Math.hypot(q.x - w / 2, q.y - h / 2) / w);
+      } catch { return 2000; }
+    };
     const vrai = BVMAP.flyToDay;
     BVMAP.flyToDay = function (M, bounds, opts = {}) {
       if (!bounds) return 0;
@@ -117,6 +149,36 @@
         const ms = vrai(M, bounds, opts);
         setTimeout(ferme, ms + 60);
         return ms;
+      }
+      if (reglage === "F" || reglage === "G") {
+        // F · DROIT À LA PHOTO : pas de recadrage sur la journée entière du tout.
+        // Deux gains à la fois : un mouvement sur deux disparaît, et la distance raccourcit
+        // — de la dernière photo du jour n à la première du jour n+1, au lieu de toute
+        // l'étendue d'une journée. Ce qu'on perd : la vue d'ensemble « où est-on aujourd'hui ».
+        // G · la même chose, mais on attend que le doigt ET l'inertie soient arrêtés.
+        const ph = (M.data && BVMAP.dayPhotosSorted(M.data.media, jourCourant)) || [];
+        const m = ph[0];
+        if (!m) return vrai(M, bounds, opts);      // journée sans photo située : repli
+        const d = dureePhoto(M, m);
+        if (reglage === "F") {
+          ouvre("passage F", { duration: d }, bougeait, true);
+          BVMAP.goTo(M, m.lat, m.lng);
+          setTimeout(ferme, d + 60);
+          return d;
+        }
+        ouvre("passage G", { duration: d }, bougeait, true);
+        const depart = Date.now();
+        (function attends() {
+          if (vitesseDefile > 0 && Date.now() - depart < 1500) return setTimeout(attends, 80);
+          if (ouvert && ouvert.force) {            // le relevé ne compte que le vol, pas l'attente
+            ouvert.t0 = performance.now(); ouvert.images = 0; ouvert.pire = 0; ouvert.trous = 0;
+            ouvert.attente = Date.now() - depart; ouvert.avant = null;
+            try { const z = M.map.getZoom(); ouvert.zDepart = z; ouvert.zMin = z; ouvert.zMax = z; } catch { }
+          }
+          BVMAP.goTo(M, m.lat, m.lng);
+          setTimeout(ferme, d + 60);
+        })();
+        return d + 1600;
       }
       const map = M.map, pad = opts.padding == null ? 48 : opts.padding, zMax = opts.maxZoom || 13;
       let cam = null; try { cam = map.cameraForBounds(bounds, { padding: pad, maxZoom: zMax }); } catch { }
@@ -157,6 +219,7 @@
         }
         const ms = Math.max(T_MIN, Math.min(T_MAX, mieux.t));
         ouvre("passage E", { duration: ms }, bougeait, true);
+        if (ouvert) ouvert.demandeRecul = mieux.d;   // pour savoir si MapLibre en tient compte
         const sommet = Math.max(0, Math.min(zDep, zFin) - mieux.d);
         map.flyTo({ center: cible, zoom: zFin, minZoom: sommet, duration: ms, ...garde });
         setTimeout(ferme, ms + 60);
@@ -185,9 +248,15 @@
     '<div id="mesure-tirette">▲ relevé — toucher pour ouvrir</div>' +
     '<div id="mesure-court"></div>' +
     '<div id="mesure-texte">Fais défiler du jour 3 au jour 4.</div>' +
-    '<div id="mesure-choix"><span>façon de passer :</span>' +
-      '<button data-r="B">B</button><button data-r="C">C</button>' +
-      '<button data-r="D">D</button><button data-r="E">E</button></div>' +
+    '<div id="mesure-choix">' +
+      '<button data-r="B">B</button><button data-r="D">D</button><button data-r="E">E</button>' +
+      '<button data-r="F">F</button><button data-r="G">G</button></div>' +
+    '<div id="mesure-legende">' +
+      'B en ligne aujourd\'hui · D reculer, tourner la page, se poser · E vol au plongeon bridé<br>' +
+      'F droit à la photo (plus de vue d\'ensemble) · G droit à la photo, après l\'arrêt du doigt' +
+    '</div>' +
+    '<label id="mesure-habillage"><input type="checkbox"> habillage décalé ' +
+      '<span>(couleurs, arrêts et vignettes changent APRÈS le mouvement)</span></label>' +
     '<div id="mesure-btns"><button id="mesure-copier">Copier le relevé</button>' +
     '<button id="mesure-vider">Effacer</button></div>';
   const css = document.createElement("style");
@@ -206,7 +275,12 @@
     #mesure-court { font: 600 12px/1.3 ui-monospace, Menlo, monospace; text-align: center; padding-bottom: 4px; }
     #mesure-choix { display: flex; align-items: center; gap: 6px; margin-top: 8px;
       font: 600 12px/1 -apple-system, system-ui, sans-serif; }
-    #mesure-choix span { opacity: .75; }
+    #mesure-legende { font: 11px/1.45 -apple-system, system-ui, sans-serif; opacity: .7; margin-top: 6px; }
+    #mesure-habillage { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+      font: 600 12px/1.3 -apple-system, system-ui, sans-serif; }
+    #mesure-habillage input { width: 22px; height: 22px; }
+    #mesure-habillage span { opacity: .65; font-weight: 400; }
+    #mesure.replie #mesure-legende, #mesure.replie #mesure-habillage, #mesure.replie #mesure-choix { display: none; }
     #mesure-choix button { flex: 1; min-height: 44px; border-radius: 12px; font: 800 17px/1 inherit;
       border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.08); color: #fff; }
     #mesure-choix button.on { background: #F97316; border-color: #F97316; }
@@ -228,6 +302,9 @@
     for (const b of bas.querySelectorAll("#mesure-choix button")) b.onclick = () => {
       reglage = b.dataset.r; LS.set("bv_essai_passage", reglage); affiche();
     };
+    const coche = bas.querySelector("#mesure-habillage input");
+    coche.checked = habillageDecale;
+    coche.onchange = () => { habillageDecale = coche.checked; LS.set("bv_essai_habillage", habillageDecale ? "1" : "0"); affiche(); };
     document.getElementById("mesure-copier").onclick = () => {
       const t = texte(true);
       try { navigator.clipboard.writeText(t); } catch { }
@@ -252,6 +329,8 @@
       + " · pire trou " + m(Math.round(r.pire) + " ms", r.pire > 60);
     const recul = r.zDepart - r.zMin;
     const b2 = "RECUL " + m(n1(recul) + " crans", estPassage(r) && recul > 2.5)
+      + (r.demandeRecul ? " (demandé " + n1(r.demandeRecul) + ")" : "")
+      + (r.attente ? " · attente " + s1(r.attente) : "")
       + " · " + m(n1(r.duree > 0 ? recul / (r.duree / 1000) : 0) + " cran/s", estPassage(r) && recul / (r.duree / 1000) > .55)
       + (r.saut ? " · saut de page" : " · vitesse " + n1(r.vitesse) + " écr/s") + " · départ z" + n1(r.zDepart)
       + (r.coupe ? m(" COUPE", true) : "") + " · défilement " + r.defile + " px/s";
@@ -259,11 +338,12 @@
   }
   function verdict(brut) {
     const j = releves.filter(estPassage);
-    if (!j.length) return brut ? "réglage " + reglage + " — aucun passage encore"
-                               : "réglage <b>" + reglage + "</b> — aucun passage encore";
+    if (!j.length) return "réglage " + reglage + (habillageDecale ? " + habillage décalé" : "")
+      + " — aucun passage encore";
     const d = j[j.length - 1], recul = d.zDepart - d.zMin, taux = d.duree > 0 ? recul / (d.duree / 1000) : 0;
     const bon = taux <= .55;
-    const t = "réglage " + reglage + " · recul " + n1(recul) + " crans en " + s1(d.duree)
+    const t = "réglage " + reglage + (habillageDecale ? " + habillage décalé" : "")
+      + " · recul " + n1(recul) + " crans en " + s1(d.duree)
       + " s = " + n1(taux) + " cran/s " + (bon ? "✓" : "✗ (le survol accepté : 0,4)");
     return brut ? t : '<div class="' + (bon ? "bon" : "mauvais") + '">' + t + "</div>";
   }
