@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.30";
+window.BV_VERSION = "10.31";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -793,22 +793,26 @@ window.BVMAP = (() => {
         const cum = [0]; for (let i = 1; i < d.coords.length; i++) cum.push(cum[i - 1] + dist(d.coords[i - 1], d.coords[i]) / speedAt(i));
         const total = cum[cum.length - 1];
         const realTotal = d.coords.reduce((a, c, i) => i ? a + dist(d.coords[i - 1], c) : 0, 0);
-        let zoom = (realTotal < 12000 ? 14.2 : realTotal < 40000 ? 13 : realTotal < 120000 ? 11.8 : realTotal < 500000 ? 10.5 : 8.5) - (d.est ? 1.4 : 0) - (isPhone() ? .4 : 0);
-        // Durée : 2,5 s par km, entre 6 et 20 s par journée (à vitesse normale) — un voyage de dix jours dure moins de trois minutes
+        // #45 · TOUTES LES JOURNÉES VONT À LA MÊME VITESSE.
+        // Ce qui compte n'est ni le temps ni les kilomètres, c'est CE QUE L'ŒIL TRAVERSE.
+        // Avant : 2,5 s par km, plafonnées à 20 s. Le plafond était atteint dès 8 km à pied et
+        // 12 km en voiture, donc presque toutes les journées duraient pareil et la vitesse
+        // devenait proportionnelle à la longueur ; le zoom, lui, était un escalier à quatre
+        // marches qui compensait par sauts. Mesuré sur le carnet d'Écosse de Sophie :
+        // de 0,112 à 0,603 écran par seconde selon la journée, soit DE 1 À 5,4.
+        // Maintenant : chaque journée occupe le MÊME NOMBRE DE LARGEURS D'ÉCRAN — c'est le zoom
+        // qui s'y adapte, en pente et non plus par marches — et se parcourt à vitesse constante.
+        // 0,26 écran/s est le réglage C de la page d'essai, choisi au doigt par Sophie sur son
+        // carnet d'Écosse le 11/09/2026. La largeur vient de la CARTE, pas de la fenêtre.
+        const ECRANS = 3.5, ECRANS_PAR_S = .26;
+        const largeurPx = Math.max(200, map.getContainer().clientWidth || 440);
+        const lat0 = d.coords[0][1];
+        let zoom = realTotal > 0
+          ? Math.log2(156543.03392 * Math.cos(lat0 * Math.PI / 180) * largeurPx * ECRANS / realTotal) - (d.est ? 1.4 : 0)
+          : 14;
+        zoom = Math.min(17, Math.max(3, zoom));
         const speed = speedOf();
-        let duration = Math.max(6000, Math.min(20000, total / 1000 * 2500)) / speed;
-        // #45 · POINT D'ESSAI, TEMPORAIRE. La page d'essai `essai-valdo.html` remplace ici le
-        // cadrage et la durée de la traversée, le temps que Sophie choisisse au doigt sur son
-        // vrai carnet. Tant que rien ne pose `BV_ESSAI45`, la ligne ne fait rien du tout et la
-        // vraie page se comporte exactement comme avant. À retirer avec la page d'essai.
-        let poseMs = 2000;
-        if (window.BV_ESSAI45) {
-          const r = window.BV_ESSAI45({ iso: d.iso, km: realTotal / 1000, realTotal, total, zoom, duration, speed, est: d.est, lat: d.coords[0][1],
-            // Le zoom d'où part vraiment la prise : celui auquel `goTo` vole, pas celui d'avant
-            // l'approche — `goTo` borne le zoom entre 12,5 et 15 et n'en change pas en chemin.
-            zoomDepart: Math.min(Math.max(map.getZoom(), FLY_ZOOM_MIN), FLY_ZOOM_MAX) });
-          if (r) { if (r.zoom != null) zoom = r.zoom; if (r.duration != null) duration = r.duration; if (r.pose != null) poseMs = r.pose; }
-        }
+        const duration = ECRANS / ECRANS_PAR_S * 1000 / speed;
         const pitch = calm ? 0 : (isPhone() ? 35 : (d.est ? 40 : 45));
         // Approche : depuis là où est la caméra (fin de la veille) jusqu'au départ du jour, en douceur
         if (calm) { const b = boundsOf(d.coords.map((c) => ({ lng: c[0], lat: c[1] }))); map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 0, pitch: 0, bearing: 0 }); }
@@ -834,11 +838,17 @@ window.BVMAP = (() => {
 
         const photoAt = d.photos.map((m) => ({ m, at: nearestDist(d.coords, cum, [m.lng, m.lat]) })).sort((a, b) => a.at - b.at);
         let pi = 0, seg = 1, bearing = calm ? 0 : map.getBearing(), lastT = performance.now(), elapsed = 0;
-        // L'inclinaison, le zoom et l'orientation de la journée se prennent sur les deux
-        // premières secondes de la marche : la caméra bouge déjà, rien ne s'y voit comme un
-        // à-coup — au lieu d'être imposés d'un bloc pendant l'approche.
-        const POSE_MS = poseMs;
+        // L'inclinaison, le zoom et l'orientation de la journée se prennent au début de la
+        // marche : la caméra bouge déjà, rien ne s'y voit comme un à-coup — au lieu d'être
+        // imposés d'un bloc pendant l'approche.
+        // #45 · Cette prise dure maintenant le temps qu'il faut, au lieu de deux secondes fixes :
+        // le cadrage varie bien plus d'une journée à l'autre depuis que le zoom suit la longueur
+        // du tracé en pente. Mesuré sur l'iPhone de Sophie, le survol qu'elle accepte recule de
+        // 0,42 cran par seconde et celui qu'elle refuse de 1,22 ; on tient 0,65 — ce que donnait
+        // déjà l'ancien escalier au pire. NE PAS remettre une durée fixe ici sans remesurer les
+        // crans par seconde : c'est ce qui a fait échouer quatre versions de réglage (v10.17-20).
         const zDepart = map.getZoom(), pDepart = map.getPitch();
+        const POSE_MS = Math.max(2000, Math.min(6000, Math.abs(zoom - zDepart) / .65 * 1000));
         let pose = 0;
         await new Promise((resolve) => {
           const frame = (now) => {
