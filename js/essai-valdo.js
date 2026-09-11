@@ -13,8 +13,25 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { } },
   };
 
-  // ---------- Ce que l'œil traverse : une largeur d'écran, en mètres ----------
-  const LARGEUR_PX = () => Math.max(320, window.innerWidth || 440);
+  // ---------- Ce que l'œil traverse : une largeur de CARTE, en mètres ----------
+  // La bonne référence n'est pas la fenêtre mais la SURFACE OÙ LE SURVOL SE JOUE : la toile
+  // de la carte. `window.innerWidth` peut valoir autre chose que la largeur de l'appareil —
+  // un agrandissement du texte dans les réglages d'iOS, un agrandissement de la page dans
+  // Safari, un aperçu à l'intérieur d'une autre application. Un de ces cas a fait relever
+  // 375 sur un appareil de 440, et j'en ai tiré une conclusion fausse sur l'écran de Sophie.
+  const LARGEUR_PX = () => {
+    const c = document.querySelector("#share-map canvas") || document.querySelector("#share-map");
+    const w = c ? Math.round(c.getBoundingClientRect().width) : 0;
+    return w > 200 ? w : Math.max(320, window.innerWidth || 440);
+  };
+  // Les quatre nombres que demande Sophie, plus celui qui sert vraiment au calcul.
+  const nombres = () => {
+    const vv = window.visualViewport;
+    const c = document.querySelector("#share-map canvas");
+    return `innerWidth ${window.innerWidth} · screen.width ${screen.width} · visualViewport `
+      + `${vv ? Math.round(vv.width) : "absent"} · devicePixelRatio ${window.devicePixelRatio} `
+      + `· carte ${c ? Math.round(c.getBoundingClientRect().width) : "?"}`;
+  };
   const metresParEcran = (z, lat) => 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z) * LARGEUR_PX();
   // Le zoom qu'il faut pour qu'une journée de `m` mètres occupe exactement `n` écrans
   const zoomPour = (m, n, lat) => Math.log2(156543.03392 * Math.cos(lat * Math.PI / 180) * LARGEUR_PX() * n / m);
@@ -103,9 +120,14 @@
   el.className = "e45";
   el.innerHTML = `<style>${css}</style>
     <div class="bar">${Object.keys(REGLAGES).map((k) => `<button type="button" data-k="${k}">${k}</button>`).join("")}</div>
-    <div class="txt"><div id="e45-nom"></div><div id="e45-note" style="opacity:.8"></div><div class="mes" id="e45-mes">Lance « Suivre le parcours » pour juger.</div></div>
+    <div class="txt"><div id="e45-nom"></div><div id="e45-note" style="opacity:.8"></div><div class="mes" id="e45-mes">Lance « Suivre le parcours » pour juger.</div><div class="mes" id="e45-ecran" style="opacity:.75"></div></div>
     <button type="button" class="cop" id="e45-cop">Copier le relevé</button>`;
-  const pose = () => { document.body.appendChild(el); majBoutons(); };
+  const pose = () => {
+    document.body.appendChild(el); majBoutons();
+    const maj = () => { el.querySelector("#e45-ecran").textContent = nombres(); };
+    maj(); setTimeout(maj, 2500); setTimeout(maj, 6000);   // la carte n'a sa taille qu'après coup
+    window.addEventListener("resize", maj);
+  };
 
   function majBoutons() {
     for (const b of el.querySelectorAll("button[data-k]")) b.classList.toggle("on", b.dataset.k === choix);
@@ -129,7 +151,7 @@
     }
     if (b.id === "e45-cop") {
       const t = [`Bonvoyage — essai #45 · réglage ${choix} · ${new Date().toLocaleString("fr-FR")}`,
-                 `écran ${LARGEUR_PX()} points`]
+                 nombres()]
         .concat(releve.map((l) => `${l.jour} · ${l.km.toFixed(1)} km · zoom ${l.zoom.toFixed(1)} · ${l.ecrans.toFixed(2)} écrans · ${l.duree.toFixed(1)} s · ${l.vitesse.toFixed(3)} écran/s`))
         .join("\n");
       const fini = () => { b.textContent = "Relevé copié — colle-le dans la conversation"; setTimeout(() => { b.textContent = "Copier le relevé"; }, 4000); };

@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.29**
+- Version actuelle : **v10.30**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -110,7 +110,10 @@ l'écran avec le vrai `css/style.css`, dans un conteneur de **440 × 956 px** (l
 l'iPhone de Sophie, à fixer dans la page, pas par la fenêtre du navigateur),
 `html class="is-dark"` pour son thème sombre, puis capture. **Ne jamais déduire la taille
 de son écran des dimensions d'une capture qu'elle envoie** : elles sont redimensionnées en
-chemin. Restent hors de portée : le tactile, le clavier de
+chemin. **Ce chiffre ne se déduit ni d'une capture d'écran ni d'une mesure faite par une page
+d'essai. Si une mesure contredit cette règle, c'est la page de mesure qu'il faut suspecter,
+pas la règle. En cas de doute : demander à Sophie le nom du modèle, et rien d'autre.**
+L'appareil est un **iPhone 17 Pro Max**. Restent hors de portée : le tactile, le clavier de
 l'iPhone, le partage natif, et tout ce qui demande un vrai compte.
 
 **9. À chaque version vérifiée en ligne, rappeler à Sophie de reprendre sa copie.**
