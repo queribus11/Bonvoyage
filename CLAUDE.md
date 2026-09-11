@@ -132,10 +132,6 @@ posé sur la carte ne doit jamais en recouvrir un autre — ni la légende, ni l
 cartes. Toute commande nouvelle rejoint le rail, elle ne se pose pas dans un coin libre.
 La journée immobile (#42), elle, a trois zones : c'est un écran à part, et Sophie l'a tranché.
 
-**13. Tout état PLEIN ÉCRAN a EXACTEMENT UNE SORTIE**, visible en permanence, en haut à
-gauche, et libellée en français clair. C'est ce que protégeait vraiment la règle 11 : non
-pas « un seul endroit où poser des boutons », mais « ne jamais s'y retrouver enfermée ».
-
 **12. Une page d'essai se vérifie contre la vraie page AVANT de la faire juger au doigt.**
 Publier quatre réglages pour que Sophie choisisse au doigt est la bonne méthode — trois
 réglages devinés avaient raté avant elle. Mais une page d'essai qui n'est pas fidèle fait
@@ -146,6 +142,10 @@ plafonne à 13), dans une bande de **440 × 554**, et le passage à une journée
 vols** enchaînés. Avant de publier une page d'essai : mesurer le **zoom de départ**, la
 **taille de la carte** et la **chaîne complète des mouvements**, et charger le vrai carnet
 par le jeton d'un lien de partage plutôt que d'inventer des lieux.
+
+**13. Tout état PLEIN ÉCRAN a EXACTEMENT UNE SORTIE**, visible en permanence, en haut à
+gauche, et libellée en français clair. C'est ce que protégeait vraiment la règle 11 : non
+pas « un seul endroit où poser des boutons », mais « ne jamais s'y retrouver enfermée ».
 
 ---
 
