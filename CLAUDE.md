@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.20**
+- Version actuelle : **v10.21**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -240,6 +240,17 @@ fiche journée**, **le proche** (qui lit) et **le co-auteur** (qui écrit), **le
   gardées un mois dans `localStorage`, un appel à la fois et 1,1 s d'écart. Rien n'est
   demandé tant que Sophie n'a pas touché le bouton. `out center` et non `out center tags` :
   `tags` retirerait les coordonnées des nœuds.
+- **Le plongeon de la caméra et le balayage au sol sont COUPLÉS par la distance.** Un vol
+  MapLibre est un arc : la caméra recule pour que le sol défile lentement. Brider le recul,
+  c'est accélérer le sol ; à durée constante on ne supprime pas l'inconfort, on le déplace.
+  Mesuré sur l'iPhone de Sophie : d'une journée à la suivante, 4,9 crans de zoom en 4 s, soit
+  1,22 cran/s, quand le survol qu'elle accepte fait 3,6 crans en 8,5 s, soit 0,42. Pour
+  retrouver ce rythme il aurait fallu **douze secondes**. Quatre versions de réglage ont
+  échoué là-dessus (v10.17 à v10.20). Il n'existe que trois sorties : allonger la durée
+  (injouable), **raccourcir la distance**, ou ne pas bouger pendant la lecture. En v10.21 le
+  recadrage sur la journée entière a donc disparu du suivi par photo — on va droit à la
+  première photo du jour. **Ne pas re-régler une durée pour résoudre ce genre de problème :
+  mesurer d'abord le recul en crans par seconde.**
 - **Le suivi de lecture ne joue qu'UN mouvement à la fois.** `applyFollow` est rappelée à
   chaque image du défilement. Mesuré sur la vraie page avec un défilement de lecture
   ordinaire (v10.20) : un recadrage de journée démarrait par-dessus un autre, et un
