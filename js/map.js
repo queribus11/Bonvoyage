@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.26";
+window.BV_VERSION = "10.27";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -62,7 +62,7 @@ window.BVMAP = (() => {
         tracks:   { type: "geojson", data: empty(), lineMetrics: true },
         dots:     { type: "geojson", data: empty() },
         progress: { type: "geojson", data: empty() },
-        photos:   { type: "geojson", data: empty(), cluster: true, clusterRadius: 46, clusterMaxZoom: 17 },
+        photos:   { type: "geojson", data: empty(), ...GROUPES },
       },
       layers: [
         { id: "bg", type: "background", paint: { "background-color": dark ? "#0E1620" : "#DCEBF7" } },
@@ -92,6 +92,9 @@ window.BVMAP = (() => {
   // côtés : c'est une vraie information.
   const READ = { w: 3.2, otherW: 1.8, otherOp: .34, edge: "rgba(8,14,20,.40)", edgeW: 6 };
   const DASH = [1.6, 1.4];
+  // Le regroupement des vignettes photo, au même endroit pour tout le monde : il est coupé
+  // le temps du survol (voir `replay`) et remis à la fin.
+  const GROUPES = { cluster: true, clusterRadius: 46, clusterMaxZoom: 17 };
   // Le pointillé est exprimé en multiples de la largeur du trait : pour que le liseré
   // sombre suive exactement les tirets de la couleur, son motif est mis à l'échelle.
   const DASH_EDGE = [DASH[0] * READ.w / READ.edgeW, DASH[1] * READ.w / READ.edgeW];
@@ -716,6 +719,12 @@ window.BVMAP = (() => {
     if (isPhone() || !M.terrain || calm) { if (M.terrain) setTerrain(M, false, false); map.setProjection({ type: "mercator" }); }
     map.setPaintProperty("track-line", "line-opacity", .25); map.setPaintProperty("track-halo", "line-opacity", .1); map.setPaintProperty("track-edge", "line-opacity", .25);
     M.revealed = new Set();
+    // #37 · PENDANT LE SURVOL, AUCUN REGROUPEMENT. Une photo avalée par une grappe ne peut
+    // jamais être révélée : `reveal` cherche une pastille portant l'identifiant de la photo,
+    // or une grappe n'en porte pas — et une grappe reste cachée tout le survol. D'où des
+    // photos qui n'apparaissaient « que de temps en temps, sur certains jours » : celles qui,
+    // ce jour-là, se trouvaient assez isolées pour ne pas être regroupées.
+    try { map.getSource("photos").setClusterOptions({ cluster: false }); } catch { }
     for (const mk of M.dayMarkers) mk.getElement().classList.add("hidden");
     for (const mk of M.stopMarkers) mk.getElement().classList.add("hidden");
     for (const e of M.markers.values()) e.el.classList.add("hidden");
@@ -738,6 +747,7 @@ window.BVMAP = (() => {
       if (ctl.stopped) return; ctl.stopped = true; cancelAnimationFrame(raf);
       M.replaying = false; M.replayCtl = null; M.container.classList.remove("replaying"); M.container.parentElement && M.container.parentElement.classList.remove("replaying");
       map.getSource("progress").setData(empty()); walker.remove(); M.revealed = null;
+      try { map.getSource("photos").setClusterOptions(GROUPES); } catch { }   // les grappes reviennent
       if (M.reading) applyTrackStyle(M);
       else { map.setPaintProperty("track-line", "line-opacity", 1); map.setPaintProperty("track-halo", "line-opacity", .35); map.setPaintProperty("track-edge", "line-opacity", .9); }
       for (const mk of M.dayMarkers) mk.getElement().classList.remove("hidden");
