@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.21**
+- Version actuelle : **v10.22**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -126,10 +126,15 @@ plein écran, une visionneuse ou un formulaire est une sortie invisible, et Soph
 retrouvée enfermée dans la carte en v10.13 à cause de cela. Les autres boutons peuvent
 rester muets et se contenter d'une infobulle ; celui qui fait sortir, non.
 
-**11. La carte n'a qu'UNE SEULE zone de contrôles.**
+**11. SUR L'ÉCRAN DE LECTURE, la carte n'a qu'UNE SEULE zone de contrôles.**
 Fonds de carte, zoom, boutons d'action : tout vit dans le même rail. Rien de ce qui est
 posé sur la carte ne doit jamais en recouvrir un autre — ni la légende, ni la mention des
 cartes. Toute commande nouvelle rejoint le rail, elle ne se pose pas dans un coin libre.
+La journée immobile (#42), elle, a trois zones : c'est un écran à part, et Sophie l'a tranché.
+
+**13. Tout état PLEIN ÉCRAN a EXACTEMENT UNE SORTIE**, visible en permanence, en haut à
+gauche, et libellée en français clair. C'est ce que protégeait vraiment la règle 11 : non
+pas « un seul endroit où poser des boutons », mais « ne jamais s'y retrouver enfermée ».
 
 **12. Une page d'essai se vérifie contre la vraie page AVANT de la faire juger au doigt.**
 Publier quatre réglages pour que Sophie choisisse au doigt est la bonne méthode — trois
@@ -218,7 +223,8 @@ déposer quoi que ce soit à la main sur github.com.
 Employer ces mots, pas leur équivalent technique : **le carnet**, **la journée** et **la
 fiche journée**, **le proche** (qui lit) et **le co-auteur** (qui écrit), **le survol**
 (l'animation de la trace), **le mot du jour** (vocal), **le carnet de bord** (privé),
-**le lien nominatif**, **la vignette de partage**, **Valdo** (la mascotte).
+**le lien nominatif**, **la vignette de partage**, **Valdo** (la mascotte), **la journée
+immobile** (#42 : la vue d'ensemble d'un jour, qu'ouvre le bouton plein écran).
 
 ---
 

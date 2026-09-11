@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.21";
+window.BV_VERSION = "10.22";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -111,22 +111,110 @@ window.BVMAP = (() => {
       { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": READ.w, "line-opacity": 1 } },
     ];
   }
+  // #42 · LA JOURNÉE IMMOBILE : le tracé du jour porté plus franchement, les autres
+  // journées réduites à un repère blanc discret qui sert seulement à situer.
+  const OVER = { w: 3.6, edge: "rgba(6,12,20,.55)", edgeW: 9, otherW: 2.6, otherOp: .5 };
+  const OVER_DASH_EDGE = [DASH[0] * OVER.w / OVER.edgeW, DASH[1] * OVER.w / OVER.edgeW];
   // Sans journée en cours (vue de tout le voyage), toutes gardent leur couleur.
   function applyTrackStyle(M) {
     if (!M.reading || !M.ready) return;
-    const map = M.map, iso = M.activeDay || null;
+    const map = M.map, iso = M.activeDay || null, V = M.overview ? OVER : READ;
     const pick = (a, b) => (iso ? ["case", ["==", ["get", "day"], iso], a, b] : a);
     for (const id of ["track-line", "track-dash"]) {
       map.setPaintProperty(id, "line-color", pick(["get", "color"], "#ffffff"));
-      map.setPaintProperty(id, "line-width", pick(READ.w, READ.otherW));
-      map.setPaintProperty(id, "line-opacity", pick(1, READ.otherOp));
+      map.setPaintProperty(id, "line-width", pick(V.w, V.otherW));
+      map.setPaintProperty(id, "line-opacity", pick(1, V.otherOp));
     }
     for (const id of ["track-edge", "track-dash-edge"]) {
-      map.setPaintProperty(id, "line-width", pick(READ.edgeW, 0));
+      map.setPaintProperty(id, "line-width", pick(V.edgeW, 0));
       map.setPaintProperty(id, "line-opacity", 1);
     }
+    if (M.overview) map.setPaintProperty("track-dash-edge", "line-dasharray", OVER_DASH_EDGE);
+    else map.setPaintProperty("track-dash-edge", "line-dasharray", DASH_EDGE);
     map.setPaintProperty("track-halo", "line-opacity", 0);
   }
+  // ---------- #42 · La journée immobile ----------
+  // Un état plein écran où l'on ne voit QUE la forme d'un jour : son tracé porté, les autres
+  // journées en blanc discret pour situer, un cercle creux au départ, un cercle plein à
+  // l'arrivée, et leur nom s'il y en a un. Aucune pastille photo, aucun arrêt, aucun numéro
+  // de jour : ce qui est caché ici l'est par la classe `bv-overview` posée sur la carte.
+  function nearestStopName(data, iso, pt, maxM) {
+    let best = null, bd = Infinity;
+    for (const st of data.stops || []) {
+      if (st.day_date !== iso || st.lat == null || st.lng == null || !st.name) continue;
+      const d = dist([st.lng, st.lat], pt);
+      if (d < bd) { bd = d; best = st; }
+    }
+    return best && bd <= maxM ? best.name : null;
+  }
+  function clearEnds(M) {
+    for (const mk of M.endMarkers || []) mk.remove();
+    M.endMarkers = [];
+  }
+  // L'étiquette se pose au-dessus du point, sauf si elle sortirait par le haut : le bouton
+  // de sortie et celui du survol y vivent. Elle ne descend jamais sous la barre du bas.
+  function overviewEnds(M, iso, opts = {}) {
+    clearEnds(M);
+    const data = M.data; if (!data || !iso) return { depart: null, arrivee: null };
+    const { coords } = dayPath(data, iso);
+    if (!coords || coords.length < 2) return { depart: null, arrivee: null };
+    const liste = (M.drawOpts && M.drawOpts.dayList) || dayListOf(data, M.drawOpts || {});
+    const couleur = colorForDay(liste, iso);
+    const bas = opts.bottom == null ? 150 : opts.bottom, haut = opts.top == null ? 64 : opts.top;
+    const pose = (pt, genre, mot) => {
+      const el = document.createElement("div");
+      el.className = "bv-bout " + genre;
+      el.style.setProperty("--c", couleur);
+      M.endMarkers.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(pt).addTo(M.map));
+      const nom = nearestStopName(data, iso, pt, 300);
+      if (!nom) return null;
+      let q = { x: 0, y: 0 }; try { q = M.map.project(pt); } catch { }
+      const h = M.container.clientHeight || 956, w = M.container.clientWidth || 440;
+      // Au-dessus du point par défaut ; en dessous si elle sortirait par le haut, où vivent
+      // les deux boutons. Et accrochée par son côté quand le point est près d'un bord :
+      // centrée, l'étiquette dépasserait de l'écran et se ferait couper.
+      const dessous = q.y < haut + 76 || (genre === "depart" && q.y < h - bas - 60);
+      const cote = q.x < w * .34 ? "-left" : q.x > w * .66 ? "-right" : "";
+      const lab = document.createElement("div");
+      lab.className = "bv-bout-nom";
+      lab.innerHTML = '<span></span><b></b>';
+      lab.querySelector("span").textContent = mot;
+      lab.querySelector("b").textContent = nom;
+      M.endMarkers.push(new maplibregl.Marker({
+        element: lab, anchor: (dessous ? "top" : "bottom") + cote,
+        offset: [cote === "-left" ? 10 : cote === "-right" ? -10 : 0, dessous ? 15 : -15],
+      }).setLngLat(pt).addTo(M.map));
+      return nom;
+    };
+    const depart = pose(coords[0], "depart", "départ");
+    const arrivee = pose(coords[coords.length - 1], "arrivee", "arrivée");
+    return { depart, arrivee };
+  }
+  // Entrer ou sortir de l'état. Retourne les deux noms trouvés, pour la barre du bas.
+  function setOverview(M, on, iso, opts = {}) {
+    M.overview = !!on;
+    M.container.classList.toggle("bv-overview", !!on);
+    if (on) { M.activeDay = iso || null; applyTrackStyle(M); syncPhotoMarkers(M); return overviewEnds(M, iso, opts); }
+    clearEnds(M);
+    applyTrackStyle(M);
+    syncPhotoMarkers(M);
+    return { depart: null, arrivee: null };
+  }
+  // Le cadrage d'une journée dans cet état, au tempo que Sophie a validé au doigt pour les
+  // photos (2 s + 2 s par largeur d'écran, plafond 5,5 s), avec départ et arrivée adoucis.
+  function flyOverview(M, bounds, opts = {}) {
+    if (!bounds) return 0;
+    const lng = (bounds[0][0] + bounds[1][0]) / 2, lat = (bounds[0][1] + bounds[1][1]) / 2;
+    const ms = reducedMotion() ? 0
+      : Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_SCREEN_MS * screensAway(M, lat, lng));
+    fitBounds(M, bounds, {
+      ...opts, duration: ms, curve: ms ? FLY_CURVE : undefined,
+      easing: ms ? ((t) => (t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2)) : undefined,
+    });
+    if (M.overview && M.activeDay) setTimeout(() => overviewEnds(M, M.activeDay, opts), ms + 40);
+    return ms;
+  }
+
   // La journée qu'on est en train de lire : c'est la seule à garder sa couleur.
   function setActiveDay(M, iso) {
     iso = iso || null;
@@ -277,6 +365,17 @@ window.BVMAP = (() => {
     syncPhotoMarkers(M);
     return { bounds: computeBounds(data, filter), dayList };
   }
+  // #42 · Le chemin d'une journée : la trace relevée si elle existe, sinon les tronçons
+  // estimés entre les photos. `est` dit lequel des deux — c'est ce qui décide des pointillés.
+  // (Le survol construit la même chose, il s'en sert aussi : une seule vérité.)
+  function dayPath(data, iso) {
+    const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2)
+      .slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
+    let coords = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null).map((p) => [p.lng, p.lat]));
+    if (coords.length >= 2) return { coords, est: false, legs: null, tracks: trs };
+    const legs = estimatedLegs(data, iso), e = legs ? pathFromLegs(legs) : null;
+    return e ? { coords: e, est: true, legs, tracks: trs } : { coords, est: false, legs, tracks: trs };
+  }
   // Photos géolocalisées d'une journée, dans l'ordre de l'heure
   function dayPhotosSorted(media, iso) {
     return (media || []).filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
@@ -409,6 +508,9 @@ window.BVMAP = (() => {
   // Vignettes photos (HTML) et grappes, calées sur la source « photos » regroupée par MapLibre
   function syncPhotoMarkers(M) {
     if (!M.ready || !M.mediaById) return;
+    // #42 · Dans la journée immobile, aucune pastille photo : on les retire pour de bon
+    // plutôt que de les cacher, sinon elles se repositionnent à chaque image pour rien.
+    if (M.overview) { for (const e of M.markers.values()) e.marker.remove(); M.markers.clear(); return; }
     const map = M.map, src = map.getSource("photos"); if (!src) return;
     let feats = [];
     try { feats = map.querySourceFeatures("photos"); } catch { return; }
@@ -452,11 +554,14 @@ window.BVMAP = (() => {
   // ---------- Caméra et utilitaires ----------
   function fitBounds(M, bounds, opts = {}) {
     if (!bounds) return;
+    // #42 · Les marges peuvent différer d'un côté à l'autre : la barre du bas de la journée
+    // immobile ne doit jamais recouvrir le tracé.
     const pad = opts.padding == null ? 48 : opts.padding;
     const same = bounds[0][0] === bounds[1][0] && bounds[0][1] === bounds[1][1];
     if (same) { M.map[opts.animate === false ? "jumpTo" : "easeTo"]({ center: bounds[0], zoom: Math.min(opts.maxZoom || 15, 14), duration: opts.duration ?? 800 }); return; }
     const o = { padding: pad, maxZoom: opts.maxZoom || 15, duration: opts.animate === false ? 0 : (opts.duration ?? 900), pitch: opts.keepPitch ? M.map.getPitch() : (M.terrain ? Math.min(M.map.getPitch(), 45) : 0), bearing: opts.keepPitch ? M.map.getBearing() : 0 };
     if (opts.curve) o.curve = opts.curve;   // jamais `undefined` : MapLibre en ferait un calcul impossible
+    if (opts.easing) o.easing = opts.easing;
     M.map.fitBounds(bounds, o);
   }
   function flyToBounds(M, bounds, opts = {}) { fitBounds(M, bounds, { ...opts, duration: opts.duration ?? 1400 }); }
@@ -588,12 +693,12 @@ window.BVMAP = (() => {
 
     // Journées à jouer : trace réelle (GPS, GPX, itinéraire enregistré) sinon tronçons estimés entre les photos
     const days = dayList.filter((iso) => !options.only || iso === options.only).map((iso) => {
-      const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2).slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
-      let coords = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null).map((p) => [p.lng, p.lat]));
+      const chemin = dayPath(data, iso), trs = chemin.tracks;
+      let coords = chemin.coords;
       const photos = (data.media || []).filter((m) => m.day_date === iso && m.lat != null);
-      let est = false, modes = null, legs = null;
-      if (coords.length < 2) { legs = estimatedLegs(data, iso); const e = legs ? pathFromLegs(legs) : null; if (e) { coords = e; modes = e.modes; est = true; } }
-      else {
+      let est = chemin.est, modes = null, legs = chemin.legs;
+      if (est) { modes = coords.modes; }
+      else if (coords.length >= 2) {
         const dayMode = dayTransport(data, iso);
         const ph = dayPhotosSorted(data.media, iso).filter((m) => m.transport && MODES[m.transport]);
         modes = new Array(coords.length).fill(dayMode);
@@ -740,5 +845,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
