@@ -18,22 +18,27 @@
   const metresParEcran = (z, lat) => 156543.03392 * Math.cos(lat * rad) / Math.pow(2, z) * largeur();
 
   const jours = [];
-  let cur = null, prev = null, prevT = 0;
+  let cur = null, prev = null, prevT = 0, coupe = true;
 
   function tic() {
     const M = window.BVMAP && BVMAP.maps && BVMAP.maps[0];
     const w = document.querySelector(".bv-walker");
-    if (!M || !M.replaying || !w || !w.classList.contains("walking")) { prev = null; return; }
+    // Valdo ne « marche » que pendant la traversée d'une journée : l'arrêt de la marche est
+    // la SEULE séparation fiable entre deux journées. Le texte du cartouche ne l'est pas —
+    // plusieurs journées de suite portent le même lieu (« Highland ») et se retrouvaient
+    // comptées comme une seule (mesuré chez Sophie, 12/09 : 2 lignes au lieu de 6).
+    if (!M || !M.replaying || !w || !w.classList.contains("walking")) { prev = null; coupe = true; return; }
     const nom = (document.querySelector("#replay-caption b") || {}).textContent || "?";
     const meta = (document.querySelector("#replay-caption .meta") || {}).textContent || "";
     if (largeur() < 50) { prev = null; return; }   // pas de carte mesurable : on ne compte rien
     const r = w.getBoundingClientRect();
     let pt; try { pt = M.map.unproject([r.left + r.width / 2, r.bottom]); } catch { return; }
     const p = { lat: pt.lat, lng: pt.lng }, z = M.map.getZoom(), t = performance.now();
-    if (!cur || cur.nom !== nom) {
+    if (coupe || !cur) {
+      coupe = false;
       // « km » n'est écrit dans le cartouche que pour une journée à trace relevée :
       // son absence dit que le chemin est estimé d'après les photos.
-      cur = { nom, trace: /km/.test(meta), ecrans: 0, metres: 0, t0: t, t1: t,
+      cur = { n: jours.length + 1, nom, trace: /km/.test(meta), ecrans: 0, metres: 0, t0: t, t1: t,
               z0: z, z1: z, pics: [], fenetre: [] };
       jours.push(cur); prev = null;
     }
@@ -81,7 +86,7 @@
     const v = el.querySelector("#m45-vu"); if (!v) return;
     if (!cur) { v.textContent = `carte ${Math.round(largeur())} points · v${window.BV_VERSION || "?"}`; return; }
     const s = (cur.t1 - cur.t0) / 1000;
-    v.textContent = `${cur.nom} · ${cur.ecrans.toFixed(2)} écrans en ${s.toFixed(1)} s · ${(s ? cur.ecrans / s : 0).toFixed(3)} écran/s`;
+    v.textContent = `${cur.n}. ${cur.nom} · ${cur.ecrans.toFixed(2)} écrans en ${s.toFixed(1)} s · ${(s ? cur.ecrans / s : 0).toFixed(3)} écran/s`;
   }, 300);
 
   const lignes = () => {
@@ -94,7 +99,7 @@
       const debut = j.pics.filter((x) => x.t < 2000).map((x) => x.v);
       const max = j.pics.length ? Math.max(...j.pics.map((x) => x.v)) : 0;
       const tMax = j.pics.length ? j.pics[j.pics.map((x) => x.v).indexOf(max)].t / 1000 : 0;
-      out.push(`${j.nom} · ${(j.metres / 1000).toFixed(1)} km · ${j.trace ? "trace relevée" : "chemin estimé"}`
+      out.push(`${j.n}. ${j.nom} · ${(j.metres / 1000).toFixed(1)} km · ${j.trace ? "trace relevée" : "chemin estimé"}`
         + ` · zoom ${j.z0.toFixed(1)} → ${j.z1.toFixed(1)}`
         + ` · ${j.ecrans.toFixed(2)} écrans en ${s.toFixed(1)} s`
         + ` · moyenne ${moy.toFixed(3)} écran/s`

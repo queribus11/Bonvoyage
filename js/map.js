@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.32";
+window.BV_VERSION = "10.33";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -807,8 +807,13 @@ window.BVMAP = (() => {
         const ECRANS = 3.5, ECRANS_PAR_S = .26;
         const largeurPx = Math.max(200, map.getContainer().clientWidth || 440);
         const lat0 = d.coords[0][1];
+        // Pas de recul supplémentaire pour un chemin estimé : l'ancien escalier en ajoutait
+        // 1,4 cran, ce qui montrait ces journées 2,6 fois plus loin — elles ne traversaient
+        // alors que 1,33 écran au lieu de 3,5, donc allaient 2,6 fois moins vite que les
+        // autres. Mesuré chez Sophie : toutes ses journées sont dans ce cas. L'égalité des
+        // vitesses passe avant le cadrage plus large des pointillés.
         let zoom = realTotal > 0
-          ? Math.log2(156543.03392 * Math.cos(lat0 * Math.PI / 180) * largeurPx * ECRANS / realTotal) - (d.est ? 1.4 : 0)
+          ? Math.log2(156543.03392 * Math.cos(lat0 * Math.PI / 180) * largeurPx * ECRANS / realTotal)
           : 14;
         zoom = Math.min(17, Math.max(3, zoom));
         const speed = speedOf();
@@ -832,6 +837,16 @@ window.BVMAP = (() => {
           // ni plus tard. Si un jour le vol du récit change, celui du survol change avec lui.
           goTo(M, d.coords[0][1], d.coords[0][0]);
           await moveEnd();
+          // #45 · LE RECUL SE FAIT AVANT LE PREMIER PAS, CARTE IMMOBILE.
+          // Il se prenait pendant la marche : tant qu'il n'était pas fini, le sol défilait à
+          // une échelle qui n'était pas la sienne. Mesuré sur l'iPhone de Sophie (v10.32) :
+          // une pointe à 1,405 écran par seconde au démarrage d'une longue journée, contre
+          // 0,26 choisi — cinq fois trop. La caméra recule donc seule, sans avancer, à
+          // 0,65 cran par seconde (le rythme qu'elle accepte), puis Valdo part à la bonne
+          // vitesse dès le premier pas. L'arc entre journées, lui, n'est pas touché.
+          const zAvant = map.getZoom();
+          const reculMs = Math.min(6000, Math.abs(zoom - zAvant) / .65 * 1000);
+          if (reculMs > 80) { map.easeTo({ zoom, pitch, duration: reculMs, essential: true }); await moveEnd(); }
         }
         if (ctl.stopped) return;
         walkTo(d.coords[0], 0, d.modes ? d.modes[1] : null); wEl.classList.add("walking");
@@ -841,14 +856,13 @@ window.BVMAP = (() => {
         // L'inclinaison, le zoom et l'orientation de la journée se prennent au début de la
         // marche : la caméra bouge déjà, rien ne s'y voit comme un à-coup — au lieu d'être
         // imposés d'un bloc pendant l'approche.
-        // #45 · Cette prise dure maintenant le temps qu'il faut, au lieu de deux secondes fixes :
-        // le cadrage varie bien plus d'une journée à l'autre depuis que le zoom suit la longueur
-        // du tracé en pente. Mesuré sur l'iPhone de Sophie, le survol qu'elle accepte recule de
-        // 0,42 cran par seconde et celui qu'elle refuse de 1,22 ; on tient 0,65 — ce que donnait
-        // déjà l'ancien escalier au pire. NE PAS remettre une durée fixe ici sans remesurer les
-        // crans par seconde : c'est ce qui a fait échouer quatre versions de réglage (v10.17-20).
+        // #45 · Le zoom et l'inclinaison sont désormais pris AVANT le premier pas (voir le
+        // recul ci-dessus) : `zDepart` vaut donc déjà `zoom` et cette reprise ne fait plus
+        // rien pour eux. Elle reste là comme filet, au cas où le recul aurait été interrompu.
+        // Ne pas y remettre la prise du zoom : c'est ce qui faisait démarrer les longues
+        // journées cinq fois trop vite (mesuré chez Sophie, v10.32 : pointe à 1,405 écran/s).
         const zDepart = map.getZoom(), pDepart = map.getPitch();
-        const POSE_MS = Math.max(2000, Math.min(6000, Math.abs(zoom - zDepart) / .65 * 1000));
+        const POSE_MS = Math.max(1200, Math.min(6000, Math.abs(zoom - zDepart) / .65 * 1000));
         let pose = 0;
         await new Promise((resolve) => {
           const frame = (now) => {
