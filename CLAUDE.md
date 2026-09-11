@@ -12,7 +12,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.22**
+- Version actuelle : **v10.28**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -143,9 +143,18 @@ vols** enchaînés. Avant de publier une page d'essai : mesurer le **zoom de dé
 **taille de la carte** et la **chaîne complète des mouvements**, et charger le vrai carnet
 par le jeton d'un lien de partage plutôt que d'inventer des lieux.
 
-**13. Tout état PLEIN ÉCRAN a EXACTEMENT UNE SORTIE**, visible en permanence, en haut à
-gauche, et libellée en français clair. C'est ce que protégeait vraiment la règle 11 : non
-pas « un seul endroit où poser des boutons », mais « ne jamais s'y retrouver enfermée ».
+**13. Tout état PLEIN ÉCRAN a EXACTEMENT UNE SORTIE, ET ELLE COÛTE UNE SEULE PRESSION.**
+Visible en permanence, en haut à gauche, libellée en français clair. C'est ce que protégeait
+vraiment la règle 11 : non pas « un seul endroit où poser des boutons », mais « ne jamais s'y
+retrouver enfermée ».
+**Une seule pression, quel que soit le nombre d'états empilés** (#46) : plein écran, journée
+immobile, survol, carte-bilan se sont accumulés, chacun avec sa propre sortie portant le
+*même mot* — « Retour au récit ». Sophie ne voyait qu'un bouton et croyait être ramenée du
+premier coup ; il en fallait deux. Aucun de ces états n'est « celui du dessous » : il y a le
+récit, ou il n'y a pas le récit. Tous les boutons qui portent ce mot appellent la même
+fonction, `retourAuRecit` (`js/share.js`), qui défait tout d'un coup et repose la lecture
+exactement où elle était — journée, photo, position de carte, place dans la page. Un état
+nouveau ne s'ajoute pas avec sa propre sortie : il se défait dans celle-là.
 
 ---
 

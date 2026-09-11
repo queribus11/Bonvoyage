@@ -191,15 +191,20 @@
     // MapLibre et leur message « deux doigts pour bouger la carte » ne servent plus.
     map = BVMAP.create("share-map", { globe: true, terrain: false, controlsPos: "top-right", reading: true });
     BVMAP.setPageGestures(map, true);
-    const setBig = (big) => {
-      const w = $("#map-wrap"); w.classList.toggle("big", big);
-      // #37 · Une infobulle ne s'affiche JAMAIS sur un écran tactile : le bouton qui fait
-      // SORTIR porte donc un mot lisible. Les deux autres peuvent rester muets.
-      const eb = $("#map-expand");
+    // #37 · Une infobulle ne s'affiche JAMAIS sur un écran tactile : le bouton qui fait
+    // SORTIR porte donc un mot lisible. Les deux autres peuvent rester muets.
+    // #46 · À part, parce que le retour au récit doit pouvoir remettre ce libellé sans
+    // déclencher le recadrage différé de `setBig`, qui emmènerait la carte sur tout le voyage.
+    function libelleExpand(big) {
+      const eb = $("#map-expand"); if (!eb) return;
       eb.innerHTML = big ? `${ic("close")}<span class="lbl">Retour au récit</span>` : ic("expand");
       eb.classList.toggle("wide", big);
-      eb.title = big ? "Réduire la carte" : "Plein écran";
-      eb.setAttribute("aria-label", big ? "Réduire la carte" : "Afficher la carte en plein écran");
+      eb.title = big ? "Retour au récit" : "Plein écran";
+      eb.setAttribute("aria-label", big ? "Retour au récit" : "Afficher la carte en plein écran");
+    }
+    const setBig = (big) => {
+      const w = $("#map-wrap"); w.classList.toggle("big", big);
+      libelleExpand(big);
       BVMAP.setPageGestures(map, !big);
       document.body.classList.toggle("map-big", big);
       // #37 · Ce recadrage sur TOUT le voyage ne doit jamais partir quand un survol s'arme :
@@ -302,28 +307,55 @@
       jourShow(iso);
     }
 
-    // Sortir : on revient exactement où on lisait — même journée, même photo, même position.
-    function jourClose() {
-      if (!overview) return;
+    // #46 · LE RETOUR AU RÉCIT, UNE FOIS POUR TOUTES. Défait tous les états de carte d'un
+    // coup — survol, journée immobile, plein écran — et repose exactement là où on lisait :
+    // même journée, même photo, même position de carte, même endroit dans la page.
+    // Aucun de ces états n'est « celui du dessous » : il n'y a que le récit, ou pas le récit.
+    function reposerLecture() {
       overview = false; overviewDay = null;
       BVMAP.setOverview(map, false);
       $("#jour-ui").hidden = true;
       const vide = $("#jour-vide"); if (vide) { vide.hidden = true; vide.textContent = ""; }
       $("#map-wrap").classList.remove("big", "jour");
       document.body.classList.remove("map-big");
+      libelleExpand(false);                // le bouton redevient « Plein écran »
       BVMAP.setPageGestures(map, true);
       BVMAP.resize(map);
       if (memo) {
         followDay = memo.day; followShot = memo.shot;
         if (memo.filtre !== dayFilter) { dayFilter = memo.filtre; draw(false); }   // le filtre revient tel qu'il était
         map.map.jumpTo({ center: memo.cam.center, zoom: memo.cam.zoom, pitch: memo.cam.pitch, bearing: memo.cam.bearing });
-        window.scrollTo(0, memo.scroll);
+        // #46 · La page vient de retrouver sa hauteur (le plein écran la bloquait) et un
+        // défilement doux a pu être lancé au départ du survol : on repose la place, puis on
+        // la repose encore une fois la mise en page refaite. Sans cela, le retour depuis
+        // « Suivre le parcours » déposait Sophie en haut de la page, mesuré 2200 → 175.
+        const place = memo.scroll;
+        window.scrollTo(0, place);
+        requestAnimationFrame(() => { window.scrollTo(0, place); setTimeout(() => window.scrollTo(0, place), 60); });
         if (followShot) BVMAP.focusMedia(map, followShot);
         refreshCaption(followShot ? mediaById.get(followShot) : null);
         busyUntil = Date.now() + 400;      // pas de vol de rattrapage dans la seconde du retour
       }
       memo = null;
     }
+
+    // #46 · UNE SEULE PRESSION, quel que soit l'empilement (règle 13 poussée d'un cran).
+    // Avant : « Retour au récit » du survol rendait la journée immobile — qui porte le même
+    // mot — et il fallait appuyer une deuxième fois ; stopper le survol complet ouvrait la
+    // carte-bilan, avec un troisième bouton du même nom. Désormais les quatre boutons qui
+    // portent ce mot appellent tous ceci, et ceci ramène au récit, point.
+    function retourAuRecit() {
+      sortieDemandee = true;
+      replayWanted = false;
+      replayArming = false;                              // un survol encore à l'arrêt ne partira pas
+      $("#replay-overlay").hidden = true;
+      try { if (map.replaying && map.stopReplay) map.stopReplay(); } catch { }   // appelle onDone tout de suite
+      try { map.map.stop(); } catch { }                  // et la caméra s'arrête là où elle est
+      const bilan = $(".recap-back"); if (bilan) bilan.remove();
+      sortieDemandee = false;
+      reposerLecture();
+    }
+
 
     // Le survol se joue sans l'habillage de la journée immobile, puis on y revient.
     const jourPause = () => { overview = false; BVMAP.setOverview(map, false); $("#jour-ui").hidden = true; $("#map-wrap").classList.remove("jour"); };
@@ -335,8 +367,10 @@
       jourShow(days[i], true);      // d'un coup : aucun mouvement de caméra entre les jours
     };
 
-    $("#map-expand").onclick = jourOpen;
-    $("#jour-sortie").onclick = jourClose;
+    // #46 · Ce bouton porte deux mots selon l'état : « Plein écran » ouvre la journée
+    // immobile, « Retour au récit » doit RAMENER AU RÉCIT — il appelait encore jourOpen.
+    $("#map-expand").onclick = () => { if ($("#map-wrap").classList.contains("big")) retourAuRecit(); else jourOpen(); };
+    $("#jour-sortie").onclick = retourAuRecit;
     $("#jour-prec").onclick = () => jourGo(-1);
     $("#jour-suiv").onclick = () => jourGo(1);
     $("#jour-play").onclick = () => startReplay(overviewDay);
@@ -345,6 +379,13 @@
       if (!drawn || map.replaying || replayArming) return;
       const fromJour = overview;
       const filtreAvant = dayFilter;      // un survol d'une seule journée ne le laisse plus posé
+      // #46 · Un survol lancé depuis le récit (et non depuis la journée immobile) doit lui
+      // aussi pouvoir reposer Sophie là où elle lisait : on note la place avant de partir.
+      if (!fromJour) {
+        const c0 = map.map.getCenter();
+        memo = { scroll: window.scrollY, day: followDay, shot: followShot, filtre: dayFilter,
+                 cam: { center: [c0.lng, c0.lat], zoom: map.map.getZoom(), pitch: map.map.getPitch(), bearing: map.map.getBearing() } };
+      }
       replayArming = true;
       if (fromJour) jourPause();
       if (dayFilter && !only) { dayFilter = null; draw(false); refreshCaption(); }
@@ -353,6 +394,7 @@
       if (isMobile()) setBig(true);
       $("#map-wrap").scrollIntoView({ behavior: "smooth", block: "center" });
       const go = () => {
+        if (!replayArming) return;   // #46 · « Retour au récit » pressé pendant l'armement : on ne part pas
         replayArming = false;
         BVMAP.setOverview(map, false);    // ré-affirmé : le survol part toujours d'un état propre
         // …et d'une carte IMMOBILE : un vol de lecture encore en cours était coupé par
@@ -377,7 +419,12 @@
           onDone: () => {
             $("#replay-overlay").hidden = true;
             if (dayFilter !== filtreAvant) { dayFilter = filtreAvant; draw(false); refreshCaption(); }
+            // #46 · Sortie demandée : on ne repose RIEN par-dessus. `retourAuRecit` finit le travail.
+            if (sortieDemandee) return;
+            // Fin naturelle : le survol d'une journée rend la journée immobile d'où il est parti,
+            // et le survol complet ouvre la carte-bilan. Inchangé.
             if (fromJour) { jourResume(); return; }
+            memo = null;                                // la place notée au départ ne sert plus
             if (isMobile() && !wasBig) setBig(false);   // on ne laisse personne enfermé dans la carte plein écran
             if (!only) showRecap();
           },
@@ -386,7 +433,7 @@
       if (introDone) setTimeout(go, isMobile() ? 400 : 700);
       else { replayArming = false; replayWanted = only || true; }   // reporté : le verrou se relâche
     };
-    $("#replay-stop").onclick = () => { if (map.stopReplay) map.stopReplay(); };
+    $("#replay-stop").onclick = retourAuRecit;
     $("#replay-pause").onclick = () => { const c = map.replayCtl; if (!c) return; c.paused ? c.resume() : c.pause(); };
     $("#replay-next").onclick = () => { const c = map.replayCtl; if (c) c.next(); };
     // Carte-bilan à la fin du survol complet : chiffres du voyage et invitation à laisser un mot
@@ -398,7 +445,8 @@
         <div class="actions" style="justify-content:center;flex-wrap:wrap">${D.trip.allow_comments && D.days.length ? `<button class="btn primary" id="recap-comment">${ic("message", "sm")} Laisser un mot</button>` : ""}<button class="btn" id="recap-close">Retour au récit</button></div></div>`;
       $("#modal-host").appendChild(back);
       const close = () => back.remove();
-      $("#recap-close", back).onclick = close; back.addEventListener("click", (e) => { if (e.target === back) close(); });
+      $("#recap-close", back).onclick = () => { close(); retourAuRecit(); };
+      back.addEventListener("click", (e) => { if (e.target === back) close(); });
       const rc = $("#recap-comment", back); if (rc) rc.onclick = () => { close(); const last = D.days[D.days.length - 1]; commentForm({ dayId: last.id }); };
     };
 
@@ -594,6 +642,10 @@
   let overview = false;
   // #37 · Vrai entre l'appui sur ▶ et le vrai départ du survol (400 ms plus tard).
   let replayArming = false;
+  // #46 · Vrai le temps d'une sortie demandée par « Retour au récit ». La fin du survol le
+  // lit pour ne PAS remettre la journée immobile ni la carte-bilan : sinon le premier appui
+  // déposait Sophie dans l'état du dessous, qui porte le même mot, et il en fallait un second.
+  let sortieDemandee = false;
   // #37 · UN SEUL MOUVEMENT À LA FOIS. `applyFollow` est rappelée à CHAQUE IMAGE du
   // défilement. Ce repère dit jusqu'à quand la carte est occupée — il est posé par LES DEUX
   // mouvements du suivi : le recadrage d'une journée et le vol vers une photo.
