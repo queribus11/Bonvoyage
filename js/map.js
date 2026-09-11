@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.24";
+window.BV_VERSION = "10.25";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -591,14 +591,16 @@ window.BVMAP = (() => {
   // Ne pas re-régler ces cinq nombres sans le lui redemander au doigt.
   const FLY_ZOOM_MAX = 15, FLY_ZOOM_MIN = 12.5, FLY_CURVE = 1.3;
   const FLY_BASE_MS = 2000, FLY_PER_SCREEN_MS = 2000, FLY_MAX_MS = 5500;
-  // #37 · Passer d'une JOURNÉE à l'autre PENDANT LE SURVOL — réglage « A », celui que Sophie
-  // a gardé au doigt (v10.19) après l'avoir comparé à trois autres sur une page d'essai.
-  // Là, la caméra part de haut et l'approche a de la place : la loi « tant de secondes par
-  // largeur d'écran » y garde du sens. Ne pas re-régler ces quatre nombres sans le lui
-  // redemander au doigt.
-  const DAY_BASE_MS = 3000, DAY_PER_SCREEN_MS = 3000, DAY_MAX_MS = 8500, DAY_CURVE = 1.5;
+  // #37 · Passer d'une JOURNÉE à l'autre PENDANT LE SURVOL.
+  // Demande explicite de Sophie (v10.25) : « je veux exactement la même chose que le passage
+  // de la journée 3 à 4 dans le récit ». Le survol emploie donc le tempo du récit — celui du
+  // vol vers une photo, qu'elle a validé au doigt : FLY_BASE_MS, FLY_PER_SCREEN_MS,
+  // FLY_MAX_MS et FLY_CURVE, plus bas. Les quatre nombres propres au survol (3 s de base,
+  // 3 s par largeur d'écran, plafond 8,5 s, courbe 1,5 — le réglage « A » de la v10.19) ne
+  // servent plus : ils sont retirés plutôt que laissés à traîner.
+  // Ne pas ré-inventer un tempo pour le survol : c'est celui du récit, un seul et même.
   function dayFlyMs(M, lat, lng) {
-    return Math.min(DAY_MAX_MS, DAY_BASE_MS + DAY_PER_SCREEN_MS * screensAway(M, lat, lng));
+    return Math.min(FLY_MAX_MS, FLY_BASE_MS + FLY_PER_SCREEN_MS * screensAway(M, lat, lng));
   }
   // #37 · Passer d'une JOURNÉE à l'autre EN LISANT — réglage « B », choisi au doigt par
   // Sophie (v10.19). Un seul vol, plus court, qui prend beaucoup moins d'altitude.
@@ -801,7 +803,7 @@ window.BVMAP = (() => {
           const target = { center: d.coords[0], zoom, pitch, bearing: bearing0 };
           // #37 · Toujours un vol, jamais un glissement à plat : la caméra prend de l'altitude,
           // traverse et redescend, au même tempo que le recadrage de la lecture.
-          map.flyTo({ ...target, duration: dayFlyMs(M, d.coords[0][1], d.coords[0][0]), curve: DAY_CURVE, easing: ease });
+          map.flyTo({ ...target, duration: dayFlyMs(M, d.coords[0][1], d.coords[0][0]), curve: FLY_CURVE, easing: ease });
           await moveEnd();
         }
         if (ctl.stopped) return;
