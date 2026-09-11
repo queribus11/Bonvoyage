@@ -894,3 +894,63 @@ body.lb-open { overflow: hidden; }
    « Envoyer » est déjà au bas de son formulaire, dans un tiroir qui défile. */
 .bv-lb-sheet .actions.sticky { position: static; background: none; border: 0; padding: 6px 0 0; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
 @media (min-width: 640px) { .bv-lb-sheet { max-width: 640px; margin: 0 auto; } }
+
+/* ============================================================
+   #42 · La journée immobile — le bouton plein écran ouvre la vue d'ensemble
+   Un état où l'on ne voit QUE la forme d'un jour : le tracé du jour porté, les
+   autres journées en blanc discret pour situer, un cercle creux au départ, un
+   cercle plein à l'arrivée. Aucune pastille photo, aucun arrêt, aucun récit.
+   ============================================================ */
+.share-map-wrap.jour .map-caption,
+.share-map-wrap.jour .map-rail,
+.share-map-wrap.jour .bv-layers,
+.share-map-wrap.jour .maplibregl-ctrl-group { display: none !important; }
+.bv-overview .bv-photo, .bv-overview .bv-stop, .bv-overview .bv-day { display: none !important; }
+
+.jour-ui { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
+.jour-ui > * { pointer-events: auto; }
+
+/* La sortie : en haut à gauche, toujours visible, et elle porte un mot lisible. */
+.jour-sortie { position: absolute; top: calc(10px + var(--safe-t)); left: 14px; height: 44px;
+  display: inline-flex; align-items: center; gap: 2px; padding: 0 14px 0 8px;
+  background: rgba(16,22,30,.60); border: 1px solid rgba(255,255,255,.20); border-radius: 14px;
+  color: #fff; font: 700 14px/1 var(--font-body);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.jour-sortie svg.i { width: 20px; height: 20px; stroke-width: 2.1; }
+.jour-play { position: absolute; top: calc(10px + var(--safe-t)); right: 14px;
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(16,22,30,.60); border: 1px solid rgba(255,255,255,.20); color: #fff;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.jour-play svg.i { width: 19px; height: 19px; }
+
+.jour-barre { position: absolute; left: 14px; right: 14px; bottom: 26px; border-radius: 20px;
+  padding: 12px 10px 24px; color: #fff;
+  background: rgba(14,20,28,.74); border: 1px solid rgba(255,255,255,.13);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.jour-ligne { display: flex; align-items: center; gap: 8px; }
+.jour-nav { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.20); color: #fff; }
+.jour-nav svg.i { width: 20px; height: 20px; stroke-width: 2.1; }
+.jour-nav[disabled] { opacity: .32; }
+.jour-info { flex: 1; min-width: 0; text-align: center; }
+.jour-info .l1 { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.jour-info .l1 b { font: 700 15px/1.25 var(--font-body); }
+.jour-info .num { flex: 0 0 21px; width: 21px; height: 21px; border-radius: 50%; color: #fff;
+  display: grid; place-items: center; font: 800 12px/1 var(--font-body); font-style: normal; }
+.jour-info .l2 { font: 400 14px/1.3 var(--font-body); margin-top: 3px; }
+.jour-info .l3 { font: 400 12.5px/1.3 var(--font-body); color: rgba(255,255,255,.58); margin-top: 2px; }
+.jour-points { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 10px; }
+.jour-points i { width: 5px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.28); }
+.jour-points i.on { width: 16px; }
+
+/* Les deux bouts du tracé, et leur nom quand un arrêt en donne un. */
+.bv-bout { width: 17px; height: 17px; border-radius: 50%; box-sizing: border-box; pointer-events: none; }
+.bv-bout.depart { background: rgba(6,12,20,.85); border: 3.4px solid var(--c); }
+.bv-bout.arrivee { background: var(--c); border: 3px solid rgba(6,12,20,.55); }
+.bv-bout-nom { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap;
+  font: 12.5px/1.25 var(--font-body); color: #fff; pointer-events: none;
+  background: rgba(16,22,30,.72); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px; padding: 4px 10px;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.bv-bout-nom span { color: rgba(255,255,255,.6); }
+.bv-bout-nom b { font-weight: 700; }

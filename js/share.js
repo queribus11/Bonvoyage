@@ -154,6 +154,18 @@
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
         <div class="map-caption" id="map-caption" hidden></div>
         <div class="map-rail"><button type="button" class="map-btn" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand")}</button>${canReplay ? `<button type="button" class="map-btn" id="map-replay" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>` : ""}<button type="button" class="map-btn" id="map-layers" title="Fonds de carte" aria-label="Choisir le fond de carte" aria-expanded="false">${ic("layers")}</button></div>
+        <div class="jour-ui" id="jour-ui" hidden>
+          <button type="button" class="jour-sortie" id="jour-sortie">${ic("chevron-left")}<span>Retour au récit</span></button>
+          <button type="button" class="jour-play" id="jour-play" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>
+          <div class="jour-barre">
+            <div class="jour-ligne">
+              <button type="button" class="jour-nav" id="jour-prec" aria-label="Journée précédente">${ic("chevron-left")}</button>
+              <div class="jour-info" id="jour-info"></div>
+              <button type="button" class="jour-nav" id="jour-suiv" aria-label="Journée suivante">${ic("chevron-right")}</button>
+            </div>
+            <div class="jour-points" id="jour-points"></div>
+          </div>
+        </div>
         <div class="replay-overlay" id="replay-overlay" hidden><div class="caption" id="replay-caption"></div><div class="replay-ctls"><button class="btn sm" id="replay-pause" title="Pause">${ic("pause", "sm")}</button><button class="btn sm" id="replay-next" title="Journée suivante">${ic("chevron-right", "sm")} Suivant</button><button class="btn sm" id="replay-stop">${ic("stop", "sm")} Retour au récit</button></div></div></div>
       <main class="story">
         ${newsLine}
@@ -191,9 +203,108 @@
       document.body.classList.toggle("map-big", big);
       setTimeout(() => { BVMAP.resize(map); if (!map.replaying && introDone && drawn && drawn.bounds) BVMAP.fitBounds(map, drawn.bounds, { padding: 40, maxZoom: 14 }); }, 250);
     };
-    $("#map-expand").onclick = () => setBig(!$("#map-wrap").classList.contains("big"));
+    // ---------- #42 · La journée immobile ----------
+    // Le bouton plein écran n'agrandit plus la carte telle quelle : il ouvre un état où l'on
+    // ne voit QUE la forme d'un jour. Rien n'y bouge tout seul — c'est tout son intérêt.
+    // Les marges du cadrage diffèrent d'un côté à l'autre pour que la barre du bas ne
+    // recouvre jamais le tracé.
+    const JOUR_PAD = { top: 64, left: 48, right: 48, bottom: 150 };
+    let overviewDay = null, memo = null;
+
+    const dayBounds = (iso) => {
+      const trs = D.tracks.filter((t) => t.day_date === iso);
+      const ms = D.media.filter((m) => m.day_date === iso && m.lat != null);
+      return BVMAP.boundsOf([...trs.flatMap((t) => (t.points || []).filter((p) => p && p.lat != null)), ...ms]);
+    };
+
+    function jourRender(iso, noms) {
+      const n = dayNumber(D.trip, iso), couleur = CV.colorForDay(days, iso);
+      const km = D.tracks.filter((t) => t.day_date === iso).reduce((a, t) => a + (t.distance_m || 0), 0);
+      const nb = D.media.filter((m) => m.day_date === iso && (m.kind || "photo") === "photo").length;
+      // Pas de nom : pas de ligne. Un seul nom : on dit lequel, plutôt qu'une flèche bancale.
+      const trajet = noms.depart && noms.arrivee ? `${esc(noms.depart)} → ${esc(noms.arrivee)}`
+        : noms.depart ? `départ ${esc(noms.depart)}`
+        : noms.arrivee ? `arrivée ${esc(noms.arrivee)}` : "";
+      // Ici la distance porte une décimale — « 12,4 km » — parce que c'est le chiffre d'UNE
+      // journée : arrondi au kilomètre, deux journées voisines se ressemblent toutes.
+      const kmTxt = km >= 1000 && km < 100000 ? (km / 1000).toFixed(1).replace(".", ",") + " km" : (km ? fmtDistance(km) : "");
+      const meta = [kmTxt, nb ? `${nb} photo${nb > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+      $("#jour-info").innerHTML =
+        `<div class="l1">${n ? `<i class="num" style="background:${couleur}">${n}</i>` : ""}<b>${esc(fmtDate(iso))}</b></div>`
+        + (trajet ? `<div class="l2">${trajet}</div>` : "")
+        + (meta ? `<div class="l3">${esc(meta)}</div>` : "");
+      const i = days.indexOf(iso);
+      $("#jour-prec").disabled = i <= 0;
+      $("#jour-suiv").disabled = i < 0 || i >= days.length - 1;
+      $("#jour-points").innerHTML = days.map((x) => x === iso
+        ? `<i class="on" style="background:${couleur}"></i>` : "<i></i>").join("");
+    }
+
+    function jourShow(iso) {
+      overviewDay = iso;
+      const noms = BVMAP.setOverview(map, true, iso, JOUR_PAD);
+      jourRender(iso, noms);
+      const b = dayBounds(iso);
+      if (b) BVMAP.flyOverview(map, b, { padding: JOUR_PAD, maxZoom: 15 });
+    }
+
+    function jourOpen() {
+      if (!drawn || map.replaying || overview) return;
+      const iso = followDay || days[0];
+      if (!iso) return;
+      const c = map.map.getCenter();
+      memo = { scroll: window.scrollY, day: followDay, shot: followShot,
+               cam: { center: [c.lng, c.lat], zoom: map.map.getZoom(), pitch: map.map.getPitch(), bearing: map.map.getBearing() } };
+      overview = true;
+      $("#map-wrap").classList.add("big", "jour");
+      document.body.classList.add("map-big");
+      $("#jour-ui").hidden = false;
+      BVMAP.setPageGestures(map, false);   // un doigt fait glisser la carte : ici, pas de page à défiler
+      BVMAP.resize(map);
+      jourShow(iso);
+    }
+
+    // Sortir : on revient exactement où on lisait — même journée, même photo, même position.
+    function jourClose() {
+      if (!overview) return;
+      overview = false; overviewDay = null;
+      BVMAP.setOverview(map, false);
+      $("#jour-ui").hidden = true;
+      $("#map-wrap").classList.remove("big", "jour");
+      document.body.classList.remove("map-big");
+      BVMAP.setPageGestures(map, true);
+      BVMAP.resize(map);
+      if (memo) {
+        followDay = memo.day; followShot = memo.shot;
+        map.map.jumpTo({ center: memo.cam.center, zoom: memo.cam.zoom, pitch: memo.cam.pitch, bearing: memo.cam.bearing });
+        window.scrollTo(0, memo.scroll);
+        if (followShot) BVMAP.focusMedia(map, followShot);
+        refreshCaption(followShot ? mediaById.get(followShot) : null);
+        busyUntil = Date.now() + 400;      // pas de vol de rattrapage dans la seconde du retour
+      }
+      memo = null;
+    }
+
+    // Le survol se joue sans l'habillage de la journée immobile, puis on y revient.
+    const jourPause = () => { overview = false; BVMAP.setOverview(map, false); $("#jour-ui").hidden = true; $("#map-wrap").classList.remove("jour"); };
+    const jourResume = () => { if (!memo) return; overview = true; $("#map-wrap").classList.add("big", "jour"); document.body.classList.add("map-big"); $("#jour-ui").hidden = false; BVMAP.setPageGestures(map, false); BVMAP.resize(map); jourShow(overviewDay || memo.day || days[0]); };
+    const jourGo = (pas) => {
+      if (!overview) return;
+      const i = days.indexOf(overviewDay) + pas;
+      if (i < 0 || i >= days.length) return;
+      jourShow(days[i]);
+    };
+
+    $("#map-expand").onclick = jourOpen;
+    $("#jour-sortie").onclick = jourClose;
+    $("#jour-prec").onclick = () => jourGo(-1);
+    $("#jour-suiv").onclick = () => jourGo(1);
+    $("#jour-play").onclick = () => startReplay(overviewDay);
+
     const startReplay = (only = null) => {
       if (!drawn || map.replaying) return;
+      const fromJour = overview;
+      if (fromJour) jourPause();
       if (dayFilter && !only) { dayFilter = null; draw(false); refreshCaption(); }
       if (only && dayFilter !== only) { dayFilter = only; draw(false); refreshCaption(); }
       const wasBig = $("#map-wrap").classList.contains("big");
@@ -218,6 +329,7 @@
           },
           onDone: () => {
             $("#replay-overlay").hidden = true;
+            if (fromJour) { jourResume(); return; }
             if (isMobile() && !wasBig) setBig(false);   // on ne laisse personne enfermé dans la carte plein écran
             if (!only) showRecap();
           },
@@ -429,6 +541,8 @@
   const followMode = FOLLOW_MODES.includes(askedMode) ? askedMode : FOLLOW_DEFAULT;
   const seenDays = new Set(), seenShots = new Set();
   let dayIO = null, shotIO = null, followDay = null, followShot = null, touchedAt = 0, tickReq = 0, sizeReq = 0, mediaById = new Map();
+  // #42 · Vrai quand la journée immobile est ouverte : le suivi de lecture s'y tait.
+  let overview = false;
   // #37 · UN SEUL MOUVEMENT À LA FOIS. `applyFollow` est rappelée à CHAQUE IMAGE du
   // défilement. Ce repère dit jusqu'à quand la carte est occupée — il est posé par LES DEUX
   // mouvements du suivi : le recadrage d'une journée et le vol vers une photo.
@@ -561,6 +675,7 @@
 
   function applyFollow() {
     if (followMode === "off" || !canFollow()) return;
+    if (overview) return;                        // #42 · la journée immobile ne bouge pas toute seule
     if (!introDone || map.replaying || dayFilter) { followDay = null; followShot = null; return; }
     if (document.visibilityState === "hidden") return;
     if (Date.now() - touchedAt < 6000) return;
