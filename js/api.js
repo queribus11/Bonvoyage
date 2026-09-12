@@ -153,15 +153,29 @@
       unwrap(await sb().storage.from("media").upload(name, blob, { contentType: blob.type, upsert: false }));
       return name;
     },
+    // La colonne grid_path est arrivée en v10.36. Tant que la base n'a pas reçu
+    // sql/v10.36-images.sql, l'insertion la refuserait et LA PHOTO SERAIT PERDUE : on
+    // réessaie alors une fois sans elle, et on s'en souvient pour le reste de la séance.
+    // La photo part donc dans les deux cas, que la base soit à jour ou non.
+    _noGridColumn: false,
     async createMedia(user, tripId, fields) {
-      return unwrap(await sb().from("media").insert({ ...fields, trip_id: tripId }).select().single());
+      const row = { ...fields, trip_id: tripId };
+      if (this._noGridColumn) delete row.grid_path;
+      try {
+        return unwrap(await sb().from("media").insert(row).select().single());
+      } catch (e) {
+        if (this._noGridColumn || !("grid_path" in row) || !/grid_path/.test(String(e && e.message || e))) throw e;
+        this._noGridColumn = true;
+        delete row.grid_path;
+        return unwrap(await sb().from("media").insert(row).select().single());
+      }
     },
     async updateMedia(id, fields) {
       return unwrap(await sb().from("media").update(fields).eq("id", id).select().single());
     },
     async deleteMedia(m) {
       unwrap(await sb().from("media").delete().eq("id", m.id));
-      await this.removeFiles([m.path, m.thumb_path, m.audio_path]).catch(() => {});
+      await this.removeFiles([m.path, m.grid_path, m.thumb_path, m.audio_path]).catch(() => {});
     },
 
     // ---------- Les arrêts d'une journée (#5) ----------

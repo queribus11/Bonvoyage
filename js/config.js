@@ -28,6 +28,15 @@ window.CARNET_CONFIG = {
   // Taille max des photos envoyées (px, côté le plus long). 1600 = bon compromis qualité/poids.
   PHOTO_MAX_SIZE: 1600,
 
+  // Trois tailles sont fabriquées à l'envoi, chacune calée sur ce qu'elle sert vraiment
+  // (mesuré sur un iPhone 17 Pro Max : 440 points de large, 3 pixels réels par point) :
+  //   PHOTO_MAX_SIZE   1600 · l'affichage : photo phare et plein écran (1320 px réels)
+  //   PHOTO_GRID_SIZE   768 · les tuiles de la grille (655 px réels) et la couverture de journée
+  //   PHOTO_THUMB_SIZE  192 · les pastilles de la carte et toutes les petites vignettes
+  //                           (la plus grande d'entre elles fait 168 px réels)
+  PHOTO_GRID_SIZE: 768,
+  PHOTO_THUMB_SIZE: 192,
+
   // Suivi GPS : un point est gardé seulement si on a bougé d'au moins X mètres
   // ET qu'il s'est écoulé au moins Y secondes depuis le point précédent.
   GPS_MIN_DISTANCE_M: 25,

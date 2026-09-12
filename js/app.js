@@ -7,6 +7,13 @@
   const errToast = (err, ms) => toast(friendly(err), "error", ms);
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  // #1 · Chaque écran prend la taille qui correspond à ce qu'il affiche vraiment (v10.36).
+  //   thumbSrc · 192 px : pastilles de la carte et petites vignettes (au plus 168 px réels)
+  //   gridSrc  · 768 px : grille des photos et couverture de journée (jusqu'à 1200 px réels)
+  // Les photos d'avant la v10.36 n'ont pas de vignette de grille : elles retombent sur
+  // l'ancienne vignette, donc elles s'affichent exactement comme aujourd'hui.
+  const thumbSrc = (m) => API.publicUrl(m.thumb_path || (m.kind === "photo" ? m.path : ""));
+  const gridSrc = (m) => API.publicUrl(m.grid_path || m.thumb_path || (m.kind === "photo" ? m.path : ""));
 
   const S = {
     user: null, trips: [], cur: null,      // cur = { trip, days, tracks, media, comments }
@@ -306,7 +313,15 @@
         try {
           const fields = { ...pm.fields };
           if (pm.video) fields.path = await up(pm.video, pm.ext || "mp4", true);
-          else { fields.path = await up(pm.big, "jpg"); fields.thumb_path = await up(pm.thumb, "jpg"); }
+          else {
+            fields.path = await up(pm.big, "jpg");
+            // pm.grid manque aux photos mises en attente par une version antérieure à la v10.36 :
+            // elles partent alors comme avant, sans vignette de grille.
+            // Inutile d'envoyer un fichier que la base ne saura pas référencer : une fois
+            // la colonne connue comme absente, on s'épargne le fichier orphelin.
+            if (pm.grid && !API._noGridColumn) fields.grid_path = await up(pm.grid, "jpg");
+            fields.thumb_path = await up(pm.thumb, "jpg");
+          }
           if (fields.lat == null) { const g = positionFromTracks(Date.parse(fields.taken_at)); if (g) { fields.lat = g.lat; fields.lng = g.lng; } }
           const m = await API.createMedia(S.user, S.cur.trip.id, fields);
           S.cur.media.push(m); await OFF.removePendingMedia(pm.id); S.pendingMedia = S.pendingMedia.filter((x) => x.id !== pm.id); sent++; mediaDone++;
@@ -374,7 +389,7 @@
   function redraw(fitAfter = false) {
     S.drawn = BVMAP.draw(S.map, S.cur, {
       dayFilter: S.dayFilter, dayList: allDays(),
-      thumbUrl: (m) => API.publicUrl(m.thumb_path || (m.kind === "photo" ? m.path : "")),
+      thumbUrl: thumbSrc,
       dayNumber: (iso) => dayNumber(S.cur.trip, iso),
       onMediaClick: (m) => mediaViewer(m),
       onTrackClick: (tr) => trackForm(tr),
@@ -572,7 +587,7 @@
           <div class="info"><b>${esc(d?.title || fmtDate(iso))}</b>${pill(d?.author_id, { small: true })}
             <span>${d?.title ? fmtDate(iso, false) : ""}${d?.place ? ` · ${ic("pin", "sm")} ${esc(d.place)}` : ""}</span>
             <span>${km ? `${ic("route", "sm")} ${fmtDistance(km)}` : ""}${st.hasAlt && st.gain ? ` · ↗ ${st.gain} m` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
-            ${cover ? `<div class="day-cover" style="background-image:url('${API.publicUrl(cover.thumb_path || cover.path)}')"></div>` : ""}
+            ${cover ? `<div class="day-cover" style="background-image:url('${gridSrc(cover)}')"></div>` : ""}
             ${(km || ph.length || d) ? `<div class="status">${isLive() ? (d?.published ? `<span class="chip pub">Annoncée</span>` : "") : (d?.published ? `<span class="chip pub">Publiée</span>` : `<span class="chip draft">Brouillon</span>`)}</div>` : ""}
             ${ph.length > 1 ? `<div class="thumbs">${ph.slice(1, 6).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`).join("")}</div>` : ""}
           </div></div>`; }).join("")}</div>`;
@@ -1025,7 +1040,7 @@
     refresh();
   }
   function mediaTile(x) {
-    const src = API.publicUrl(x.thumb_path || (x.kind === "photo" ? x.path : ""));
+    const src = gridSrc(x);
     return `<div class="media-tile" data-id="${x.id}">
       ${dot(x.author_id)}
       ${x.kind === "video" && !x.thumb_path ? `<video src="${API.publicUrl(x.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${src}" alt="" loading="lazy">`}
@@ -1058,8 +1073,8 @@
           if (f.size > VIDEO_MAX) throw new Error("Vidéo trop lourde (max 50 Mo)");
           prepared = { tripId: S.cur.trip.id, fields, video: f, ext: (f.name.split(".").pop() || "mp4").toLowerCase() };
         } else {
-          const img = await CV.prepareImage(f, cfg.PHOTO_MAX_SIZE || 1600, 320);
-          prepared = { tripId: S.cur.trip.id, fields, big: img.big, thumb: img.thumb };
+          const img = await CV.prepareImage(f, cfg.PHOTO_MAX_SIZE || 1600, cfg.PHOTO_GRID_SIZE || 768, cfg.PHOTO_THUMB_SIZE || 192);
+          prepared = { tripId: S.cur.trip.id, fields, big: img.big, grid: img.grid, thumb: img.thumb };
         }
         S.pendingMedia.push(await OFF.addPendingMedia(prepared)); queued++;
         // Laisse le téléphone respirer entre deux photos (décodage lourd) et montre la vignette « en attente »

@@ -533,11 +533,16 @@
     canvas.width = canvas.height = 0;   // libère la mémoire tout de suite (iPhone : 9 photos = plusieurs centaines de Mo décodés)
     return blob;
   }
-  // Grande image + vignette en ne décodant la photo d'origine qu'une seule fois (la vignette est tirée de la grande)
-  async function prepareImage(file, maxBig = 1600, maxThumb = 320) {
+  // Trois tailles en ne décodant la photo d'origine qu'une seule fois : chaque palier est
+  // tiré du précédent, déjà réduit. C'est ce qui protège la mémoire de l'iPhone.
+  //   big   · l'affichage : photo phare et plein écran
+  //   grid  · les tuiles de la grille et la couverture de journée
+  //   thumb · les pastilles de la carte et les petites vignettes
+  async function prepareImage(file, maxBig = 1600, maxGrid = 768, maxThumb = 192) {
     const big = await resizeImage(file, maxBig, 0.85);
-    const thumb = await resizeImage(big, maxThumb, 0.75);
-    return { big, thumb };
+    const grid = await resizeImage(big, maxGrid, 0.8);
+    const thumb = await resizeImage(grid, maxThumb, 0.75);
+    return { big, grid, thumb };
   }
 
   // Lecture EXIF minimale (GPS + date) dans un JPEG, sans bibliothèque

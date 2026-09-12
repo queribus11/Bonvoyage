@@ -118,7 +118,12 @@
     const set = new Set([...D.days.map((d) => d.day_date), ...D.tracks.map((t) => t.day_date), ...D.media.map((m) => m.day_date)].filter(Boolean));
     return [...set].sort();
   }
+  // #1 · Chaque écran prend la taille qui correspond à ce qu'il affiche vraiment (v10.36).
+  // thumb sert les pastilles de la carte (au plus 146 px réels) ; grid sert les tuiles de la
+  // grille (655 px réels). Les photos d'avant la v10.36 n'ont pas de vignette de grille :
+  // elles retombent sur l'ancienne et s'affichent exactement comme aujourd'hui.
   function thumb(m) { return API.publicUrl(m.thumb_path || (m.kind === "photo" ? m.path : "")); }
+  function grid(m) { return API.publicUrl(m.grid_path || m.thumb_path || (m.kind === "photo" ? m.path : "")); }
 
   function render() {
     const t = D.trip, days = dayList();
@@ -552,7 +557,7 @@
         ${lead.caption ? `<figcaption>${lead.transport && BVMAP.MODES[lead.transport] ? BVMAP.MODES[lead.transport].icon + " " : ""}${lead.audio_path ? "🎙 " : ""}${esc(lead.caption)}</figcaption>` : ""}</figure>` : ""}
       ${rest.length ? `<div class="gallery">${rest.map((m) => `<figure data-id="${m.id}"${m.lat != null ? " data-geo" : ""} class="${D.comments.some((c) => c.media_id === m.id) ? "has-comments" : ""}${isNew(m.created_at) ? " is-new" : ""}">
           ${MEMBERS.dot(m.author_id)}
-          ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${thumb(m)}" alt="${esc(m.caption)}" loading="lazy">`}
+          ${m.kind === "video" && !m.thumb_path ? `<video src="${API.publicUrl(m.path)}#t=0.5" muted playsinline preload="metadata"></video>` : `<img src="${grid(m)}" alt="${esc(m.caption)}" loading="lazy">`}
           ${m.caption || m.kind === "video" || m.audio_path || m.transport ? `<figcaption>${m.transport && BVMAP.MODES[m.transport] ? BVMAP.MODES[m.transport].icon + " " : ""}${m.kind === "video" ? "▶ " : ""}${m.audio_path ? "🎙 " : ""}${esc(m.caption)}</figcaption>` : ""}</figure>`).join("")}</div>` : ""}
       ${d.place || chips.length ? `<div class="step-card"><div class="step-inner">${d.place ? `<div class="place">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}${chips.length ? `<div class="chips">${chips.map((c) => `<span>${c}</span>`).join("")}</div>` : ""}</div></div>` : ""}
       ${st.hasAlt && st.profile.length > 2 ? `<div class="profile-wrap">${CV.profileSvg(st.profile, color)}<div class="small muted">Profil d'altitude · ${st.minAlt} → ${st.maxAlt} m</div></div>` : ""}
