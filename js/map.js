@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.37";
+window.BV_VERSION = "10.38";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -34,7 +34,7 @@ window.BVMAP = (() => {
     moto:  { label: "en moto",    icon: "🛵", speed: 1.5, path: "road" },
   };
 
-  const DAY_COLORS = ["#F97316", "#0D8FE0", "#7CB518", "#F5B301", "#3AA0F5", "#9ACD1E", "#E05A8A", "#8B5CF6", "#F97316", "#0D8FE0"];
+  const DAY_COLORS = window.BV_DAY_COLORS;   // définie une seule fois, dans js/theme.js (#54)
 
   function defaultBase() {
     const saved = LS.get(STYLE_KEY);

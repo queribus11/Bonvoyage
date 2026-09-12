@@ -5,6 +5,12 @@
   const { cfg, esc, nl2p, toast, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, today, isoDate, ic } = CV;
   const { friendly, isNetworkError } = OFF;
   const errToast = (err, ms) => toast(friendly(err), "error", ms);
+  // #51 - Un accusé de réception NOMME ce qui vient d'être gardé : « Photo 2 : à pied,
+  // enregistré ». Un message qui cite la chose ne peut pas mentir. Il ne se construit
+  // que depuis la liste de ce qui est réellement parti, et jamais après un échec.
+  const FEMININ = new Set(["légende", "journée", "heure"]);
+  const listeFr = (mots) => mots.length < 2 ? (mots[0] || "") : mots.slice(0, -1).join(", ") + " et " + mots[mots.length - 1];
+  const accuse = (quoi, mots) => `${quoi} : ${listeFr(mots)}, ${mots.length > 1 ? "enregistrés" : FEMININ.has(mots[0]) ? "enregistrée" : "enregistré"}`;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   // #1 · Chaque écran prend la taille qui correspond à ce qu'il affiche vraiment (v10.36).
@@ -445,6 +451,23 @@
     try { S.cur.trip = await API.updateTrip(S.cur.trip.id, { replay_speed: n.k }); saveLocal(); toast(`Vitesse du survol : ${n.label} — pour toi et tes proches (à partir de la prochaine journée)`, "info", 3000); }
     catch (err) { errToast(err); }
   }
+  // #51 - La fiche-carte flottante d'une journée vieillit dès qu'on enregistre : elle
+  // affichait « 0 photo » ou l'ancien titre longtemps après. Elle se redessine donc
+  // seule, à la fin de renderPanel() — par où passent déjà tous les enregistrements
+  // réussis. Aucune commande n'est retouchée : rien à relier à nouveau.
+  function dayCardMeta(iso) {
+    const d = dayInfo(iso), ph = S.cur.media.filter((x) => x.day_date === iso);
+    return `${d?.place ? esc(d.place) + " · " : ""}${ph.length} photo${ph.length > 1 ? "s" : ""}${d?.story ? " · récit" : ""}`;
+  }
+  function refreshDayCard() {
+    const card = $("#day-card"), iso = S.dayFilter;
+    if (!card || card.hidden || !iso || !$("#dc-meta")) return;
+    const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso), num = $("#dc-num");
+    if (num) { num.textContent = n ? "J" + n : fmtDateShort(iso); num.style.background = CV.colorForDay(allDays(), iso); }
+    $("#dc-title").textContent = d?.title || fmtDate(iso, false);
+    $("#dc-meta").innerHTML = dayCardMeta(iso);
+  }
+
   // Ouvrir une journée : on la voit d'abord (survol de la journée), puis la carte flottante mène aux photos et au récit
   function openDay(iso) {
     const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso);
@@ -453,7 +476,7 @@
     if (S.map.replaying && S.map.stopReplay) S.map.stopReplay();
     S.dayFilter = iso; redraw(true); renderPanel();
     const card = $("#day-card");
-    card.innerHTML = `<div class="dc-head"><span class="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b>${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted">${d?.place ? esc(d.place) + " · " : ""}${ph.length} photo${ph.length > 1 ? "s" : ""}${d?.story ? " · récit" : ""}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
+    card.innerHTML = `<div class="dc-head"><span class="dc-num" id="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b id="dc-title">${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted" id="dc-meta">${dayCardMeta(iso)}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
       <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse du survol"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
     card.hidden = false;
     $("#dc-open").onclick = () => dayForm(iso);
@@ -521,6 +544,7 @@
     if (!S.cur) return;
     body.scrollTop = 0;
     ({ days: renderDays, photos: renderPhotos, gps: renderGps, comments: renderComments })[S.tab](body);
+    refreshDayCard();   // #51 - la fiche-carte d'une journée ne reste jamais en retard
   }
 
   // Liste des dates du voyage : plage start→end + toute date qui a du contenu
@@ -606,8 +630,6 @@
   const draftKey = (iso) => `cv_draft_${S.cur.trip.id}_${iso || "new"}`;
   function dayForm(iso) {
     const d = iso ? dayInfo(iso) : null;
-    const draft = OFF.LS.get(draftKey(iso));
-    const useDraft = draft && (draft.story !== (d?.story || "") || draft.title !== (d?.title || ""));
     const status = !iso ? "" : isLive()
       ? `<span class="chip pub">En direct</span> <span class="small muted">Tout est déjà visible ; « Envoyer le lien » prévient tes proches.</span>`
       : d?.published ? `<span class="chip pub">Publiée</span> <span class="small muted">Visible par tes proches, modifiable à tout moment.</span>`
@@ -630,6 +652,14 @@
     const mine = !d || canEdit(d);
     const myStory   = d ? S.stories.find((x) => x.day_id === d.id && x.author_id === S.user.id) : null;
     const myNote    = d ? S.notes.find((x) => x.day_id === d.id && x.author_id === S.user.id) : null;
+    // #51 - Le brouillon local garde les QUATRE textes de la fiche, carnet de bord et
+    // récit de co-auteur compris : ce sont justement ceux qui tombaient. Un brouillon
+    // d'avant la v10.38 n'a que le titre et le récit — les champs qu'il ne connaît pas
+    // gardent leur valeur d'origine au lieu de s'effacer.
+    const draft = OFF.LS.get(draftKey(iso));
+    const dBase = { title: d?.title || "", story: d?.story || "", my_story: myStory?.body || "", my_note: myNote?.body || "" };
+    const dVal = (k) => (draft && draft[k] != null) ? draft[k] : dBase[k];
+    const useDraft = !!draft && Object.keys(dBase).some((k) => dVal(k) !== dBase[k]);
     const dayVoices = d ? S.voices.filter((v) => v.day_id === d.id) : [];
     // Le mot du jour n'a de sens qu'à plusieurs : sur un carnet solo, le récit
     // audio suffit et ce bloc n'existe pas.
@@ -645,7 +675,7 @@
       ${d?.place ? `<div class="kicker" style="margin:-4px 0 10px">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}
       <form id="f">
         <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
-        <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(useDraft ? draft.title : (d?.title || ""))}" placeholder="Traversée des Highlands" ${mine ? "" : "readonly"}></div></div>
+        <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(dVal("title"))}" placeholder="Traversée des Highlands" ${mine ? "" : "readonly"}></div></div>
         ${iso ? stopsFieldHtml(iso) : ""}
         ${iso ? `<div class="field"><label>Photos de la journée${dayPhotos.length ? ` (${dayPhotos.length})` : ""}</label>
           ${d?.published && !isLive() ? `<p class="small muted" style="margin:-2px 0 8px">Journée publiée : les photos ajoutées ici sont <b>déjà visibles</b> par tes proches. « Envoyer le lien » sert seulement à les prévenir.</p>` : ""}
@@ -657,15 +687,15 @@
           <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
         ${legs && legs.length > 1 ? `<details class="legs-details"><summary>Changements en cours de journée (${legs.length} tronçons)</summary><div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
             <select data-from="${l.from.id}" class="leg-mode"><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : `comme avant (${BVMAP.MODES[l.mode].label})`}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.from.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div><p class="help">Chaque ligne = le trajet de la photo de gauche à celle de droite ; le choix vaut à partir de la photo de gauche jusqu'au prochain changement.</p></details>` : ""}` : ""}
-        ${mine ? `<div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(useDraft ? draft.story : (d?.story || ""))}</textarea></div>
+        ${mine ? `<div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(dVal("story"))}</textarea></div>
         <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>`
         : `${d?.story ? `<div class="field"><label>Le récit de ${esc(MEMBERS.name(d.author_id) || "l'équipage")}</label><div class="story-read">${nl2p(d.story)}</div></div>` : ""}
-           <div class="field"><label>Mon récit</label><textarea name="my_story" class="story" placeholder="Et toi, comment as-tu vécu cette journée ?">${esc(myStory?.body || "")}</textarea></div>`}
+           <div class="field"><label>Mon récit</label><textarea name="my_story" class="story" placeholder="Et toi, comment as-tu vécu cette journée ?">${esc(dVal("my_story"))}</textarea></div>`}
         <div id="story-list"></div>
         ${showVoices ? `<div class="field"><label>Le mot du jour</label><div id="day-voice"></div><div id="voice-list"></div>
           <p class="help">Trente secondes à ta façon, en plus du récit — chacun laisse le sien. C'est ce qui vaudra le plus, plus tard.</p></div>` : ""}
         ${iso ? `<div class="field private-note${MEMBERS.isShared() ? " shared" : ""}"><label>Carnet de bord</label>
-          <textarea name="my_note" placeholder="Ce qui ne va pas dans le récit : l'adresse du gîte, ce qu'il faut penser à faire demain…">${esc(myNote?.body || "")}</textarea>
+          <textarea name="my_note" placeholder="Ce qui ne va pas dans le récit : l'adresse du gîte, ce qu'il faut penser à faire demain…">${esc(dVal("my_note"))}</textarea>
           <div id="note-list"></div></div>` : ""}
         ${statsHtml}
         ${iso ? `${canRoute ? `<div class="field"><label>Trajet</label><p class="small muted" style="margin:-2px 0 8px">Pas de trace GPS ce jour-là : la carte relie les photos en pointillés, dans l'ordre de l'heure, selon le moyen de locomotion choisi sur chaque photo. « Tracer l'itinéraire » fait suivre les vraies routes aux tronçons en voiture, bus ou vélo.</p>
@@ -740,55 +770,81 @@
     renderContribs();
 
     // ---- Enregistrer ce qui n'appartient qu'à moi ----
+    // #51 - Aucun `catch` ici : une erreur doit remonter à saveDay(), qui garde la fiche
+    // ouverte et le brouillon. Attrapée puis jetée, elle laissait s'afficher
+    // « Journée enregistrée » par-dessus le message d'erreur — et le carnet de bord
+    // était perdu. Renvoie la liste de ce qui est réellement parti.
     async function saveMine(savedDay) {
-      if (!savedDay) return;
+      const done = [];
+      if (!savedDay) return done;
       const f = $("#f", m.el);
-      try {
-        if (f.my_story) {
-          const r = await API.saveDayStory(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, f.my_story.value, myStory);
-          S.stories = S.stories.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
-          if (r) S.stories.push(r);
+      const ch = mineChanged();
+      if (f.my_story) {
+        const r = await API.saveDayStory(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, f.my_story.value, myStory);
+        S.stories = S.stories.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
+        if (r) S.stories.push(r);
+        if (ch.story) done.push("mon récit");
+      }
+      if (f.my_note) {
+        const r = await API.saveDayNote(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, f.my_note.value, myNote);
+        S.notes = S.notes.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
+        if (r) S.notes.push(r);
+        if (ch.note) done.push("carnet de bord");
+      }
+      if (voiceRec) {
+        const blob = voiceRec.getBlob();
+        const mineVoice = S.voices.find((v) => v.day_id === savedDay.id && v.author_id === S.user.id);
+        if (blob) {
+          const path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
+          const v = await API.upsertDayVoice(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, path, 0);
+          if (mineVoice && mineVoice.audio_path !== path) API.removeFiles([mineVoice.audio_path]).catch(() => {});
+          S.voices = S.voices.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
+          S.voices.push(v);
+          done.push("mot du jour");
+        } else if (voiceRec.isRemoved() && mineVoice) {
+          await API.deleteDayVoice(mineVoice);
+          S.voices = S.voices.filter((x) => x.id !== mineVoice.id);
+          done.push("mot du jour retiré");
         }
-        if (f.my_note) {
-          const r = await API.saveDayNote(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, f.my_note.value, myNote);
-          S.notes = S.notes.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
-          if (r) S.notes.push(r);
-        }
-        if (voiceRec) {
-          const blob = voiceRec.getBlob();
-          const mineVoice = S.voices.find((v) => v.day_id === savedDay.id && v.author_id === S.user.id);
-          if (blob) {
-            const path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
-            const v = await API.upsertDayVoice(S.cur.trip.id, savedDay.id, savedDay.day_date, S.user.id, path, 0);
-            if (mineVoice && mineVoice.audio_path !== path) API.removeFiles([mineVoice.audio_path]).catch(() => {});
-            S.voices = S.voices.filter((x) => !(x.day_id === savedDay.id && x.author_id === S.user.id));
-            S.voices.push(v);
-          } else if (voiceRec.isRemoved() && mineVoice) {
-            await API.deleteDayVoice(mineVoice);
-            S.voices = S.voices.filter((x) => x.id !== mineVoice.id);
-          }
-        }
-      } catch (e) { errToast(e, 6000); }
+      }
+      return done;
     }
 
-    const dirty = () => (mine && (form.title.value !== (d?.title || "") || form.story.value !== (d?.story || "")))
-      || (form.my_story && form.my_story.value !== (myStory?.body || ""))
-      || (form.my_note && form.my_note.value !== (myNote?.body || ""))
-      || (rec && (!!rec.getBlob() || rec.isRemoved()))
-      || (voiceRec && (!!voiceRec.getBlob() || voiceRec.isRemoved()));
-    // Brouillon sauvé à chaque frappe : un tap malheureux ne perd plus rien
-    const saveDraft = () => { if (mine && dirty()) OFF.LS.set(draftKey(iso), { title: form.title.value, story: form.story.value, at: Date.now() }); else OFF.LS.del(draftKey(iso)); };
-    if (mine) { form.title.addEventListener("input", saveDraft); form.story.addEventListener("input", saveDraft); }
+    // #51 - Comme pour la fiche photo : ce qui est envoyé est décrit UNE fois, et
+    // « la fiche est modifiée » en découle. `transport` en faisait déjà partie sans
+    // que dirty() le sache — sur une journée sans fiche, il se perdait sous les flèches.
+    // `transport` n'existe pas sur une journée qu'on vient de créer (le choix du moyen
+    // de locomotion n'apparaît qu'avec une date) : on le lit prudemment.
+    const dayFields = () => ({ title: form.title.value, story: form.story.value, transport: (form.transport && form.transport.value) || null });
+    const dayBase = () => ({ title: d?.title || "", story: d?.story || "", transport: d?.transport || null });
+    const dayChanged = () => { if (!mine) return []; const f = dayFields(), b = dayBase(); return Object.keys(f).filter((k) => (f[k] ?? "") !== (b[k] ?? "")); };
+    const dayAudio = () => !!rec && (!!rec.getBlob() || rec.isRemoved());
+    // Ce qui n'appartient qu'à moi, même principe : une liste, pas deux.
+    const mineChanged = () => ({
+      story: !!form.my_story && form.my_story.value !== (myStory?.body || ""),
+      note: !!form.my_note && form.my_note.value !== (myNote?.body || ""),
+      voice: !!voiceRec && (!!voiceRec.getBlob() || voiceRec.isRemoved()),
+    });
+    const dirty = () => { const mc = mineChanged(); return dayChanged().length > 0 || dayAudio() || mc.story || mc.note || mc.voice; };
+    // Brouillon sauvé à chaque frappe : un tap malheureux ne perd plus rien. Il garde
+    // les QUATRE textes — le carnet de bord et le récit d'un co-auteur sont justement
+    // ceux qui tombaient, et ils n'y étaient pas.
+    const DRAFT_FIELDS = ["title", "story", "my_story", "my_note"];
+    const draftValues = () => { const v = { at: Date.now() }; DRAFT_FIELDS.forEach((n) => { if (form[n]) v[n] = form[n].value; }); return v; };
+    const saveDraft = () => { if (dirty()) OFF.LS.set(draftKey(iso), draftValues()); else OFF.LS.del(draftKey(iso)); };
+    DRAFT_FIELDS.forEach((n) => { if (form[n]) form[n].addEventListener("input", saveDraft); });
     // #31 - Le seul chemin d'écriture de la fiche : le bouton « Enregistrer » et les
     // flèches ◀ ▶ passent tous les deux par ici, brouillon local (draftKey) et
     // contributions personnelles (saveMine) compris. Renvoie false si ça a échoué.
+    const DAY_WORDS = { title: "titre", story: "récit" };
     async function saveDay() {
       const fd = Object.fromEntries(new FormData(form));
+      const changed = dayChanged(), withAudio = dayAudio();
       try {
         let saved = d;
         // La journée elle-même : seulement si elle est à moi (ou si je la crée).
         if (mine) {
-          const fields = { title: fd.title, story: fd.story, transport: fd.transport || null };
+          const fields = dayFields();   // la même liste que celle dont dérive dirty()
           const blob = rec && rec.getBlob();
           if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
           else if (rec && rec.isRemoved()) fields.audio_path = null;
@@ -800,15 +856,24 @@
           S.cur.days.sort((a, b) => a.day_date.localeCompare(b.day_date));
         }
         // Ce qui n'appartient qu'à moi : mon récit, mon mot du jour, mon carnet de bord.
-        await saveMine(saved);
+        // Si ça échoue, l'erreur remonte ici : la fiche reste ouverte et le brouillon
+        // n'est pas effacé — la ligne suivante n'est pas atteinte.
+        const done = await saveMine(saved);
         OFF.LS.del(draftKey(iso)); saveLocal();
-        return true;
-      } catch (err) { errToast(err, 6000); if (isNetworkError(err)) toast("Ton texte est gardé sur le téléphone : réessaie quand tu auras du réseau", "info", 6000); return false; }
+        const mots = changed.map((k) => k === "transport"
+          ? (saved?.transport && BVMAP.MODES[saved.transport] ? BVMAP.MODES[saved.transport].label : "sans moyen de locomotion")
+          : DAY_WORDS[k]).filter(Boolean)
+          .concat(withAudio ? [(saved && saved.audio_path) ? "récit audio" : "récit audio retiré"] : []).concat(done);
+        return { saved: mots, day: (saved && saved.day_date) || fd.day_date };
+      } catch (err) { saveLocal(); errToast(err, 6000); if (isNetworkError(err)) toast("Ton texte est gardé sur le téléphone : réessaie quand tu auras du réseau", "info", 6000); return false; }
     }
     form.onsubmit = async (e) => {
       e.preventDefault();
-      if (!(await saveDay())) return;
-      m.close(); renderPanel(); toast(mine ? "Journée enregistrée" : "Ta contribution est enregistrée", "ok");
+      const r = await saveDay();
+      if (!r) return;
+      m.close(); renderPanel();
+      if (r.saved.length) toast(accuse(`Journée du ${fmtDate(r.day, false)}`, r.saved), "ok");
+      else toast("Aucune modification à enregistrer");
     };
 
     // #31 - ◀ ▶ : enregistrer puis ouvrir la journée voisine sans repasser par la
@@ -817,7 +882,7 @@
     const goDay = async (dir) => {
       const nx = dl0[navIdx + dir];
       if (!nx) return toast(dir > 0 ? "Dernière journée" : "Première journée");
-      if (dirty() && !(await saveDay())) return;   // rien n'est perdu si l'envoi échoue
+      if (dirty()) { const r = await saveDay(); if (!r) return; if (r.saved.length) toast(accuse(`Journée du ${fmtDate(r.day, false)}`, r.saved), "ok"); }   // rien n'est perdu si l'envoi échoue
       m.close(); renderPanel(); dayForm(nx);
     };
     const dPrev = $("#day-prev", m.el), dNext = $("#day-next", m.el);
@@ -872,7 +937,7 @@
       // On enregistre d'abord les modifications en cours, puis on publie
       const f = $("#f", m.el); const fd = Object.fromEntries(new FormData(f));
       try {
-        const fields = { title: fd.title, story: fd.story };
+        const fields = dayFields();   // #51 - la même liste qu'ailleurs : publier ne perd plus le moyen de locomotion
         const blob = rec && rec.getBlob();
         if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
         else if (rec && rec.isRemoved()) fields.audio_path = null;
@@ -1155,22 +1220,49 @@
     $$("#mode-picker .mode", el).forEach((b) => b.onclick = () => { $$("#mode-picker .mode", el).forEach((x) => x.classList.toggle("active", x === b)); form.transport.value = b.dataset.mode; if (navigator.vibrate) navigator.vibrate(6); });
     const mrec = CV.audioRecorder($("#media-rec", el), { existingUrl: m.audio_path ? API.publicUrl(m.audio_path) : null, label: "Enregistrer un commentaire audio" });
     const crec = CV.audioRecorder($("#c-rec", el), { label: "Commentaire vocal", maxSeconds: 120 });
-    const dirty = () => form.caption.value !== (m.caption || "") || form.day_date.value !== m.day_date || !!mrec.getBlob() || mrec.isRemoved();
-    async function save() {
-      if (!dirty()) return true;
+    // #51 - La liste des champs envoyés à la base est ici, et NULLE PART ailleurs :
+    // « la fiche est modifiée » et l'accusé de réception en découlent tous les deux.
+    // Une garde écrite à côté de cette liste finit toujours par ne plus lui ressembler —
+    // c'est ainsi qu'un moyen de locomotion changé seul se perdait en silence.
+    const photoFields = () => {
       const fd = Object.fromEntries(new FormData(form));
+      // Le champ « Prise le » ne descend qu'à la minute. Tant qu'il montre la même
+      // minute que l'heure enregistrée, on garde celle-ci telle quelle : ses secondes
+      // viennent de l'appareil photo, et les réécrire se lirait comme une modification.
+      const minute = (x) => Math.floor(+new Date(x || 0) / 60000);
+      const saisie = fd.taken_at ? new Date(fd.taken_at).toISOString() : m.taken_at;
+      return { caption: fd.caption, day_date: fd.day_date,
+        taken_at: minute(saisie) === minute(m.taken_at) ? m.taken_at : saisie,
+        transport: fd.transport || null };
+    };
+    const samePhoto = (k, v) => (v ?? "") === (m[k] ?? "");
+    const photoChanged = () => Object.entries(photoFields()).filter(([k, v]) => !samePhoto(k, v)).map(([k]) => k);
+    const audioChanged = () => !!mrec.getBlob() || mrec.isRemoved();
+    const dirty = () => photoChanged().length > 0 || audioChanged();
+    // Renvoie { saved: [ce qui est réellement parti] } — ou false si l'envoi a échoué.
+    // Les appelants s'écrivent tous `if (await save())` : un objet est toujours vrai.
+    async function save() {
+      const changed = photoChanged(), withAudio = audioChanged();
+      if (!changed.length && !withAudio) return { saved: [] };
       try {
-        const fields = { caption: fd.caption, day_date: fd.day_date, taken_at: fd.taken_at ? new Date(fd.taken_at).toISOString() : m.taken_at, transport: fd.transport || null };
+        const fields = photoFields();
         const blob = mrec.getBlob();
         if (blob) fields.audio_path = await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type));
         else if (mrec.isRemoved()) fields.audio_path = null;
         const old = m.audio_path;
         const u = await API.updateMedia(m.id, fields);
         if (old && old !== u.audio_path) API.removeFiles([old]).catch(() => {});
-        Object.assign(m, u); saveLocal(); return true;
+        Object.assign(m, u); saveLocal();
+        return { saved: changed.concat(withAudio ? ["audio"] : []) };
       } catch (err) { errToast(err); return false; }
     }
-    form.onsubmit = async (e) => { e.preventDefault(); if (await save()) { modal.close(); redraw(); renderPanel(); toast("Enregistré", "ok"); } };
+    const PHOTO_WORDS = { caption: "légende", day_date: "journée", taken_at: "heure" };
+    const photoMsg = (saved) => accuse(`Photo ${idx + 1}`, saved.map((k) => k === "transport"
+      ? (m.transport && BVMAP.MODES[m.transport] ? BVMAP.MODES[m.transport].label : "sans moyen de locomotion")
+      : k === "audio" ? (m.audio_path ? "commentaire audio" : "commentaire audio retiré")
+      : PHOTO_WORDS[k]));
+    const tellSaved = (r) => r.saved.length ? toast(photoMsg(r.saved), "ok") : toast("Aucune modification à enregistrer");
+    form.onsubmit = async (e) => { e.preventDefault(); const r = await save(); if (!r) return; modal.close(); redraw(); renderPanel(); tellSaved(r); };
     // Légender en série : ◀ ▶ enregistrent puis passent à la photo voisine (dans l'ordre affiché)
     const list = S.cur.media.filter((x) => !S.dayFilter || x.day_date === S.dayFilter), idx = list.indexOf(m);
     const go = async (dir) => { const nx = list[idx + dir]; if (!nx) return toast(dir > 0 ? "Dernière photo" : "Première photo"); if (await save()) { modal.close(); redraw(); renderPanel(); mediaViewer(nx); } };
@@ -1192,12 +1284,19 @@
       e.preventDefault();
       const body = e.target.body.value.trim(); const blob = crec.getBlob();
       if (!body && !blob) return toast("Écris ou enregistre un message", "error");
+      // #51 - Un seul enregistrement par écran : « Commenter » garde d'abord la photo.
+      // Sans cela, écrire une légende puis toucher « Commenter » envoyait le commentaire
+      // et laissait la légende affichée — tout l'air d'un enregistrement, et rien de gardé.
+      const rp = await save();
+      if (!rp) return toast("Ton commentaire n'est pas envoyé : la photo n'a pas pu être enregistrée", "error", 6000);
+      if (rp.saved.length) { redraw(); renderPanel(); }
       try {
         const audio_path = blob ? await API.uploadFile(S.user, S.cur.trip.id, blob, CV.audioExt(blob.type)) : null;
         const c = await API.addOwnerComment(S.cur.trip.id, { media_id: m.id, author: "Moi", body, audio_path });
         crec.reset();
         S.cur.comments.push(c); e.target.reset();
         $("#clist", el).insertAdjacentHTML("beforeend", commentHtml(c)); bindCommentDeletes(el); CV.bindBigAudio(el);
+        toast(rp.saved.length ? `Commentaire ajouté · ${photoMsg(rp.saved)}` : "Commentaire ajouté", "ok");
       } catch (err) { errToast(err); }
     };
     bindCommentDeletes(el); CV.bindBigAudio(el);

@@ -85,10 +85,14 @@
   }
 
   // ---------- Carte : moteur dans js/map.js (BVMAP) ; on garde ici les couleurs par journée et les statistiques ----------
-  const DAY_COLORS = (window.BVMAP && BVMAP.DAY_COLORS) || ["#F97316", "#0D8FE0", "#7CB518", "#F5B301", "#3AA0F5", "#9ACD1E", "#E05A8A", "#8B5CF6"];
+  // La liste vit dans js/theme.js. On la lit au moment de s'en servir et non au
+  // chargement : aucune copie ici, donc aucune divergence possible quel que soit
+  // l'ordre des fichiers.
+  const dayColors = () => window.BV_DAY_COLORS || (window.BVMAP && BVMAP.DAY_COLORS) || [];
   function colorForDay(dayList, iso) {
+    const c = dayColors(); if (!c.length) return "#F5B301";
     const i = dayList.indexOf(iso);
-    return DAY_COLORS[(i < 0 ? 0 : i) % DAY_COLORS.length];
+    return c[(i < 0 ? 0 : i) % c.length];
   }
 
   // Statistiques d'une journée (ou d'un voyage) à partir de ses traces :
@@ -130,7 +134,7 @@
   }
   function fmtDuration(s) { if (!s) return ""; const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`; }
   // Petit profil d'altitude en SVG (couleur de la journée)
-  function profileSvg(profile, color = "#F97316", w = 320, h = 64) {
+  function profileSvg(profile, color = "#F5B301", w = 320, h = 64) {
     if (!profile || profile.length < 2) return "";
     const dmax = profile[profile.length - 1].d || 1, amin = Math.min(...profile.map((p) => p.alt)), amax = Math.max(...profile.map((p) => p.alt)), span = Math.max(20, amax - amin);
     const x = (p) => (p.d / dmax * (w - 2) + 1).toFixed(1), y = (p) => (h - 4 - (p.alt - amin) / span * (h - 12)).toFixed(1);
@@ -781,7 +785,7 @@
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
-    parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces,
+    parseGPX, toGPX, colorForDay, get DAY_COLORS() { return dayColors(); }, dayStats, fmtDuration, profileSvg, placeName, fillPlaces,
     placesAround, osmCategory, osmKind, STOP_CATEGORIES, stopCategoryLabel, photoClusters, timeFromNearbyPhotos, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio, mosaic };
 })();
