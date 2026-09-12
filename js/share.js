@@ -489,6 +489,11 @@
     } else runIntro();
     bindBigAudio(root);
     $$(".gallery figure, .day-lead", root).forEach((f) => f.onclick = () => viewer(D.media.find((m) => m.id === f.dataset.id)));
+    // #1 · La mosaïque : chaque photo garde ses proportions. À refaire quand la
+    // largeur change — rotation de l'écran, fenêtre redimensionnée sur un ordinateur.
+    CV.mosaic(root);
+    let remosaic = null;
+    window.addEventListener("resize", () => { clearTimeout(remosaic); remosaic = setTimeout(() => CV.mosaic(root), 120); }, { passive: true });
     $$(".day-comment-btn", root).forEach((b) => b.onclick = () => commentForm({ dayId: b.dataset.day }));
     $$(".day-section .kicker", root).forEach((k) => k.onclick = () => { if (map.replaying) return; dayFilter = dayFilter === k.dataset.iso ? null : k.dataset.iso; draw(introDone); refreshCaption(); showMap(); });
     // Toucher un arrêt recentre la carte dessus — même geste que le clic sur une journée

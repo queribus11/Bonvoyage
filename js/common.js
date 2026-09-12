@@ -545,6 +545,57 @@
     return { big, grid, thumb };
   }
 
+  // ---------- La mosaïque de la galerie du récit (#1, v10.37) ----------
+  // Deux colonnes, chaque photo à ses proportions, rien de recadré — et l'ordre de
+  // lecture reste ligne par ligne, de gauche à droite, donc chronologique. C'est
+  // pour cela qu'on tient à une vraie grille : `columns: 2` remplirait la colonne
+  // de gauche avant la droite et casserait la chronologie du carnet.
+  //
+  // Les rangées de la grille font 1 px ; chaque tuile occupe le nombre de rangées
+  // que sa hauteur demande. La mesure n'est possible que parce que la grille est en
+  // `align-items: start` : étirée à sa rangée, une tuile se mesurerait à 1 px et la
+  // mosaïque s'effondrerait en bandes.
+  function rowStep(g) { return parseFloat(getComputedStyle(g).gridAutoRows) || 1; }
+  function spanTile(fig, step) {
+    const h = fig.getBoundingClientRect().height;
+    if (!h) return;                                   // pas encore dans le flux : on repassera
+    const bas = parseFloat(getComputedStyle(fig).marginBottom) || 0;
+    fig.style.gridRowEnd = "span " + Math.max(1, Math.ceil((h + bas) / step));
+  }
+  // Les proportions ne sont écrites nulle part dans la base : on les lit sur le
+  // fichier une fois arrivé, puis on refait la hauteur de cette tuile-là.
+  function watchTile(fig, media) {
+    const done = (w, h) => {
+      fig.dataset.ratio = "1";
+      if (w && h) media.style.aspectRatio = w + " / " + h;
+      const g = fig.parentElement;
+      if (g) spanTile(fig, rowStep(g));
+    };
+    if (media.tagName === "VIDEO") {
+      if (media.videoWidth) done(media.videoWidth, media.videoHeight);
+      else media.addEventListener("loadedmetadata", () => done(media.videoWidth, media.videoHeight), { once: true });
+    } else if (media.complete && media.naturalWidth) done(media.naturalWidth, media.naturalHeight);
+    else {
+      media.addEventListener("load", () => done(media.naturalWidth, media.naturalHeight), { once: true });
+      // Une image qui ne vient pas garde ses proportions d'attente : la tuile reste
+      // à sa place au lieu de se refermer sur zéro.
+      media.addEventListener("error", () => done(0, 0), { once: true });
+    }
+  }
+  // À rappeler après chaque rendu du récit, et à chaque changement de largeur
+  // (rotation de l'écran, fenêtre redimensionnée sur un ordinateur).
+  function mosaic(root) {
+    const scope = root || document;
+    for (const g of scope.querySelectorAll(".day-section .gallery")) {
+      const step = rowStep(g);
+      for (const fig of g.children) {
+        const media = fig.querySelector("img, video");
+        if (media && !fig.dataset.ratio) watchTile(fig, media);
+        spanTile(fig, step);
+      }
+    }
+  }
+
   // Lecture EXIF minimale (GPS + date) dans un JPEG, sans bibliothèque
   async function readExif(file) {
     const out = {};
@@ -732,5 +783,5 @@
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
     parseGPX, toGPX, colorForDay, DAY_COLORS, dayStats, fmtDuration, profileSvg, placeName, fillPlaces,
     placesAround, osmCategory, osmKind, STOP_CATEGORIES, stopCategoryLabel, photoClusters, timeFromNearbyPhotos, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
-    audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio };
+    audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio, mosaic };
 })();
