@@ -15,7 +15,9 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-  const COLORS = ["#0D8FE0", "#F97316", "#7CB518", "#F5B301", "#3AA0F5", "#5E6142"];
+  // Le nuancier des pastilles : chacun choisit la sienne, elle est gardée sur sa fiche.
+  // La mandarine #F97316 est réservée à Valdo — elle n'est proposée nulle part (#54).
+  const COLORS = ["#0D8FE0", "#7CB518", "#F5B301", "#3AA0F5", "#5E6142"];
 
   // L'équipage du voyage courant, sous une forme unique quelle que soit la
   // source : trip_members (côté app) ou D.authors (côté proches).

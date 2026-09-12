@@ -1,0 +1,2 @@
+v10.39 — la mandarine de Valdo quitte aussi le nuancier des co-auteurs (#54),
+et la mémoire du projet (CLAUDE.md) est remise à jour.

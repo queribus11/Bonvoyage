@@ -3,6 +3,10 @@
 Ce fichier est lu automatiquement au début de chaque session. Il contient ce qu'il faut
 savoir avant d'écrire une ligne de code dans ce dépôt. **Ne pas l'écraser avec `/init`.**
 
+**Ce fichier est lu au début de chaque séance — si son numéro de version est périmé, le
+corriger fait partie de la livraison.** Il a dérivé de trois versions sans que personne
+s'en aperçoive, et chaque séance repartait d'un état faux.
+
 ---
 
 ## Le projet
@@ -12,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.35**
+- Version actuelle : **v10.39**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -37,7 +41,7 @@ bases de données.
   résiste, changer d'outil — pas d'exécutant.
 - **Lui annoncer ce qui change et le vérifier soi-même.** Ne pas lui faire deviner si
   une mise en ligne a fonctionné.
-- Elle annonce souvent un sujet par son **numéro de backlog** (#1 à #32). Les numéros
+- Elle annonce souvent un sujet par son **numéro de backlog** (#1 à #54). Les numéros
   sont stables et vivent dans le projet Claude « App Carnet de voyages », pas ici.
 
 ---
@@ -72,10 +76,13 @@ transpileur ni de dépendance** sans le demander explicitement à Sophie.
 
 ## Les règles à ne jamais enfreindre
 
-**1. La version se change à deux endroits, à chaque livraison.**
+**1. La version se change à deux endroits, à chaque livraison — et se corrige ici.**
 `js/map.js` → `BV_VERSION`, **et** `sw.js` → le nom du `CACHE`. C'est ce qui rend la mise
 à jour visible et force le rafraîchissement du service worker. Oublier l'un des deux, et
 Sophie voit l'ancienne version en croyant avoir la nouvelle.
+Le troisième endroit est **ce fichier**, plus haut : « Version actuelle ». Il ne force rien,
+mais c'est lui qu'on lit en premier la séance suivante — le laisser périmer, c'est partir
+d'un état faux.
 
 **2. `node --check` sur chaque fichier JS modifié**, avant de pousser.
 
@@ -292,6 +299,28 @@ immobile** (#42 : la vue d'ensemble d'un jour, qu'ouvre le bouton plein écran).
 - **`supabase/functions/notify/` est dans le dépôt mais n'a jamais été déployée**, et
   `VAPID_PUBLIC_KEY` est vide dans `config.js`. Le code de l'app attend ces deux
   éléments, pas le fichier (#23).
+- **Une garde qui décide « est-ce modifié ? » se DÉRIVE de la liste des champs envoyés,
+  elle ne s'écrit jamais à côté d'elle.** C'est la cause unique des quatre pertes de #51 :
+  `dirty()` comparait trois champs quand `save()` en envoyait quatre, deux lignes plus bas.
+  Changer le seul moyen de locomotion d'une photo, ou la seule heure « Prise le », n'envoyait
+  donc **rien** — et affichait « Enregistré ». Cinq listes divergentes ont été trouvées le même
+  jour (la fiche photo, la fiche journée, `publish()`, et les deux séries de couleurs).
+  Ajouter la comparaison qui manque répare le jour même et casse au champ suivant : le remède
+  est de n'avoir qu'une liste. Corrigé en v10.38, avec deux corollaires qui tiennent seuls :
+  **une erreur attrapée doit être relancée** (un `catch` qui affiche puis oublie laisse le code
+  suivant croire au succès), et **un accusé de réception nomme ce qui vient d'être gardé** —
+  « Photo 2 : à pied, enregistré » ne peut pas mentir, « Enregistré » si. Autrement dit :
+  *pas d'enregistrement, pas de message de succès.*
+- **Un champ `datetime-local` ne descend qu'à la minute ; l'heure d'un appareil photo a des
+  secondes.** `toLocalInput` les coupe. Comparer le champ à `taken_at` au texte près fait donc
+  voir une modification à chaque ouverture de fiche, et réécrire l'heure efface les secondes
+  d'origine en silence. La comparaison se fait **à la minute**, et tant que le champ montre la
+  même minute que l'heure enregistrée, on garde celle-ci telle quelle. Trouvé par un banc
+  d'essai, pas par la relecture.
+- **Le nuancier des co-auteurs (`js/members.js`) n'attribue rien par rang : chacun choisit sa
+  couleur, et elle est gardée sur sa fiche** (`row.color`). En retirer une ne change donc la
+  couleur de personne — elle disparaît seulement du choix. Celui qui l'avait déjà la garde,
+  et aucune pastille du nuancier ne s'affiche comme active pour lui.
 
 ---
 
