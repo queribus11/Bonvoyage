@@ -220,7 +220,11 @@
   const STOPS_CACHE_MAX = 120;            // entrées gardées ; au-delà on jette les plus anciennes
   const STOPS_CACHE_TTL = 30 * 86400000;  // un mois : un musée ne déménage pas
 
-  // Les onze catégories de Sophie, et rien d'autre. La clé est ce qui va en base.
+  // Les dix catégories de Sophie, et rien d'autre. La clé est ce qui va en base.
+  // « Notre camp de base » n'en fait plus partie depuis la v10.40 (#38) : une nuit
+  // sert à DEUX journées, alors qu'un arrêt appartient à une seule — il a donc sa
+  // propre table, `trip_camps`. Ne pas le remettre ici, et ne pas en inventer une
+  // onzième : la contrainte de la base refuserait.
   const STOP_CATEGORIES = [
     { k: "monument",   label: "Monuments" },
     { k: "musee",      label: "Musées" },
@@ -231,7 +235,6 @@
     { k: "marche",     label: "Marché" },
     { k: "attraction", label: "Attraction" },
     { k: "streetart",  label: "Street art" },
-    { k: "camp",       label: "Notre camp de base" },
     { k: "autre",      label: "Autre" },
   ];
   const stopCategoryLabel = (k) => (STOP_CATEGORIES.find((c) => c.k === k) || STOP_CATEGORIES[STOP_CATEGORIES.length - 1]).label;
@@ -243,7 +246,9 @@
     const tourism = t.tourism || "", amenity = t.amenity || "", historic = t.historic || "";
     const leisure = t.leisure || "", natural = t.natural || "", manMade = t.man_made || "";
 
-    if (/^(hotel|hostel|guest_house|apartment|chalet|motel|camp_site|caravan_site|alpine_hut|wilderness_hut)$/.test(tourism)) return "camp";
+    // Un hôtel proposé comme ARRÊT retombe sur « Autre » : depuis la v10.40, là où
+    // l'on dort n'est plus une catégorie d'arrêt, c'est un camp de base (#38).
+    if (/^(hotel|hostel|guest_house|apartment|chalet|motel|camp_site|caravan_site|alpine_hut|wilderness_hut)$/.test(tourism)) return "autre";
     if (/^(museum|gallery)$/.test(tourism) || amenity === "arts_centre") return "musee";
     if (tourism === "artwork" && /^(mural|graffiti|street_art)$/.test(t.artwork_type || "")) return "streetart";
     if (tourism === "artwork") return "streetart";
@@ -784,8 +789,161 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
+  // ---------- #38 · « Notre camp de base » : trouver un lieu, ou le nommer ----------
+  //
+  // LA RÈGLE, et elle explique toute la suite : l'app interroge OpenStreetMap
+  // quand elle a un point ; elle interroge Sophie quand elle n'en a pas.
+  //
+  // Toute la mécanique de nommage existante (`placesAround`, `stopFromPoint`)
+  // part de « qu'est-ce qu'il y a ICI ? » — donc d'un point, qui vient de la
+  // position d'une photo. Le camp de base est précisément le cas où il n'y a pas
+  // de photo : on ne photographie pas sa chambre d'hôtel. Demander « qu'y a-t-il
+  // ici ? » reviendrait à interroger un endroit au hasard.
+  //
+  // ⚠️ Les deux dernières entrées (coordonnées, nom écrit à la main) sont de
+  // VRAIES saisies manuelles, et c'est assumé. Ce n'est pas un renoncement à
+  // « l'app propose, Sophie tranche », c'en est le prolongement : l'app ne devine
+  // jamais, elle demande à qui peut répondre. Ne pas « simplifier » ces deux
+  // entrées au nom de la cohérence — elles sont là exprès.
+
+  // Recherche d'un lieu par son nom ou son adresse (Nominatim, service bénévole
+  // d'OpenStreetMap, sans compte ni clé). Elle passe par `osmQueue` : un appel à
+  // la fois, 1,1 s d'écart — la même politesse que le reste.
+  async function searchPlaces(query, limit = 6) {
+    const q = String(query || "").trim();
+    if (q.length < 3) return [];
+    return osmQueue(async () => {
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${limit}`
+        + `&accept-language=fr&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!r.ok) throw new Error("Recherche indisponible (" + r.status + ")");
+      const j = await r.json();
+      return (Array.isArray(j) ? j : []).map((x) => ({
+        name: (x.name || "").trim() || (x.display_name || "").split(",")[0].trim(),
+        address: (x.display_name || "").trim(),
+        lat: +x.lat, lng: +x.lon,
+        osm_type: x.osm_type || null, osm_id: x.osm_id != null ? +x.osm_id : null,
+      })).filter((x) => isFinite(x.lat) && isFinite(x.lng));
+    });
+  }
+
+  // Des coordonnées écrites à la main. Personne ne répond à sa place : le point
+  // est exactement celui qu'elle a écrit. On accepte « 48.8584, 2.2945 »,
+  // « 48,8584 2,2945 » et le copier-coller d'une fiche de carte.
+  function parseLatLng(text) {
+    const s = String(text || "").trim().replace(/[;|]/g, ",");
+    const m = s.match(/(-?\d{1,3}(?:[.,]\d+)?)\s*[, ]\s*(-?\d{1,3}(?:[.,]\d+)?)/);
+    if (!m) return null;
+    const lat = parseFloat(m[1].replace(",", ".")), lng = parseFloat(m[2].replace(",", "."));
+    if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return { lat, lng };
+  }
+
+  // Le chercheur de lieu, écrit comme élément réutilisable sur le modèle de
+  // `audioRecorder` : le même servira aux autres arrêts au lot suivant.
+  // La recherche part À LA VALIDATION, jamais à la frappe — une recherche à
+  // chaque lettre interrogerait le service dix fois pour un nom d'hôtel.
+  function placeFinder(container, { value = null, label = "Chercher un lieu", onChange } = {}) {
+    const state = { place: value ? { ...value } : null, results: [], busy: false, error: "" };
+    const say = () => { if (onChange) onChange(state.place); };
+    const esc2 = esc;
+
+    const render = () => {
+      const p = state.place;
+      container.innerHTML = `
+        <div class="place-finder">
+          <div class="row" style="gap:6px">
+            <input type="search" class="pf-q" placeholder="${esc2(label)}" enterkeyhint="search" autocomplete="off">
+            <button type="button" class="btn sm pf-go">${ic("pin", "sm")} Chercher</button>
+          </div>
+          <p class="help">Le nom de l'hôtel, ou son adresse. La recherche ne part qu'au bouton.</p>
+          ${state.busy ? `<p class="small muted">Recherche en cours…</p>` : ""}
+          ${state.error ? `<p class="small" style="color:var(--danger,#E05A8A)">${esc2(state.error)}</p>` : ""}
+          ${state.results.length ? `<div class="pf-list">${state.results.map((r, i) => `
+            <button type="button" class="pf-hit" data-i="${i}"><b>${esc2(r.name)}</b><span class="small muted">${esc2(r.address)}</span></button>`).join("")}</div>` : ""}
+          <details class="pf-manual"><summary>Je connais l'endroit : l'écrire moi-même</summary>
+            <div class="field"><label>Nom</label><input class="pf-name" value="${esc2(p ? p.name : "")}" placeholder="Quinta da Lua"></div>
+            <div class="field"><label>Adresse, si tu veux</label><input class="pf-addr" value="${esc2(p ? p.address : "")}" placeholder="Rua da Lua, Tavira"></div>
+            <div class="field"><label>Coordonnées GPS</label><input class="pf-ll" value="${p && p.lat != null ? `${p.lat}, ${p.lng}` : ""}" placeholder="37.1283, -7.6506">
+              <p class="help">Le point est exactement celui que tu écris : personne ne le devine à ta place.</p></div>
+            <div class="row"><button type="button" class="btn sm pf-keep">${ic("check", "sm")} Retenir ce lieu</button></div>
+          </details>
+          <div class="pf-chosen">${p && p.lat != null
+            ? `<span class="chip">${ic("pin", "sm")} <b>${esc2(p.name || "Sans nom")}</b>${p.address ? ` · <span class="small muted">${esc2(p.address)}</span>` : ""}</span>
+               <button type="button" class="btn sm ghost pf-clear">Retirer</button>`
+            : `<p class="small muted">Aucun lieu retenu pour l'instant.</p>`}</div>
+        </div>`;
+      bind();
+    };
+
+    const lancer = async () => {
+      const q = container.querySelector(".pf-q").value;
+      if (String(q || "").trim().length < 3) { state.error = "Écris au moins trois lettres."; render(); return; }
+      state.busy = true; state.error = ""; state.results = []; render();
+      container.querySelector(".pf-q").value = q;
+      try { state.results = await searchPlaces(q); if (!state.results.length) state.error = "Aucun lieu trouvé. Tu peux l'écrire toi-même, juste en dessous."; }
+      catch (e) { state.error = e && e.message ? e.message : "Recherche indisponible."; }
+      state.busy = false; render();
+      const inp = container.querySelector(".pf-q"); if (inp) inp.value = q;
+    };
+
+    function bind() {
+      const q = container.querySelector(".pf-q");
+      container.querySelector(".pf-go").onclick = lancer;
+      // Entrée cherche, et n'envoie surtout pas le formulaire qui nous entoure.
+      q.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); lancer(); } };
+      container.querySelectorAll(".pf-hit").forEach((b) => b.onclick = () => {
+        const r = state.results[+b.dataset.i]; if (!r) return;
+        state.place = { ...r }; state.results = []; render(); say();
+      });
+      container.querySelector(".pf-keep").onclick = () => {
+        const name = container.querySelector(".pf-name").value.trim();
+        const address = container.querySelector(".pf-addr").value.trim();
+        const ll = parseLatLng(container.querySelector(".pf-ll").value);
+        if (!ll) { state.error = "Il faut des coordonnées, sous la forme « 37.1283, -7.6506 »."; render(); return; }
+        state.place = { name, address, lat: ll.lat, lng: ll.lng, osm_type: null, osm_id: null };
+        state.error = ""; state.results = []; render(); say();
+      };
+      const clr = container.querySelector(".pf-clear");
+      if (clr) clr.onclick = () => { state.place = null; render(); say(); };
+    }
+
+    render();
+    return {
+      get: () => (state.place ? { ...state.place } : null),
+      set: (p) => { state.place = p ? { ...p } : null; render(); },
+    };
+  }
+
+  // ---------- La règle de reconduction ----------
+  // Le camp marqué sur le Jour n est l'endroit où l'on dort à la FIN du Jour n :
+  // il ferme le Jour n et ouvre le Jour n+1. Une nuit sert donc à deux journées.
+  // Et il vaut tant qu'on n'en marque pas un autre — trois nuits au même endroit,
+  // un seul geste.
+  //
+  // Le point de départ du voyage (Paris) est un camp daté de la VEILLE du premier
+  // jour : il n'y a donc rien de spécial à coder pour lui, la reconduction s'en
+  // charge. C'est la raison d'être de cette fonction unique.
+  const campsSorted = (camps) => (camps || []).filter((c) => c && c.night_date && c.lat != null)
+    .slice().sort((a, b) => a.night_date.localeCompare(b.night_date));
+
+  // Celui qui OUVRE la journée : le dernier camp marqué avant elle (la veille ou plus tôt).
+  function campOpening(camps, iso) {
+    let best = null;
+    for (const c of campsSorted(camps)) { if (c.night_date < iso) best = c; else break; }
+    return best;
+  }
+  // Celui qui la FERME : le camp de sa propre nuit s'il existe, sinon le précédent,
+  // reconduit. Une journée sans aucun camp avant elle n'en a pas — et c'est normal :
+  // rien n'est inventé.
+  function campClosing(camps, iso) {
+    const own = campsSorted(camps).find((c) => c.night_date === iso);
+    return own || campOpening(camps, iso);
+  }
+
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
     parseGPX, toGPX, colorForDay, get DAY_COLORS() { return dayColors(); }, dayStats, fmtDuration, profileSvg, placeName, fillPlaces,
     placesAround, osmCategory, osmKind, STOP_CATEGORIES, stopCategoryLabel, photoClusters, timeFromNearbyPhotos, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
+    searchPlaces, parseLatLng, placeFinder, campOpening, campClosing,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio, mosaic };
 })();

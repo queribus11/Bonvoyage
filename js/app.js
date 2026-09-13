@@ -29,6 +29,7 @@
     offline: false, syncing: false, pendingMedia: [],
     members: [], voices: [], stories: [], notes: [],   // v10 : l'équipage et les contributions signées
     stops: [],                                        // v10.8 : les arrêts d'une journée (#5)
+    camps: [],                                        // v10.40 : les camps de base, où l'on dort (#38)
   };
 
   // ---------------------------------------------------------------
@@ -219,6 +220,7 @@
     S.members = S.cur.members || [];
     S.voices = S.cur.voices || []; S.stories = S.cur.stories || []; S.notes = S.cur.notes || [];
     S.cur.stops = S.cur.stops || [];   // une base pas encore mise à jour n'en renvoie pas : le carnet marche quand même
+    S.cur.camps = S.cur.camps || [];   // idem pour les camps de base (#38)
     if (window.MEMBERS) MEMBERS.setCrew(S.members, S.user.id);
     $$(".panel-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === "days"));
     ensureMap();
@@ -401,6 +403,7 @@
       onTrackClick: (tr) => trackForm(tr),
       onDayClick: (iso) => { if (navigator.vibrate) navigator.vibrate(8); S.dayFilter = S.dayFilter === iso ? null : iso; redraw(true); renderPanel(); },
       onStopClick: (st) => stopForm(st.day_date, st),
+      onCampClick: (c) => campForm(c.night_date, () => renderPanel()),
     });
     if (fitAfter) fit();
   }
@@ -677,6 +680,7 @@
         <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
         <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(dVal("title"))}" placeholder="Traversée des Highlands" ${mine ? "" : "readonly"}></div></div>
         ${iso ? stopsFieldHtml(iso) : ""}
+        ${iso ? campFieldHtml(iso) : ""}
         ${iso ? `<div class="field"><label>Photos de la journée${dayPhotos.length ? ` (${dayPhotos.length})` : ""}</label>
           ${d?.published && !isLive() ? `<p class="small muted" style="margin:-2px 0 8px">Journée publiée : les photos ajoutées ici sont <b>déjà visibles</b> par tes proches. « Envoyer le lien » sert seulement à les prévenir.</p>` : ""}
           ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
@@ -898,10 +902,12 @@
     const refreshStops = () => {
       const holder = $("#stop-list", m.el);
       if (holder) { holder.innerHTML = stopsOf(iso).map(stopRowHtml).join(""); bindStopsField(m.el, iso, refreshStops); }
+      const box = $("#camp-box", m.el);
+      if (box) { box.innerHTML = campBoxHtml(iso); bindCampField(m.el, iso, refreshStops); }
       const lab = holder && holder.parentElement && $("label", holder.parentElement);
       if (lab) { const n = stopsOf(iso).length; lab.textContent = `Les arrêts de la journée${n ? ` (${n})` : ""}`; }
     };
-    if (iso) bindStopsField(m.el, iso, refreshStops);
+    if (iso) { bindStopsField(m.el, iso, refreshStops); bindCampField(m.el, iso, refreshStops); }
     // Galerie de la journée
     $$("#day-gallery .media-tile", m.el).forEach((el) => el.onclick = () => mediaViewer(S.cur.media.find((x) => x.id === el.dataset.id)));
     const addBtn = $("#day-add-photos", m.el), dayFiles = $("#day-files", m.el);
@@ -1356,6 +1362,93 @@
 
   // Le bloc de la fiche journée. Rien à afficher → il n'existe pas du tout
   // (règle : pas de contenu, pas de cadre).
+  // ---- #38 · « Notre camp de base » ----
+  // Le camp marqué sur une journée est l'endroit où l'on dort À LA FIN de cette
+  // journée : il la ferme, et il ouvre la suivante. Il vaut ensuite tant qu'on n'en
+  // marque pas un autre — trois nuits au même endroit, un seul geste.
+  const campOf = (iso) => CV.campClosing(S.cur.camps, iso);
+  function campFieldHtml(iso) {
+    const c = campOf(iso), propre = c && c.night_date === iso;
+    return `<div class="field"><label>Notre camp de base</label>
+      <div id="camp-box">${campBoxHtml(iso)}</div>
+      <p class="help">${propre
+        ? "C'est ici que vous dormez ce soir-là. Cette nuit ferme la journée et ouvre la suivante."
+        : c ? "Repris de la nuit précédente : tant que tu n'en marques pas un autre, c'est le même."
+            : "Marque l'endroit où vous dormez ce soir-là : la journée pourra partir de là."}</p></div>`;
+  }
+  function campBoxHtml(iso) {
+    const c = campOf(iso), propre = c && c.night_date === iso;
+    // Le nom sur sa ligne, les boutons en dessous : à 440 px, un nom d'hôtel et deux
+    // boutons sur la même ligne se cassent — vu en image avant de le montrer à Sophie.
+    return `${c ? `<div class="camp-nom"><span class="chip">${ic("pin", "sm")} <b>${esc(c.name || "Sans nom")}</b></span>${propre ? "" : `<span class="small muted">reconduit</span>`}</div>` : ""}
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn sm" id="camp-set">${ic(c ? "edit" : "pin", "sm")} ${c && propre ? "Changer le camp" : "Marquer le camp"}</button>
+      ${propre ? `<button type="button" class="btn sm ghost danger" id="camp-del">Retirer</button>` : ""}</div>`;
+  }
+  function bindCampField(root, iso, refresh) {
+    const set = $("#camp-set", root); if (set) set.onclick = () => campForm(iso, refresh);
+    const del = $("#camp-del", root);
+    if (del) del.onclick = async () => {
+      const c = campOf(iso); if (!c || c.night_date !== iso) return;
+      if (!(await confirm("Retirer ce camp de base ? Les journées suivantes reprendront le camp d'avant."))) return;
+      try {
+        await API.deleteCamp(c.id);
+        S.cur.camps = S.cur.camps.filter((x) => x.id !== c.id);
+        saveLocal(); redraw(); if (refresh) refresh();
+        toast("Camp de base retiré", "ok");
+      } catch (err) { errToast(err, 6000); }
+    };
+  }
+  // La fiche du camp. Comme partout depuis la v10.38 : la garde « c'est modifié »
+  // est DÉRIVÉE de la liste des champs envoyés, l'erreur remonte, et l'accusé de
+  // réception nomme ce qui vient d'être gardé.
+  function campForm(iso, after) {
+    const exist = (S.cur.camps || []).find((c) => c.night_date === iso) || null;
+    const repris = !exist ? campOf(iso) : null;   // celui qu'on reconduit, s'il y en a un
+    const n = dayNumber(S.cur.trip, iso);
+    const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
+      <div class="modal-head"><div class="grow"><h2 style="margin-bottom:0">Notre camp de base</h2></div>
+        <button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+      <p class="small muted">Où dormez-vous à la fin de cette journée ? Cette nuit ferme le
+        ${fmtDate(iso, false)} et ouvre le lendemain — et elle vaudra pour les nuits suivantes
+        tant que tu n'en marques pas une autre.</p>
+      ${repris ? `<p class="small muted">Pour l'instant, cette journée reprend « ${esc(repris.name || "Sans nom")} », marqué le ${fmtDate(repris.night_date, false)}.</p>` : ""}
+      <div id="camp-finder"></div>
+      <div class="actions sticky"><span class="grow"></span>
+        <button class="btn primary" id="camp-save" type="button">${ic("check")} Enregistrer</button></div>`,
+      { guard: () => dirty() });
+
+    const finder = CV.placeFinder($("#camp-finder", m.el), {
+      value: exist ? { name: exist.name, address: exist.address, lat: exist.lat, lng: exist.lng, osm_type: exist.osm_type, osm_id: exist.osm_id } : null,
+      label: "Nom de l'hôtel, ou adresse",
+    });
+
+    // #51 · une seule liste : ce qui part en base, et rien à côté.
+    const campFields = () => { const p = finder.get(); return p && p.lat != null
+      ? { name: p.name || "", address: p.address || "", lat: +(+p.lat).toFixed(6), lng: +(+p.lng).toFixed(6), osm_type: p.osm_type || null, osm_id: p.osm_id != null ? +p.osm_id : null }
+      : null; };
+    const same = (a, b) => (a ?? "") === (b ?? "");
+    const changed = () => {
+      const f = campFields(); if (!f) return [];
+      if (!exist) return Object.keys(f);
+      return Object.keys(f).filter((k) => (k === "lat" || k === "lng") ? Math.abs((f[k] || 0) - (exist[k] || 0)) > 1e-6 : !same(f[k], exist[k]));
+    };
+    const dirty = () => changed().length > 0;
+
+    $("#camp-save", m.el).onclick = async () => {
+      const f = campFields();
+      if (!f) return toast("Cherche le lieu, ou écris-le toi-même", "error");
+      if (!changed().length) { m.close(); return toast("Aucune modification à enregistrer"); }
+      try {
+        const r = await API.upsertCamp(S.cur.trip.id, iso, f);
+        const i = (S.cur.camps || []).findIndex((c) => c.night_date === iso);
+        if (i >= 0) S.cur.camps[i] = r; else S.cur.camps.push(r);
+        saveLocal(); redraw(); m.close(); if (after) after();
+        toast(`Camp de base du ${fmtDate(iso, false)} : ${f.name || "sans nom"}, enregistré`, "ok");
+      } catch (err) { errToast(err, 6000); }   // la fiche reste ouverte, rien n'est perdu
+    };
+  }
+
   function stopsFieldHtml(iso) {
     const list = stopsOf(iso);
     const canFind = CV.photoClusters(S.cur.media, iso).length > 0;

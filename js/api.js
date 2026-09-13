@@ -84,6 +84,12 @@
       const stopsP = sb().from("day_stops").select("*").eq("trip_id", id)
         .order("at_time", { ascending: true, nullsFirst: false }).range(0, 999)
         .then(({ data, error }) => (error ? [] : (data || [])), () => []);
+      // v10.40 · les camps de base, même précaution et pour la même raison :
+      // tant que la mise à jour v10.40 n'est pas passée dans la base, la table
+      // trip_camps n'existe pas, et le carnet doit s'ouvrir quand même.
+      const campsP = sb().from("trip_camps").select("*").eq("trip_id", id)
+        .order("night_date", { ascending: true }).range(0, 999)
+        .then(({ data, error }) => (error ? [] : (data || [])), () => []);
       const [trip, days, tracks, media, comments, members, voices, stories, notes] = await Promise.all([
         unwrap(await sb().from("trips").select("*").eq("id", id).single()),
         unwrap(await sb().from("days").select("*").eq("trip_id", id).order("day_date").range(0, 999)),
@@ -95,7 +101,7 @@
         unwrap(await sb().from("day_stories").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
         unwrap(await sb().from("day_notes").select("*").eq("trip_id", id).order("created_at").range(0, 999)),
       ]);
-      return { trip, days, tracks, media, comments, members, voices, stories, notes, stops: await stopsP };
+      return { trip, days, tracks, media, comments, members, voices, stories, notes, stops: await stopsP, camps: await campsP };
     },
 
     // ---------- Journées ----------
@@ -186,6 +192,18 @@
     },
     async updateStop(id, fields) {
       return unwrap(await sb().from("day_stops").update(fields).eq("id", id).select().single());
+    },
+    // ---- Les camps de base (#38) ----
+    // Une seule porte pour marquer une nuit : la contrainte d'unicité par nuit
+    // fait que « marquer » et « changer » sont le même geste. C'est elle, et non
+    // l'app, qui garantit qu'il n'y a jamais deux camps le même soir.
+    async upsertCamp(tripId, nightDate, fields) {
+      return unwrap(await sb().from("trip_camps")
+        .upsert({ ...fields, trip_id: tripId, night_date: nightDate }, { onConflict: "trip_id,night_date" })
+        .select().single());
+    },
+    async deleteCamp(id) {
+      unwrap(await sb().from("trip_camps").delete().eq("id", id));
     },
     async deleteStop(id) {
       unwrap(await sb().from("day_stops").delete().eq("id", id));

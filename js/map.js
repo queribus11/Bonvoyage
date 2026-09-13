@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.39";
+window.BV_VERSION = "10.40";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -142,6 +142,11 @@ window.BVMAP = (() => {
   // journées en blanc discret pour situer, un cercle creux au départ, un cercle plein à
   // l'arrivée, et leur nom s'il y en a un. Aucune pastille photo, aucun arrêt, aucun numéro
   // de jour : ce qui est caché ici l'est par la classe `bv-overview` posée sur la carte.
+  // « Assez près pour que ce soit le même endroit » : 300 m. Ce rayon sert à nommer
+  // les bouts d'une journée (#42) — et, au lot suivant, à ne pas rajouter un tronçon
+  // quand la trace part déjà du camp. Une seule valeur, deux usages : elle ne peut
+  // plus diverger d'elle-même.
+  const PROCHE_M = 300;
   function nearestStopName(data, iso, pt, maxM) {
     let best = null, bd = Infinity;
     for (const st of data.stops || []) {
@@ -170,7 +175,7 @@ window.BVMAP = (() => {
       el.className = "bv-bout " + genre;
       el.style.setProperty("--c", couleur);
       M.endMarkers.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(pt).addTo(M.map));
-      const nom = nearestStopName(data, iso, pt, 300);
+      const nom = nearestStopName(data, iso, pt, PROCHE_M);
       if (!nom) return null;
       let q = { x: 0, y: 0 }; try { q = M.map.project(pt); } catch { }
       const h = M.container.clientHeight || 956, w = M.container.clientWidth || 440;
@@ -243,7 +248,7 @@ window.BVMAP = (() => {
   function create(el, opts = {}) {
     const container = typeof el === "string" ? document.getElementById(el) : el;
     const isDark = () => !!(window.THEME && THEME.isDark());
-    const M = { base: defaultBase(), terrain: false, ready: false, markers: new Map(), dayMarkers: [], stopMarkers: [], me: null, data: null, drawOpts: {}, replaying: false, reading: !!opts.reading, activeDay: null, container };
+    const M = { base: defaultBase(), terrain: false, ready: false, markers: new Map(), dayMarkers: [], stopMarkers: [], campMarkers: [], me: null, data: null, drawOpts: {}, replaying: false, reading: !!opts.reading, activeDay: null, container };
 
     const map = new maplibregl.Map({
       container, style: buildStyle(M.base, isDark(), M.reading),
@@ -371,6 +376,7 @@ window.BVMAP = (() => {
     }
     drawDayMarkers(M, data, dayList, options);
     drawStopMarkers(M, data, options);
+    drawCampMarkers(M, data, options);
     for (const mk of M.markers.values()) mk.marker.remove(); M.markers.clear();
     syncPhotoMarkers(M);
     return { bounds: computeBounds(data, filter), dayList };
@@ -472,6 +478,9 @@ window.BVMAP = (() => {
     for (const m of data.media || []) { if (filter && m.day_date !== filter) continue; if (m.lat != null && m.lng != null) ext(m.lng, m.lat); }
     // Un arrêt posé loin de la trace ne doit pas tomber hors cadre
     for (const st of data.stops || []) { if (filter && st.day_date !== filter) continue; if (st.lat != null && st.lng != null) ext(st.lng, st.lat); }
+    // #38 · les camps non plus : une journée qui part de l'hôtel doit le montrer.
+    // Quand une journée est ouverte, seuls les deux camps qui la bornent comptent.
+    for (const c of campsOfView(data, filter)) ext(c.lng, c.lat);
     return b;
   }
   function boundsOf(points) { let b = null; for (const p of points) { if (!b) b = [[p.lng, p.lat], [p.lng, p.lat]]; else { b[0][0] = Math.min(b[0][0], p.lng); b[0][1] = Math.min(b[0][1], p.lat); b[1][0] = Math.max(b[1][0], p.lng); b[1][1] = Math.max(b[1][1], p.lat); } } return b; }
@@ -512,6 +521,50 @@ window.BVMAP = (() => {
       el.title = st.name || "Arrêt"; el.setAttribute("aria-label", st.name || "Arrêt");
       el.addEventListener("click", (e) => { e.stopPropagation(); if (options.onStopClick) options.onStopClick(st); });
       M.stopMarkers.push(new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([st.lng, st.lat]).addTo(M.map));
+    }
+  }
+
+  // #38 · Les camps de base. Ils ne se dessinent PAS comme les arrêts, et c'est le
+  // cœur du sujet : un arrêt appartient à une journée, un camp est un repère.
+  //
+  //   · aucune journée ouverte → TOUS les camps du voyage, en état « repère » :
+  //     c'est le squelette du séjour, on voit où l'on a dormi et les journées
+  //     tiennent entre ces points.
+  //   · une journée ouverte → celui qui l'ouvre et celui qui la ferme, en état
+  //     « nommé ». Un seul picto s'ils sont le même (c'est le cas dès la deuxième
+  //     nuit au même endroit).
+  //
+  // ⛔ Ne pas « harmoniser » les dix pictos d'arrêt là-dessus : eux restent
+  // affichés seulement quand une journée est ouverte. C'est une décision de Sophie
+  // prise en v10.8, et les rendre permanents déferait #37.
+  function campsOfView(data, filter) {
+    const camps = (data.camps || []).filter((c) => c && c.lat != null && c.lng != null);
+    if (!camps.length) return [];
+    if (!filter) return camps;
+    const o = CV.campOpening(camps, filter), f = CV.campClosing(camps, filter);
+    const vus = [];
+    for (const c of [o, f]) if (c && !vus.some((x) => x.id === c.id)) vus.push(c);
+    return vus;
+  }
+  function drawCampMarkers(M, data, options) {
+    for (const mk of M.campMarkers) mk.remove(); M.campMarkers = [];
+    if (options.noStops) return;   // la journée immobile ne montre que la forme du jour
+    const filter = options.dayFilter;
+    const nomme = !!filter;
+    const T = window.BV_CAMP_TAILLES || { repere: 22, nomme: 34, opaciteRepere: .62 };
+    const taille = nomme ? T.nomme : T.repere;
+    for (const c of campsOfView(data, filter)) {
+      const el = document.createElement("div");
+      el.className = "bv-camp" + (nomme ? " nomme" : " repere");
+      el.style.setProperty("--taille", taille + "px");
+      if (!nomme) el.style.setProperty("--opacite", String(T.opaciteRepere));
+      el.innerHTML = `<span class="in">${window.BV_CAMP_PICTO || ""}</span>`;
+      // Le nom se pose en TEXTE, jamais en HTML : rien à échapper, donc rien à oublier.
+      if (nomme && c.name) { const n = document.createElement("span"); n.className = "nom"; n.textContent = c.name; el.appendChild(n); }
+      const titre = c.name || "Notre camp de base";
+      el.title = titre; el.setAttribute("aria-label", titre);
+      el.addEventListener("click", (e) => { e.stopPropagation(); if (options.onCampClick) options.onCampClick(c); });
+      M.campMarkers.push(new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([c.lng, c.lat]).addTo(M.map));
     }
   }
 
@@ -915,5 +968,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
