@@ -362,8 +362,8 @@
   function renderTripHeader() {
     const t = S.cur.trip;
     $("#trip-title").textContent = t.title;
-    const km = S.cur.tracks.reduce((a, x) => a + (x.distance_m || 0), 0);
-    $("#trip-sub").textContent = [t.start_date ? fmtDate(t.start_date, false) : "", km ? fmtDistance(km) : "", S.cur.media.length ? S.cur.media.length + " photos" : ""].filter(Boolean).join(" · ");
+    const kmTot = CV.tripDistance(S.cur, allDays());   // #38 · même règle que les journées
+    $("#trip-sub").textContent = [t.start_date ? fmtDate(t.start_date, false) : "", CV.fmtDayDistance(kmTot), S.cur.media.length ? S.cur.media.length + " photos" : ""].filter(Boolean).join(" · ");
   }
 
   // ---------- Carte ----------
@@ -605,6 +605,10 @@
       <div class="day-list">${days.map((iso) => {
         const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso);
         const km = S.cur.tracks.filter((x) => x.day_date === iso).reduce((a, x) => a + (x.distance_m || 0), 0);
+        // #38 · mesuré + estimé, et « ≈ » dès qu'une estimation entre dedans.
+        // Dans L'ATELIER, une journée sans rien affiche « — » : le vide est ce que
+        // Sophie a besoin de voir pour travailler. Chez le proche, rien du tout.
+        const dd = CV.dayDistance(S.cur, iso), kmTxt = CV.fmtDayDistance(dd) || "—";
         const ph = S.cur.media.filter((x) => x.day_date === iso);
         const color = CV.colorForDay(dl, iso);
         const st = CV.dayStats(S.cur.tracks.filter((x) => x.day_date === iso));
@@ -613,7 +617,7 @@
           <div class="num" style="background:${color}" title="Voir cette journée sur la carte"><small>${n ? "Jour" : ""}</small>${n || fmtDateShort(iso)}</div>
           <div class="info"><b>${esc(d?.title || fmtDate(iso))}</b>${pill(d?.author_id, { small: true })}
             <span>${d?.title ? fmtDate(iso, false) : ""}${d?.place ? ` · ${ic("pin", "sm")} ${esc(d.place)}` : ""}</span>
-            <span>${km ? `${ic("route", "sm")} ${fmtDistance(km)}` : ""}${st.hasAlt && st.gain ? ` · ↗ ${st.gain} m` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
+            <span>${ic("route", "sm")} ${kmTxt}${st.hasAlt && st.gain ? ` · ↗ ${st.gain} m` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
             ${cover ? `<div class="day-cover" style="background-image:url('${gridSrc(cover)}')"></div>` : ""}
             ${(km || ph.length || d) ? `<div class="status">${isLive() ? (d?.published ? `<span class="chip pub">Annoncée</span>` : "") : (d?.published ? `<span class="chip pub">Publiée</span>` : `<span class="chip draft">Brouillon</span>`)}</div>` : ""}
             ${ph.length > 1 ? `<div class="thumbs">${ph.slice(1, 6).map((x) => `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`).join("")}</div>` : ""}
@@ -645,8 +649,9 @@
     const dayMode = d?.transport && BVMAP.MODES[d.transport] ? d.transport : "";
     const canRoute = iso && !routeTrack && !S.cur.tracks.some((t) => t.day_date === iso && (t.points || []).length >= 2) && dayPhotos.filter((x) => x.lat != null).length >= 2;
     const dl0 = allDays();
-    const statsHtml = st && st.distance_m ? `<div class="day-stats">
-        <div><b>${fmtDistance(st.distance_m)}</b><small>distance</small></div>
+    const dd = iso ? CV.dayDistance(S.cur, iso) : null;
+    const statsHtml = iso ? `<div class="day-stats">
+        <div><b>${CV.fmtDayDistance(dd) || "—"}</b><small>distance</small></div>
         ${st.duration_s ? `<div><b>${CV.fmtDuration(st.duration_s)}</b><small>durée</small></div>` : ""}
         ${st.hasAlt ? `<div><b>↗ ${st.gain} m</b><small>montée</small></div><div><b>↘ ${st.loss} m</b><small>descente</small></div><div><b>${st.maxAlt} m</b><small>alt. max</small></div>` : ""}
       </div>${st.hasAlt ? CV.profileSvg(st.profile, CV.colorForDay(dl0, iso)) : ""}` : "";
@@ -689,8 +694,8 @@
         ${iso && mine ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
           <div class="mode-picker" id="day-mode-picker">${[["", "🤔", "l'app devine"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, v.icon, v.label.replace(/^(à|en) /, "")])].map(([k, icon, lab]) => `<button type="button" class="mode${dayMode === k ? " active" : ""}" data-mode="${k}">${icon}<small>${lab}</small></button>`).join("")}<input type="hidden" name="transport" value="${esc(dayMode)}"></div>
           <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
-        ${legs && legs.length > 1 ? `<details class="legs-details"><summary>Changements en cours de journée (${legs.length} tronçons)</summary><div class="legs">${legs.map((l, i) => `<div class="leg"><img src="${API.publicUrl(l.from.thumb_path || l.from.path)}" alt=""><span class="arrow">→</span><img src="${API.publicUrl(l.to.thumb_path || l.to.path)}" alt="">
-            <select data-from="${l.from.id}" class="leg-mode"><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : `comme avant (${BVMAP.MODES[l.mode].label})`}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.from.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div><p class="help">Chaque ligne = le trajet de la photo de gauche à celle de droite ; le choix vaut à partir de la photo de gauche jusqu'au prochain changement.</p></details>` : ""}` : ""}
+        ${legs && legs.length > 1 ? `<details class="legs-details"><summary>Changements en cours de journée (${legs.length} tronçons)</summary><div class="legs">${legs.map((l, i) => `<div class="leg">${legBout(l.from, l.fromKind)}<span class="arrow">→</span>${legBout(l.to, l.toKind)}
+            <select data-from="${l.from.id || ""}" data-kind="${l.fromKind || "media"}" class="leg-mode" ${l.fromKind === "trace" ? "disabled" : ""}><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : `comme avant (${BVMAP.MODES[l.mode].label})`}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.from.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div><p class="help">Chaque ligne = le trajet du point de gauche à celui de droite ; le choix vaut à partir du point de gauche jusqu'au prochain changement.</p></details>` : ""}` : ""}
         ${mine ? `<div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(dVal("story"))}</textarea></div>
         <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>`
         : `${d?.story ? `<div class="field"><label>Le récit de ${esc(MEMBERS.name(d.author_id) || "l'équipage")}</label><div class="story-read">${nl2p(d.story)}</div></div>` : ""}
@@ -929,10 +934,24 @@
       try { const u = await API.upsertDay(S.user, S.cur.trip.id, iso, { transport: b.dataset.mode || null }); Object.assign(d, u); saveLocal(); redraw(); toast(b.dataset.mode ? `Journée ${BVMAP.MODES[b.dataset.mode].label}` : "L'app devinera le moyen de locomotion", "ok", 1800); }
       catch (err) { errToast(err); }
     });
+    // #38 · Le bout d'un tronçon n'est plus forcément une photo : ce peut être un arrêt ou
+    // un camp. On écrit donc dans la table qui convient — avant, ce code faisait un
+    // `S.cur.media.find(...)` et sortait EN SILENCE pour tout le reste.
     $$(".leg-mode", m.el).forEach((sel) => sel.onchange = async () => {
-      const x = S.cur.media.find((y) => y.id === sel.dataset.from); if (!x) return;
-      try { const u = await API.updateMedia(x.id, { transport: sel.value || null }); Object.assign(x, u); saveLocal(); redraw(); toast(sel.value ? `Tronçon ${BVMAP.MODES[sel.value].label}` : "Tronçon : comme le précédent", "ok", 1800); }
-      catch (err) { errToast(err); }
+      const id = sel.dataset.from, kind = sel.dataset.kind, mode = sel.value || null;
+      const dit = () => { saveLocal(); redraw(); toast(mode ? `Tronçon ${BVMAP.MODES[mode].label}` : "Tronçon : comme le précédent", "ok", 1800); };
+      try {
+        if (kind === "stop") {
+          const st = (S.cur.stops || []).find((y) => y.id === id); if (!st) return;
+          Object.assign(st, await API.updateStop(st.id, { transport: mode })); dit();
+        } else if (kind === "camp") {
+          const c = (S.cur.camps || []).find((y) => y.id === id); if (!c) return;
+          Object.assign(c, await API.upsertCamp(S.cur.trip.id, c.night_date, { lat: c.lat, lng: c.lng, name: c.name, address: c.address, transport: mode })); dit();
+        } else {
+          const x = S.cur.media.find((y) => y.id === id); if (!x) return;
+          Object.assign(x, await API.updateMedia(x.id, { transport: mode })); dit();
+        }
+      } catch (err) { errToast(err); }
     });
     const routeDel = $("#day-route-del", m.el);
     if (routeDel) routeDel.onclick = async () => {
@@ -1362,6 +1381,15 @@
 
   // Le bloc de la fiche journée. Rien à afficher → il n'existe pas du tout
   // (règle : pas de contenu, pas de cadre).
+  // #38 · Un bout de tronçon : la vignette quand c'est une photo, un picto sinon.
+  // Un camp ni un arrêt n'ont d'image — l'ancien code leur demandait `thumb_path`.
+  function legBout(x, kind) {
+    if (kind === "camp") return `<span class="leg-picto" title="${esc(x.name || "Notre camp de base")}">${window.BV_CAMP_PICTO || ic("pin")}</span>`;
+    if (kind === "stop") return `<span class="leg-picto" title="${esc(x.name || "Arrêt")}">${(window.BV_STOP_PICTOS && (BV_STOP_PICTOS[x.category] || BV_STOP_PICTOS.autre)) || ic("pin")}</span>`;
+    if (kind === "trace") return `<span class="leg-picto" title="La trace GPS">${ic("route")}</span>`;
+    return `<img src="${API.publicUrl(x.thumb_path || x.path)}" alt="">`;
+  }
+
   // ---- #38 · « Notre camp de base » ----
   // Le camp marqué sur une journée est l'endroit où l'on dort À LA FIN de cette
   // journée : il la ferme, et il ouvre la suivante. Il vaut ensuite tant qu'on n'en
@@ -1414,6 +1442,9 @@
         tant que tu n'en marques pas une autre.</p>
       ${repris ? `<p class="small muted">Pour l'instant, cette journée reprend « ${esc(repris.name || "Sans nom")} », marqué le ${fmtDate(repris.night_date, false)}.</p>` : ""}
       <div id="camp-finder"></div>
+      <div class="field"><label>Pour partir d'ici, on voyage…</label>
+        <select id="camp-mode">${[["", "comme la journée"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, `${v.icon} ${v.label}`])].map(([k, lab]) => `<option value="${k}" ${((exist && exist.transport) || "") === k ? "selected" : ""}>${lab}</option>`).join("")}</select>
+        <p class="help">Le cas courant : la marche est à pied, mais le trajet depuis l'hôtel se fait en voiture.</p></div>
       <div class="actions sticky"><span class="grow"></span>
         <button class="btn primary" id="camp-save" type="button">${ic("check")} Enregistrer</button></div>`,
       { guard: () => dirty() });
@@ -1425,7 +1456,9 @@
 
     // #51 · une seule liste : ce qui part en base, et rien à côté.
     const campFields = () => { const p = finder.get(); return p && p.lat != null
-      ? { name: p.name || "", address: p.address || "", lat: +(+p.lat).toFixed(6), lng: +(+p.lng).toFixed(6), osm_type: p.osm_type || null, osm_id: p.osm_id != null ? +p.osm_id : null }
+      ? { name: p.name || "", address: p.address || "", lat: +(+p.lat).toFixed(6), lng: +(+p.lng).toFixed(6),
+          transport: ($("#camp-mode", m.el) || {}).value || null,
+          osm_type: p.osm_type || null, osm_id: p.osm_id != null ? +p.osm_id : null }
       : null; };
     const same = (a, b) => (a ?? "") === (b ?? "");
     const changed = () => {
@@ -1485,6 +1518,9 @@
         <div class="field"><label>Catégorie</label><select name="category">${CV.STOP_CATEGORIES.map((c) => `<option value="${c.k}" ${(cur.category || "autre") === c.k ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>
         <div class="row"><div class="field grow"><label>Heure</label><input type="time" name="hhmm" value="${cur.at_time ? toLocalTime(cur.at_time) : ""}">
           <p class="help">Vide quand il n'y a pas de photo : l'app n'invente pas d'heure.</p></div></div>
+        <div class="field"><label>À partir d'ici, je voyage…</label>
+          <select name="transport">${[["", "comme avant"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, `${v.icon} ${v.label}`])].map(([k, lab]) => `<option value="${k}" ${(cur.transport || "") === k ? "selected" : ""}>${lab}</option>`).join("")}</select>
+          <p class="help">Le parking porte « à pied » quand la photo d'avant portait « voiture » : sans ça, la voiture irait jusqu'à la porte du musée.</p></div>
         <div class="field"><label>Une note, si tu veux</label><input name="note" value="${esc(cur.note || "")}" placeholder="La lumière de fin d'après-midi"></div>
         ${(cur.media_ids || []).length ? `<p class="small muted">${cur.media_ids.length} photo${cur.media_ids.length > 1 ? "s" : ""} rattachée${cur.media_ids.length > 1 ? "s" : ""} à cet arrêt.</p>` : ""}
         <div class="actions sticky">
@@ -1501,6 +1537,7 @@
         day_date: iso, lat: cur.lat, lng: cur.lng, name,
         category: fd.category || "autre", note: (fd.note || "").trim(),
         at_time: timeToIso(iso, fd.hhmm) || null,
+        transport: fd.transport || null,
       };
       if (isNew) { fields.media_ids = cur.media_ids || []; if (cur.osm_type) { fields.osm_type = cur.osm_type; fields.osm_id = cur.osm_id; } }
       try {

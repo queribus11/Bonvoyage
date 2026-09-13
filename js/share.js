@@ -54,7 +54,8 @@
   function animateKm() {
     const el = $(".km"); if (!el || !window.requestAnimationFrame) return;
     const target = +el.dataset.km, t0 = performance.now();
-    const step = (t) => { const p = Math.min(1, (t - t0) / 900), e = 1 - Math.pow(1 - p, 3); el.textContent = fmtDistance(target * e); if (p < 1) requestAnimationFrame(step); };
+    const env = el.dataset.est === "1" ? "≈ " : "";   // #38 · le « ≈ » ne doit pas disparaître pendant l'animation
+    const step = (t) => { const p = Math.min(1, (t - t0) / 900), e = 1 - Math.pow(1 - p, 3); el.textContent = env + fmtDistance(target * e); if (p < 1) requestAnimationFrame(step); };
     requestAnimationFrame(step);
   }
   function homeTipHtml() {
@@ -127,7 +128,8 @@
 
   function render() {
     const t = D.trip, days = dayList();
-    const km = D.tracks.reduce((a, x) => a + (x.distance_m || 0), 0);
+    const kmTot = CV.tripDistance(D, dayList());   // #38 · même règle que les journées
+    const km = kmTot.m;
     const tripStats = CV.dayStats(D.tracks);
     const canReplay = D.tracks.some((t) => (t.points || []).length >= 2) || D.media.some((m) => m.lat != null);
     const cover = t.cover_path ? API.publicUrl(t.cover_path) : (D.media.find((m) => m.kind === "photo") ? API.publicUrl(D.media.find((m) => m.kind === "photo").path) : "");
@@ -146,7 +148,7 @@
           <div class="stats">
             ${t.start_date ? `<span>${ic("calendar", "sm")} ${fmtDate(t.start_date, false)}${t.end_date ? " → " + fmtDate(t.end_date, false) : ""}</span>` : ""}
             ${days.length ? `<span>${ic("clock", "sm")} ${days.length} jour${days.length > 1 ? "s" : ""}</span>` : ""}
-            ${km ? `<span>${ic("route", "sm")} <b class="km" data-km="${km}">${fmtDistance(km)}</b></span>` : ""}
+            ${km ? `<span>${ic("route", "sm")} <b class="km" data-km="${km}" data-est="${kmTot.est ? 1 : 0}">${CV.fmtDayDistance(kmTot)}</b></span>` : ""}
             ${D.media.length ? `<span>${ic("camera", "sm")} ${D.media.length} photo${D.media.length > 1 ? "s" : ""}</span>` : ""}
             ${tripStats.hasAlt && tripStats.gain ? `<span title="Dénivelé positif cumulé">↗ ${tripStats.gain.toLocaleString("fr-FR")} m</span>` : ""}
           </div>
@@ -443,10 +445,11 @@
     $("#replay-next").onclick = () => { const c = map.replayCtl; if (c) c.next(); };
     // Carte-bilan à la fin du survol complet : chiffres du voyage et invitation à laisser un mot
     const showRecap = () => {
-      const km = D.tracks.reduce((a, x) => a + (x.distance_m || 0), 0);
+      const kmTot = CV.tripDistance(D, days);   // #38 · même règle que les journées
+      const km = kmTot.m;
       const back = document.createElement("div"); back.className = "modal-back recap-back";
       back.innerHTML = `<div class="modal recap"><img src="icons/valdo.svg" alt="" class="recap-valdo"><h2>${esc(D.trip.title)}</h2>
-        <div class="recap-stats">${days.length ? `<div><b>${days.length}</b><small>jour${days.length > 1 ? "s" : ""}</small></div>` : ""}${km ? `<div><b>${fmtDistance(km)}</b><small>parcourus</small></div>` : ""}${D.media.length ? `<div><b>${D.media.length}</b><small>photo${D.media.length > 1 ? "s" : ""}</small></div>` : ""}</div>
+        <div class="recap-stats">${days.length ? `<div><b>${days.length}</b><small>jour${days.length > 1 ? "s" : ""}</small></div>` : ""}${km ? `<div><b>${CV.fmtDayDistance(kmTot)}</b><small>parcourus</small></div>` : ""}${D.media.length ? `<div><b>${D.media.length}</b><small>photo${D.media.length > 1 ? "s" : ""}</small></div>` : ""}</div>
         <div class="actions" style="justify-content:center;flex-wrap:wrap">${D.trip.allow_comments && D.days.length ? `<button class="btn primary" id="recap-comment">${ic("message", "sm")} Laisser un mot</button>` : ""}<button class="btn" id="recap-close">Retour au récit</button></div></div>`;
       $("#modal-host").appendChild(back);
       const close = () => back.remove();
@@ -540,6 +543,10 @@
     const n = dayNumber(D.trip, iso);
     const media = D.media.filter((m) => m.day_date === iso);
     const km = D.tracks.filter((x) => x.day_date === iso).reduce((a, x) => a + (x.distance_m || 0), 0);
+    // #38 · la journée part du camp et y revient : sa distance comprend donc les tronçons
+    // estimés, et porte « ≈ ». Quand il n'y a rien du tout, on n'affiche rien — pas de
+    // contenu, pas de bloc. (Le « — » est réservé à l'atelier, où le vide est une information.)
+    const kmTxt = CV.fmtDayDistance(CV.dayDistance(D, iso));
     const comments = D.comments.filter((c) => c.day_id && c.day_id === d.id);
     const color = CV.colorForDay(days, iso);
     const st = CV.dayStats(D.tracks.filter((x) => x.day_date === iso));
@@ -554,7 +561,7 @@
     // Le titre de repli « Jour n » a disparu : la carte le dit déjà, juste au-dessus.
     // Le récit n'affiche que le VRAI titre de la journée — et rien quand elle n'en a pas.
     return `<section class="day-section" data-iso="${iso}" id="day-${iso}">
-      <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${fmtDate(iso)}${km ? ` · ${fmtDistance(km)}` : ""}${d.title ? "" : mark + pill}</div>
+      <div class="kicker" data-iso="${iso}" title="Voir cette journée sur la carte"><span class="dot" style="background:${color}"></span>${fmtDate(iso)}${kmTxt ? ` · ${kmTxt}` : ""}${d.title ? "" : mark + pill}</div>
       ${d.title ? `<h2>${esc(d.title)}${mark}${pill}</h2>` : ""}
       ${lead ? `<figure class="day-lead" data-id="${lead.id}"${lead.lat != null ? " data-geo" : ""}>
         ${MEMBERS.dot(lead.author_id)}
@@ -616,6 +623,12 @@
     BVMAP.drawStopMarkers(map, D, {
       dayFilter: stopDay,
       onStopClick: (st) => { $(`#day-${st.day_date}`)?.scrollIntoView({ behavior: "smooth" }); },
+    });
+    // #38 · les camps suivent le même mouvement : nommés sur la journée qu'on lit,
+    // discrets partout ailleurs.
+    BVMAP.drawCampMarkers(map, D, {
+      dayFilter: stopDay,
+      onCampClick: (c) => { $(`#day-${c.night_date}`)?.scrollIntoView({ behavior: "smooth" }); },
     });
   }
   // #37 · Le recadrage sur la journée qu'on vient d'atteindre, au tempo des journées

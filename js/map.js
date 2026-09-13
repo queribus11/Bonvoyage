@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.40";
+window.BV_VERSION = "10.41";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -354,10 +354,14 @@ window.BVMAP = (() => {
       if (m.lat == null || m.lng == null) continue;
       photos.push({ type: "Feature", properties: { id: m.id }, geometry: { type: "Point", coordinates: [m.lng, m.lat] } });
     }
-    // Journées sans trace : on relie les photos dans l'ordre de l'heure (trajet estimé, en pointillés)
+    // Journées sans trace : on relie les photos et les arrêts dans l'ordre, du camp au camp
+    // (trajet estimé, en pointillés). Une journée QUI A une trace n'est plus sautée depuis
+    // la v10.41 : elle n'a que ses deux bouts — du camp au début de la trace, et de la fin
+    // de la trace au camp. Le milieu reste en trait plein, c'est du relevé.
     for (const iso of dayList) {
       if (filter && iso !== filter) continue;
-      if (lines.some((l) => l.properties.day === iso && !l.properties.dash)) continue;
+      // Un itinéraire déjà matérialisé en trace (« Tracer l'itinéraire ») est une estimation
+      // complète : on ne la double pas.
       if (tracks.some((t) => t.day_date === iso && t.source === "route" && (t.points || []).length >= 2)) continue;
       const legs = estimatedLegs(data, iso);
       if (legs && !M._roadRedraw) { const missing = applyRoads(legs, () => { M._roadRedraw = false; if (M.data && !M.replaying) draw(M, M.data, M.drawOpts); }); if (missing) M._roadRedraw = true; }
@@ -385,13 +389,23 @@ window.BVMAP = (() => {
   // estimés entre les photos. `est` dit lequel des deux — c'est ce qui décide des pointillés.
   // (Le survol construit la même chose, il s'en sert aussi : une seule vérité.)
   function dayPath(data, iso) {
-    const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2)
-      .slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
+    const trs = dayTracks(data, iso);
     let coords = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null).map((p) => [p.lng, p.lat]));
-    if (coords.length >= 2) return { coords, est: false, legs: null, tracks: trs };
-    const legs = estimatedLegs(data, iso), e = legs ? pathFromLegs(legs) : null;
+    const legs = estimatedLegs(data, iso);
+    // #38 · une journée tracée est prolongée elle aussi : le camp, la trace, le camp.
+    // Les deux bouts sont estimés, le milieu est relevé — le trait le dira (pointillés
+    // pour les bouts, plein pour la trace).
+    if (coords.length >= 2) {
+      const head = legs && legs[0] && legs[0].to && legs[0].to._piste === "debut" ? legs[0] : null;
+      const tail = legs && legs.length && legs[legs.length - 1].from && legs[legs.length - 1].from._piste === "fin" ? legs[legs.length - 1] : null;
+      const avant = head ? head.coords.slice(0, -1) : [], apres = tail ? tail.coords.slice(1) : [];
+      return { coords: avant.concat(coords, apres), est: false, legs, tracks: trs };
+    }
+    const e = legs ? pathFromLegs(legs) : null;
     return e ? { coords: e, est: true, legs, tracks: trs } : { coords, est: false, legs, tracks: trs };
   }
+  const dayTracks = (data, iso) => (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length >= 2)
+    .slice().sort((a, b) => (a.points[0].t || 0) - (b.points[0].t || 0));
   // Photos géolocalisées d'une journée, dans l'ordre de l'heure
   function dayPhotosSorted(media, iso) {
     return (media || []).filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
@@ -399,19 +413,87 @@ window.BVMAP = (() => {
   }
   // Moyen de locomotion de la journée (réglage de la journée), sinon null
   function dayTransport(data, iso) { const d = (data.days || []).find((x) => x.day_date === iso); return d && d.transport && MODES[d.transport] ? d.transport : null; }
-  // Tronçons estimés d'une journée : de photo en photo. Mode = celui de la journée, changé « à partir de » toute photo
-  // qui en précise un ; sans rien, l'app devine (plus de 2,5 km = voiture par la route, sinon à pied). Fonction pure (aucune requête).
+  // #38 · Les points d'une journée : ses photos ET ses arrêts, dans l'ordre.
+  //
+  // L'ORDRE, et c'est le point délicat : une photo a toujours une heure, un arrêt n'en a
+  // une que s'il vient d'une photo. On ordonne donc par l'heure, et un arrêt sans heure
+  // prend celle de l'élément qui le précède dans `sort_order` — le fil des arrêts, que
+  // Sophie contrôle.
+  //
+  // ⚠️ Cette heure-là ne quitte JAMAIS cette fonction : elle n'est ni enregistrée, ni
+  // affichée, ni renvoyée. C'est un ordre de dessin, pas une donnée. « L'app n'invente
+  // pas d'heure » reste vrai — un arrêt sans photo n'en reçoit toujours aucune. Ne pas
+  // « ranger » cette valeur dans la base en croyant simplifier.
+  function dayPoints(data, iso) {
+    // Une photo a toujours une heure : elle n'a pas besoin du fil.
+    const photos = (data.media || []).filter((m) => m.day_date === iso && m.lat != null && m.lng != null)
+      .map((m) => ({ kind: "media", ref: m, lat: m.lat, lng: m.lng, transport: m.transport || null,
+                     ordre: m.taken_at || m.created_at || "", rang: 0 }));
+    // `sort_order` n'a de sens qu'ENTRE ARRÊTS : celui d'une photo est un autre compte
+    // (l'ordre d'affichage dans la grille). Les deux ne se comparent pas.
+    const arrets = (data.stops || []).filter((st) => st.day_date === iso && st.lat != null && st.lng != null)
+      .slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (a.at_time || "").localeCompare(b.at_time || ""));
+    let derniere = "";
+    const pts = arrets.map((st) => {
+      const t = st.at_time || "";
+      if (t) derniere = t;
+      // Un arrêt sans heure prend celle de l'arrêt qui le précède dans le fil. S'il est le
+      // premier, il ouvre la journée — c'est le cas du parking : on se gare, puis on marche.
+      // Si ce n'est pas le bon endroit, Sophie lui donne une heure : le champ est là.
+      return { kind: "stop", ref: st, lat: st.lat, lng: st.lng, transport: st.transport || null,
+               ordre: t || derniere || "", rang: st.sort_order || 0 };
+    });
+    // À heure égale, la photo passe avant l'arrêt : on photographie, puis on s'arrête.
+    return photos.concat(pts).sort((a, b) => a.ordre.localeCompare(b.ordre) || (a.rang - b.rang) || (a.kind === b.kind ? 0 : a.kind === "media" ? -1 : 1));
+  }
+
+  // Un camp, sous la même forme qu'un point de la journée. `_piste` marque les deux bouts
+  // d'une trace relevée, pour que dayPath sache lesquels de ses tronçons sont estimés.
+  const campPoint = (c) => c && c.lat != null ? { kind: "camp", ref: c, lat: c.lat, lng: c.lng, transport: c.transport || null } : null;
+
+  // Tronçons estimés d'une journée : du camp qui l'ouvre au camp qui la ferme, en passant
+  // par ses photos et ses arrêts. Mode = celui de la journée, changé « à partir de » tout
+  // point qui en précise un (photo, arrêt ou camp) ; sans rien, l'app devine (plus de
+  // 2,5 km = voiture par la route, sinon à pied). Fonction pure (aucune requête).
+  //
+  // Une journée qui a une VRAIE trace n'a que ses deux bouts : du camp au début de la
+  // trace, et de la fin de la trace au camp. On ne comble jamais les trous ENTRE deux
+  // traces d'une même journée — rien ne dit ce qui s'y est passé.
   function estimatedLegs(data, iso) {
-    const ph = dayPhotosSorted(data.media, iso);
+    const camps = data.camps || [];
+    // common.js est toujours chargé après map.js, mais on ne le suppose pas : sans lui,
+    // la journée se dessine comme avant, sans camps.
+    const CVx = window.CV || {};
+    const ouvre = CVx.campOpening ? campPoint(CVx.campOpening(camps, iso)) : null;
+    const ferme = CVx.campClosing ? campPoint(CVx.campClosing(camps, iso)) : null;
+    const trs = dayTracks(data, iso);
+    let suite;
+    if (trs.length) {
+      const tous = trs.flatMap((t) => t.points.filter((p) => p && p.lat != null));
+      if (!tous.length) return null;
+      const a = tous[0], z = tous[tous.length - 1];
+      suite = [ouvre, { kind: "trace", lat: a.lat, lng: a.lng, _piste: "debut" },
+               { kind: "trace", lat: z.lat, lng: z.lng, _piste: "fin" }, ferme];
+      // Le milieu (la trace elle-même) n'est pas un tronçon estimé : on le saute.
+      suite = [[suite[0], suite[1]], [suite[2], suite[3]]];
+    } else {
+      const pts = dayPoints(data, iso);
+      const tout = [ouvre, ...pts, ferme].filter(Boolean);
+      suite = []; for (let i = 1; i < tout.length; i++) suite.push([tout[i - 1], tout[i]]);
+    }
     const legs = []; let mode = dayTransport(data, iso);
-    for (let i = 1; i < ph.length; i++) {
-      const a = ph[i - 1], b = ph[i];
-      if (a.transport && MODES[a.transport]) mode = a.transport;   // « à partir de cette photo, je voyage… »
+    for (const [a, b] of suite) {
+      if (!a || !b) continue;
+      if (a.transport && MODES[a.transport]) mode = a.transport;   // « à partir d'ici, je voyage… »
       if (a.lng === b.lng && a.lat === b.lat) continue;
       const A = [a.lng, a.lat], B = [b.lng, b.lat];
+      // #38 · assez près du camp pour que ce soit le même endroit : on n'ajoute rien.
+      // La journée part déjà de là. (Même rayon que celui qui nomme les bouts en #42.)
+      if ((a.kind === "camp" || b.kind === "camp") && dist(A, B) <= PROCHE_M) continue;
       let m = mode, auto = false;
       if (!m) { m = dist(A, B) > 2500 ? "car" : "walk"; auto = true; }
-      const leg = { from: a, to: b, mode: m, auto, coords: MODES[m].path === "arc" ? arc(A, B) : [A, B], road: false };
+      const leg = { from: a.ref || a, to: b.ref || b, fromKind: a.kind, toKind: b.kind,
+                    mode: m, auto, coords: MODES[m].path === "arc" ? arc(A, B) : [A, B], road: false };
       if (MODES[m].path === "road") { const known = roadKnown(A, B); if (known) { leg.coords = known; leg.road = true; } }
       legs.push(leg);
     }

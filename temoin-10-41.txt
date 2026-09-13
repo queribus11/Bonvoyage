@@ -1,0 +1,4 @@
+v10.41 — le tracé part du camp et y revient (#38, second lot).
+Les arrêts entrent dans le tracé et portent un moyen de locomotion,
+la distance s'affiche « ≈ » quand elle est estimée, et les proches
+voient les camps.

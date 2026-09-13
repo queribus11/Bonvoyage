@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.40**
+- Version actuelle : **v10.41**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -211,9 +211,18 @@ révoqué, à usage unique.
 `user_id` + `author_id` posés par `stamp_contribution`, et la règle « auteur ou
 propriétaire »), clé sur `day_date` et non `day_id` — un arrêt peut exister sur une
 journée sans fiche. Plusieurs arrêts par journée : **aucune contrainte d'unicité, aucun
-plafond**. Les onze catégories sont celles de Sophie, tenues par une contrainte `check` :
+plafond**. Les **dix** catégories sont celles de Sophie, tenues par une contrainte `check` :
 `monument · musee · parc · vue · resto · boutique · marche · attraction · streetart ·
-camp · autre`. Ne pas en inventer une douzième.
+autre`. Ne pas en inventer une onzième — et ne pas y remettre `camp` (voir juste en dessous).
+
+**Le camp de base (v10.40-10.41, #38)** : table `trip_camps`, attachée au **voyage** et à une
+**nuit**, pas à une journée — parce qu'une nuit sert à DEUX journées : elle ferme celle qui
+s'achève et ouvre la suivante. C'est pour cela qu'il n'est pas un arrêt, et qu'il est sorti des
+catégories. `unique (trip_id, night_date)` : **un seul camp par nuit**, le doublon est impossible
+par construction, pas par vigilance. Il est **reconduit** tant qu'on n'en marque pas un autre
+(`CV.campOpening` / `CV.campClosing`, `js/common.js`), et le **point de départ du voyage** n'est
+rien d'autre qu'un camp daté de la veille du premier jour — aucun code à lui. Chez les proches,
+un camp ne sort que si **une journée visible s'en sert** (`get_shared_trip`, v10.41).
 
 ---
 
@@ -317,6 +326,30 @@ immobile** (#42 : la vue d'ensemble d'un jour, qu'ouvre le bouton plein écran).
   d'origine en silence. La comparaison se fait **à la minute**, et tant que le champ montre la
   même minute que l'heure enregistrée, on garde celle-ci telle quelle. Trouvé par un banc
   d'essai, pas par la relecture.
+- 🔴 **L'ordre entre la mise à jour de la base et la mise en ligne du code.** Une mise à jour
+  qui **ajoute** (une table, une colonne, une clé renvoyée aux proches) passe dans n'importe
+  quel ordre : le repli silencieux du chargement protège l'app d'une table absente. Une mise à
+  jour qui **RETIRE une valeur permise** ne le peut pas. En v10.40 le `.sql` a retiré `camp` des
+  catégories avant que le code ne soit en ligne : pendant cette fenêtre, l'app proposait encore
+  « Notre camp de base » et repliait les hôtels dessus — **la base refusait l'enregistrement**,
+  et les arrêts « camp » déjà posés avaient disparu de l'écran. Un `.sql` qui retire passe
+  **avec le code, ou après**. Le dire dans le brief, pas seulement « il est à passer ».
+- **Une contrainte qui rétrécit vérifie les lignes déjà là.** `alter table add constraint`
+  refuse de s'appliquer si une seule ligne existante la viole — et tout le script s'arrête là.
+  Toute réduction d'une liste permise **migre les données d'abord**, dans le même fichier et
+  dans cet ordre (v10.40 : les arrêts « camp » sont devenus de vrais camps avant la contrainte
+  à dix).
+- **Le moteur de carte (jsDelivr) et les tuiles (Esri) sont refusés par le proxy** de la
+  conversation Claude Code. Les écrans de formulaire se photographient fidèlement avec le vrai
+  `css/style.css` ; **tout ce qui demande une vraie carte, non.** Ne pas demander une capture
+  « avec de vrais camps sur la carte » : demander les tailles côte à côte, et laisser Sophie
+  trancher sur l'app en ligne.
+- **`sort_order` n'a de sens qu'entre arrêts.** Celui d'une photo est un autre compte (l'ordre
+  d'affichage dans la grille) : les deux ne se comparent pas. L'ordre d'une journée se fait donc
+  par l'heure, et un arrêt sans heure prend celle de l'arrêt qui le précède dans le fil ; s'il
+  est le premier, il ouvre la journée. **Cette heure-là ne quitte jamais `dayPoints`** — ni
+  base, ni écran : c'est un ordre de dessin, pas une donnée. « L'app n'invente pas d'heure »
+  reste vrai.
 - **Le nuancier des co-auteurs (`js/members.js`) n'attribue rien par rang : chacun choisit sa
   couleur, et elle est gardée sur sa fiche** (`row.color`). En retirer une ne change donc la
   couleur de personne — elle disparaît seulement du choix. Celui qui l'avait déjà la garde,

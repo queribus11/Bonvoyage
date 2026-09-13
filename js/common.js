@@ -132,6 +132,37 @@
     }
     return out;
   }
+  // #38 · La distance d'une journée : ce qui est MESURÉ (les traces) plus ce qui est
+  // ESTIMÉ (les tronçons du camp aux photos et aux arrêts). `est` dit si une estimation
+  // entre dans le total — c'est lui qui décide du « ≈ » à l'écran.
+  //
+  // Un itinéraire matérialisé en trace (« Tracer l'itinéraire », source « route ») compte
+  // comme une estimation, parce que c'en est une : il vient d'OSRM, pas d'un GPS.
+  function polyLength(coords) {
+    let m = 0;
+    for (let i = 1; i < coords.length; i++)
+      m += haversine({ lat: coords[i - 1][1], lng: coords[i - 1][0] }, { lat: coords[i][1], lng: coords[i][0] });
+    return m;
+  }
+  function dayDistance(data, iso) {
+    const trs = (data.tracks || []).filter((t) => t.day_date === iso && (t.points || []).length);
+    const mesure = trs.reduce((a, t) => a + (t.distance_m || 0), 0);
+    let estime = 0;
+    const legs = window.BVMAP && window.BVMAP.estimatedLegs ? window.BVMAP.estimatedLegs(data, iso) : null;
+    if (legs) for (const l of legs) estime += polyLength(l.coords || []);
+    const routeEstimee = trs.some((t) => t.source === "route");
+    return { m: Math.round(mesure + estime), est: estime > 0 || routeEstimee };
+  }
+  // Le total du voyage suit la MÊME règle que ses journées : sans quoi la somme des
+  // journées ne ferait plus le chiffre de la couverture, et Sophie le verrait tout de suite.
+  function tripDistance(data, dayList) {
+    let m = 0, est = false;
+    for (const iso of dayList || []) { const d = dayDistance(data, iso); m += d.m; est = est || d.est; }
+    return { m, est };
+  }
+  // « 177 km » quand tout est mesuré, « ≈ 177 km » dès qu'une estimation entre dedans.
+  const fmtDayDistance = (d) => !d || !d.m ? "" : (d.est ? "≈ " : "") + fmtDistance(d.m);
+
   function fmtDuration(s) { if (!s) return ""; const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`; }
   // Petit profil d'altitude en SVG (couleur de la journée)
   function profileSvg(profile, color = "#F5B301", w = 320, h = 64) {
@@ -183,7 +214,9 @@
     if (!legs) return null;
     const pts = [];
     const push = (lng, lat, t) => { const last = pts[pts.length - 1]; if (last && last.lng === lng && last.lat === lat) return; pts.push({ lat: +lat.toFixed(6), lng: +lng.toFixed(6), t }); };
-    let t = Date.parse(legs[0].from.taken_at || legs[0].from.created_at || "") || Date.now();
+    // #38 · le premier bout n'est plus forcément une photo : un camp n'a pas d'heure.
+    // Sans repli, l'horodatage partait de « maintenant » — on prend le jour concerné.
+    let t = Date.parse(legs[0].from.taken_at || legs[0].from.created_at || "") || Date.parse(iso + "T08:00:00") || Date.now();
     for (const l of legs) {
       const mode = l.mode && BVMAP.MODES[l.mode] ? BVMAP.MODES[l.mode] : null;
       let coords = l.coords;
@@ -944,6 +977,6 @@
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
     parseGPX, toGPX, colorForDay, get DAY_COLORS() { return dayColors(); }, dayStats, fmtDuration, profileSvg, placeName, fillPlaces,
     placesAround, osmCategory, osmKind, STOP_CATEGORIES, stopCategoryLabel, photoClusters, timeFromNearbyPhotos, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
-    searchPlaces, parseLatLng, placeFinder, campOpening, campClosing,
+    searchPlaces, parseLatLng, placeFinder, campOpening, campClosing, dayDistance, tripDistance, fmtDayDistance, polyLength,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio, mosaic };
 })();
