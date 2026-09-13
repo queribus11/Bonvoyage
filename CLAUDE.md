@@ -355,6 +355,39 @@ immobile** (#42 : la vue d'ensemble d'un jour, qu'ouvre le bouton plein écran).
   couleur de personne — elle disparaît seulement du choix. Celui qui l'avait déjà la garde,
   et aucune pastille du nuancier ne s'affiche comme active pour lui.
 
+### Les quatre leçons de la v10.42 (#57) — une régression en ligne, sur le carnet d'Algarve
+
+Un camp de base à Paris, reconduit sur douze journées au Portugal, a fabriqué vingt-quatre
+tronçons de 1 500 km, chacun en voiture, chacun demandant un itinéraire routier réel.
+Mesuré sur banc, avant / après : **14 appels OSRM Paris↔Algarve → 0**, **des redessins jamais
+bornés → 2**, **537 052 points chargés → 348**. L'app ne rendait plus la main : rien de
+cliquable, Safari qui recharge en boucle.
+
+- 🔴 **Mesurer aux EXTRÊMES de la donnée, jamais au cas nominal.** C'est la cause première,
+  et elle est méthodologique. La v10.41 avait été éprouvée sur le cas d'Écosse : des journées
+  de quelques kilomètres, un camp tout proche. Rien dans ce banc ne franchissait la centaine
+  de kilomètres — et le même code, avec un camp à 1 500 km, fige l'application.
+  **Dès qu'un lot fait calculer quelque chose *par paire de points*, *par distance* ou *par
+  nombre d'éléments*, le banc doit contenir la plus grande valeur plausible** : un camp
+  lointain, un voyage de trente jours, une journée de deux cents photos. Le remède dans le
+  code s'appelle `ROUTE_MAX_M` (150 km, `js/map.js`) : au-delà, pas d'itinéraire routier, le
+  trait reste droit et en pointillés — et sa distance compte toujours dans le « ≈ ».
+- **Un garde-fou qui se DÉSARME AVANT ce qu'il garde n'en est pas un.** `M._roadRedraw` était
+  remis à `false` au début du rappel, donc avant le redessin qu'il déclenchait — et ce
+  redessin rebranchait aussitôt un rappel sur chaque itinéraire encore en vol. Le nombre de
+  redessins croissait tout seul. *Chercher ce motif partout : un drapeau remis à zéro avant
+  l'action qu'il protège.*
+- **Dédoublonner une demande n'est pas dédoublonner ses conséquences.** `roadPending`
+  empêchait bien l'appel réseau en double ; il n'empêchait pas le `.then(onReady)` en double,
+  et c'est le rappel, pas l'appel, qui faisait diverger. Le rappel ne se branche donc que sur
+  un appel **neuf**.
+- **`0` est faux en JavaScript : tester l'EXISTENCE, pas la vérité.** `dayNumber` rend `0`
+  pour une journée datée la veille du départ ; `${n ? "Jour" : ""}${n || fmtDateShort(iso)}`
+  affichait donc une date dans une pastille de 44 px prévue pour un nombre, et elle
+  débordait. Le défaut dormait dans **neuf** endroits à la fois (liste des journées, fiche
+  journée, fiche-carte, fiche d'arrêt, page du proche, export texte). Partout où `0` ou `""`
+  sont des valeurs légitimes, `n != null` est la seule garde juste.
+
 ---
 
 ## Où sont les décisions
