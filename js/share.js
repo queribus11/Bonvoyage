@@ -138,7 +138,7 @@
     // #37 · « Du nouveau » quittait la carte pour ne pas rester posé dessus en permanence :
     // il descend en tête du récit, sur une ligne discrète, une seule fois par page.
     const newsLine = newDays.length
-      ? `<div class="news-line"><i></i>Du nouveau depuis ta dernière visite : ${newDays.map((iso) => { const n = dayNumber(D.trip, iso); return `<a href="#day-${iso}">${n ? "Jour " + n : CV.fmtDateShort(iso)}</a>`; }).join(", ")}</div>`
+      ? `<div class="news-line"><i></i>Du nouveau depuis ta dernière visite : ${newDays.map((iso) => { const n = dayNumber(D.trip, iso); return `<a href="#day-${iso}">${n != null ? "Jour " + n : CV.fmtDateShort(iso)}</a>`; }).join(", ")}</div>`
       : "";
     root.innerHTML = `
       ${preview ? previewBarHtml() : ""}
@@ -258,7 +258,7 @@
       const kmTxt = km >= 1000 && km < 100000 ? (km / 1000).toFixed(1).replace(".", ",") + " km" : (km ? fmtDistance(km) : "");
       const meta = [kmTxt, nb ? `${nb} photo${nb > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
       $("#jour-info").innerHTML =
-        `<div class="l1">${n ? `<i class="num" style="background:${couleur}">${n}</i>` : ""}<b>${esc(fmtDate(iso))}</b></div>`
+        `<div class="l1">${n != null ? `<i class="num" style="background:${couleur}">${n}</i>` : ""}<b>${esc(fmtDate(iso))}</b></div>`
         + (trajet ? `<div class="l2">${trajet}</div>` : "")
         + (meta ? `<div class="l3">${esc(meta)}</div>` : "");
       const i = days.indexOf(iso);
@@ -898,7 +898,7 @@
     const n = dayNumber(D.trip, iso);
     const st = stopOfMedia(m);
     const commune = d.place || "", precis = (st && st.name) || "";
-    const strong = commune || precis || (n ? "" : CV.fmtDateShort(iso));
+    const strong = commune || precis || (n != null ? "" : CV.fmtDateShort(iso));
     const light = commune && precis ? precis : "";
     return `${n ? `<i class="num" style="background:${CV.colorForDay(dayList(), iso)}">${n}</i>` : ""}${strong ? `<b>${esc(strong)}</b>` : ""}${light ? `<span>${esc(light)}</span>` : ""}`;
   }

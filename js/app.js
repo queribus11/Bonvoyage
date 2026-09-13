@@ -466,7 +466,7 @@
     const card = $("#day-card"), iso = S.dayFilter;
     if (!card || card.hidden || !iso || !$("#dc-meta")) return;
     const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso), num = $("#dc-num");
-    if (num) { num.textContent = n ? "J" + n : fmtDateShort(iso); num.style.background = CV.colorForDay(allDays(), iso); }
+    if (num) { num.textContent = n != null ? "J" + n : fmtDateShort(iso); num.style.background = CV.colorForDay(allDays(), iso); }
     $("#dc-title").textContent = d?.title || fmtDate(iso, false);
     $("#dc-meta").innerHTML = dayCardMeta(iso);
   }
@@ -479,7 +479,7 @@
     if (S.map.replaying && S.map.stopReplay) S.map.stopReplay();
     S.dayFilter = iso; redraw(true); renderPanel();
     const card = $("#day-card");
-    card.innerHTML = `<div class="dc-head"><span class="dc-num" id="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b id="dc-title">${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted" id="dc-meta">${dayCardMeta(iso)}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
+    card.innerHTML = `<div class="dc-head"><span class="dc-num" id="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n != null ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b id="dc-title">${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted" id="dc-meta">${dayCardMeta(iso)}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
       <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse du survol"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
     card.hidden = false;
     $("#dc-open").onclick = () => dayForm(iso);
@@ -614,7 +614,7 @@
         const st = CV.dayStats(S.cur.tracks.filter((x) => x.day_date === iso));
         const cover = ph.find((x) => x.kind === "photo") || ph[0];
         return `<div class="day-item${S.dayFilter === iso ? " active" : ""}" data-iso="${iso}">
-          <div class="num" style="background:${color}" title="Voir cette journée sur la carte"><small>${n ? "Jour" : ""}</small>${n || fmtDateShort(iso)}</div>
+          <div class="num" style="background:${color}" title="Voir cette journée sur la carte"><small>${n != null ? "Jour" : ""}</small>${n != null ? n : fmtDateShort(iso)}</div>
           <div class="info"><b>${esc(d?.title || fmtDate(iso))}</b>${pill(d?.author_id, { small: true })}
             <span>${d?.title ? fmtDate(iso, false) : ""}${d?.place ? ` · ${ic("pin", "sm")} ${esc(d.place)}` : ""}</span>
             <span>${ic("route", "sm")} ${kmTxt}${st.hasAlt && st.gain ? ` · ↗ ${st.gain} m` : ""}${ph.length ? ` · ${ic("camera", "sm")} ${ph.length}` : ""}${d?.story ? ` · ${ic("edit", "sm")}` : ""}${d?.audio_path ? ` ${ic("mic", "sm")}` : ""}</span>
@@ -675,7 +675,7 @@
     // La date prend toute la largeur, sur sa propre ligne : les fleches et la croix
     // sont descendues au niveau du titre, avec qui elles vont. Sans quoi la date se
     // casse en deux lignes pour leur laisser la place.
-    const m = openModal(`${iso ? `<div class="kicker" style="margin-bottom:6px">${n0 ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}
+    const m = openModal(`${iso ? `<div class="kicker" style="margin-bottom:6px">${n0 != null ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}
       <div class="modal-head" style="align-items:center"><div class="grow"><h2 style="margin-bottom:0">${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div>
       <div class="row" style="gap:6px;flex:0 0 auto;flex-wrap:nowrap">${iso ? `<button type="button" class="btn icon ghost sm" id="day-prev" title="Journée précédente (enregistre)">${ic("chevron-left")}</button><button type="button" class="btn icon ghost sm" id="day-next" title="Journée suivante (enregistre)">${ic("chevron-right")}</button>` : ""}<button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div></div>
       ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
@@ -908,7 +908,10 @@
       const holder = $("#stop-list", m.el);
       if (holder) { holder.innerHTML = stopsOf(iso).map(stopRowHtml).join(""); bindStopsField(m.el, iso, refreshStops); }
       const box = $("#camp-box", m.el);
-      if (box) { box.innerHTML = campBoxHtml(iso); bindCampField(m.el, iso, refreshStops); }
+      if (box) box.innerHTML = campBoxHtml(iso);
+      const boxM = $("#camp-box-matin", m.el);            // #58 · le camp du matin, premier jour seulement
+      if (boxM) boxM.innerHTML = campBoxHtml(veille(iso), true);
+      if (box || boxM) bindCampField(m.el, iso, refreshStops);
       const lab = holder && holder.parentElement && $("label", holder.parentElement);
       if (lab) { const n = stopsOf(iso).length; lab.textContent = `Les arrêts de la journée${n ? ` (${n})` : ""}`; }
     };
@@ -988,7 +991,7 @@
   async function announceDay(d) {
     const n = dayNumber(S.cur.trip, d.day_date);
     const url = shareUrl() + "#day-" + d.day_date;
-    const label = `${n ? "Jour " + n : fmtDate(d.day_date, false)}${d.title ? " · " + d.title : ""}`;
+    const label = `${n != null ? "Jour " + n : fmtDate(d.day_date, false)}${d.title ? " · " + d.title : ""}`;
     const text = `${S.cur.trip.title} — ${label} est en ligne ! Carte, photos et récit ici : ${url}`;
     // Notifications aux proches abonnés (si configurées)
     if (cfg.VAPID_PUBLIC_KEY) {
@@ -1019,7 +1022,7 @@
       const d = dayInfo(iso), n = dayNumber(S.cur.trip, iso);
       const ph = S.cur.media.filter((x) => x.day_date === iso).length;
       const quoi = [ph ? `${ph} photo${ph > 1 ? "s" : ""}` : "", d?.story ? "récit" : "", d?.audio_path ? "récit audio" : ""].filter(Boolean).join(" · ");
-      return `<li><b>${n ? "Jour " + n : fmtDateShort(iso)}</b> — ${esc(d?.title || fmtDate(iso, false))}${quoi ? `<br><span class="small muted">${quoi}</span>` : ""}</li>`;
+      return `<li><b>${n != null ? "Jour " + n : fmtDateShort(iso)}</b> — ${esc(d?.title || fmtDate(iso, false))}${quoi ? `<br><span class="small muted">${quoi}</span>` : ""}</li>`;
     };
     const go = await ask(`<h2>Publier ${list.length} journées ?</h2>
       <p class="small muted">Elles deviendront visibles par tes proches. Personne n'est prévenu tout de suite : tu pourras ensuite envoyer <b>un seul</b> message pour l'ensemble.</p>
@@ -1395,27 +1398,45 @@
   // journée : il la ferme, et il ouvre la suivante. Il vaut ensuite tant qu'on n'en
   // marque pas un autre — trois nuits au même endroit, un seul geste.
   const campOf = (iso) => CV.campClosing(S.cur.camps, iso);
+  // #58 · La veille d'une date, en ISO. Sert au camp du matin du PREMIER jour.
+  const veille = (iso) => { const [y, m, d] = iso.split("-").map(Number); const x = new Date(y, m - 1, d - 1); return isoDate(x); };
+  // Le premier jour du voyage est le SEUL qui n'a pas de veille dont hériter : c'est pour
+  // cela, et pour rien d'autre, qu'il lui faut un champ de plus. Aucune autre journée ne
+  // l'affiche — et surtout pas la dernière : le champ du soir est déjà son côté arrivée.
+  const estPremierJour = (iso) => !!iso && !!S.cur.trip.start_date && iso === S.cur.trip.start_date;
+
   function campFieldHtml(iso) {
     const c = campOf(iso), propre = c && c.night_date === iso;
-    return `<div class="field"><label>Notre camp de base</label>
+    const matin = estPremierJour(iso);
+    return `${matin ? `<div class="field"><label>D'où partez-vous le matin</label>
+      <div id="camp-box-matin">${campBoxHtml(veille(iso), true)}</div>
+      <p class="help">Le premier jour est le seul à n'avoir pas de veille : dis d'où tu pars,
+        sinon la journée n'a pas de point de départ. Paris le matin, Tavira le soir.</p></div>` : ""}
+      <div class="field"><label>Notre camp de base</label>
       <div id="camp-box">${campBoxHtml(iso)}</div>
       <p class="help">${propre
         ? "C'est ici que vous dormez ce soir-là. Cette nuit ferme la journée et ouvre la suivante."
         : c ? "Repris de la nuit précédente : tant que tu n'en marques pas un autre, c'est le même."
             : "Marque l'endroit où vous dormez ce soir-là : la journée pourra partir de là."}</p></div>`;
   }
-  function campBoxHtml(iso) {
+  // `matin` = la boîte du camp du matin (nuit de la veille) : mêmes gestes, autres identifiants.
+  function campBoxHtml(iso, matin) {
     const c = campOf(iso), propre = c && c.night_date === iso;
+    const sfx = matin ? "-matin" : "";
     // Le nom sur sa ligne, les boutons en dessous : à 440 px, un nom d'hôtel et deux
     // boutons sur la même ligne se cassent — vu en image avant de le montrer à Sophie.
     return `${c ? `<div class="camp-nom"><span class="chip">${ic("pin", "sm")} <b>${esc(c.name || "Sans nom")}</b></span>${propre ? "" : `<span class="small muted">reconduit</span>`}</div>` : ""}
       <div class="row" style="gap:8px;flex-wrap:wrap">
-      <button type="button" class="btn sm" id="camp-set">${ic(c ? "edit" : "pin", "sm")} ${c && propre ? "Changer le camp" : "Marquer le camp"}</button>
-      ${propre ? `<button type="button" class="btn sm ghost danger" id="camp-del">Retirer</button>` : ""}</div>`;
+      <button type="button" class="btn sm" id="camp-set${sfx}">${ic(c ? "edit" : "pin", "sm")} ${c && propre ? "Changer le camp" : "Marquer le camp"}</button>
+      ${propre ? `<button type="button" class="btn sm ghost danger" id="camp-del${sfx}">Retirer</button>` : ""}</div>`;
   }
   function bindCampField(root, iso, refresh) {
-    const set = $("#camp-set", root); if (set) set.onclick = () => campForm(iso, refresh);
-    const del = $("#camp-del", root);
+    bindUneBoite(root, iso, refresh, "");
+    if (estPremierJour(iso)) bindUneBoite(root, veille(iso), refresh, "-matin");
+  }
+  function bindUneBoite(root, iso, refresh, sfx) {
+    const set = $("#camp-set" + sfx, root); if (set) set.onclick = () => campForm(iso, refresh);
+    const del = $("#camp-del" + sfx, root);
     if (del) del.onclick = async () => {
       const c = campOf(iso); if (!c || c.night_date !== iso) return;
       if (!(await confirm("Retirer ce camp de base ? Les journées suivantes reprendront le camp d'avant."))) return;
@@ -1434,7 +1455,7 @@
     const exist = (S.cur.camps || []).find((c) => c.night_date === iso) || null;
     const repris = !exist ? campOf(iso) : null;   // celui qu'on reconduit, s'il y en a un
     const n = dayNumber(S.cur.trip, iso);
-    const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
+    const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n != null ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
       <div class="modal-head"><div class="grow"><h2 style="margin-bottom:0">Notre camp de base</h2></div>
         <button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
       <p class="small muted">Où dormez-vous à la fin de cette journée ? Cette nuit ferme le
@@ -1510,7 +1531,7 @@
     const isNew = !st || !st.id;
     if (st && st.id && !canEditStop(st)) return toast("Cet arrêt a été ajouté par quelqu'un d'autre", "info");
     const n = dayNumber(S.cur.trip, iso);
-    const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
+    const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n != null ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
       <div class="modal-head"><div class="grow"><h2 style="margin-bottom:0">${isNew ? "Un arrêt" : "Modifier l'arrêt"}</h2></div>
         <button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
       <form id="sf">
@@ -1936,7 +1957,7 @@
       let txt = `${trip.title}\n${trip.subtitle || ""}\n\n${trip.description || ""}\n\n`;
       for (const iso of allDays()) {
         const d = dayInfo(iso); const n = dayNumber(trip, iso);
-        txt += `\n==== ${n ? "Jour " + n + " — " : ""}${fmtDate(iso)}${d?.title ? " — " + d.title : ""} ====\n\n${d?.story || ""}\n`;
+        txt += `\n==== ${n != null ? "Jour " + n + " — " : ""}${fmtDate(iso)}${d?.title ? " — " + d.title : ""} ====\n\n${d?.story || ""}\n`;
         if (d && MEMBERS.name(d.author_id) && MEMBERS.isShared()) txt += `   (journée de ${MEMBERS.name(d.author_id)})\n`;
         for (const st of S.stories.filter((x) => x.day_date === iso)) txt += `\n   — récit de ${MEMBERS.name(st.author_id) || "?"} —\n${st.body}\n`;
         for (const nt of S.notes.filter((x) => x.day_date === iso)) txt += `\n   [carnet de bord · ${MEMBERS.name(nt.author_id) || "?"}] ${nt.body}\n`;

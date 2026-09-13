@@ -1,0 +1,5 @@
+v10.42 — le camp reconduit trop loin ne fige plus l'app (#57).
+Pas d'itinéraire routier au-delà de 150 km, un redessin au plus,
+le cache des itinéraires se dégraisse vraiment. Un vol se trace droit.
+Le premier jour dit d'où il part (#58) ; deux nuits au même endroit
+ne font qu'un picto (#59).

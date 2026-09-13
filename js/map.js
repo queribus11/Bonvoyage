@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.41";
+window.BV_VERSION = "10.42";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -21,7 +21,7 @@ window.BVMAP = (() => {
     plan:      { label: "Plan",      short: "Plan" },
   };
   const LEGACY = { voyager: "satellite", positron: "plan", osm: "plan", outdoors: "relief", hybrid: "satellite" };   // « voyager » était l'ancien défaut : on passe au satellite
-  // Moyens de locomotion : icône, vitesse relative pendant le survol, tracé (route OSRM, arc, ligne droite)
+  // Moyens de locomotion : icône, vitesse relative pendant le survol, tracé (route OSRM ou ligne droite)
   const MODES = {
     walk:  { label: "à pied",     icon: "🚶", speed: 1,   path: "straight" },
     bike:  { label: "à vélo",     icon: "🚲", speed: 1.2, path: "road" },
@@ -30,7 +30,7 @@ window.BVMAP = (() => {
     train: { label: "en train",   icon: "🚆", speed: 1.6, path: "straight" },
     boat:  { label: "en bateau",  icon: "⛵", speed: 1.2, path: "straight" },
     kayak: { label: "en kayak",   icon: "🛶", speed: 1.1, path: "straight" },
-    plane: { label: "en avion",   icon: "✈️", speed: 2.2, path: "arc" },
+    plane: { label: "en avion",   icon: "✈️", speed: 2.2, path: "straight" },   // #57 · droit, pas en courbe : décision de Sophie
     moto:  { label: "en moto",    icon: "🛵", speed: 1.5, path: "road" },
   };
 
@@ -364,7 +364,7 @@ window.BVMAP = (() => {
       // complète : on ne la double pas.
       if (tracks.some((t) => t.day_date === iso && t.source === "route" && (t.points || []).length >= 2)) continue;
       const legs = estimatedLegs(data, iso);
-      if (legs && !M._roadRedraw) { const missing = applyRoads(legs, () => { M._roadRedraw = false; if (M.data && !M.replaying) draw(M, M.data, M.drawOpts); }); if (missing) M._roadRedraw = true; }
+      if (legs) applyRoads(legs, () => planRedraw(M));   // #57 · un redessin au plus, groupé
       if (legs) legs.forEach((l, i) => lines.push({ type: "Feature", properties: { id: `est-${iso}-${i}`, color: colorForDay(dayList, iso), day: iso, dash: true, est: true, mode: l.mode || "" }, geometry: { type: "LineString", coordinates: l.coords } }));
     }
     map.getSource("tracks").setData({ type: "FeatureCollection", features: lines });
@@ -493,8 +493,11 @@ window.BVMAP = (() => {
       let m = mode, auto = false;
       if (!m) { m = dist(A, B) > 2500 ? "car" : "walk"; auto = true; }
       const leg = { from: a.ref || a, to: b.ref || b, fromKind: a.kind, toKind: b.kind,
-                    mode: m, auto, coords: MODES[m].path === "arc" ? arc(A, B) : [A, B], road: false };
-      if (MODES[m].path === "road") { const known = roadKnown(A, B); if (known) { leg.coords = known; leg.road = true; } }
+                    mode: m, auto, coords: [A, B], road: false };
+      // #57 · Un tronçon trop long ne va PAS chercher d'itinéraire routier (voir ROUTE_MAX_M).
+      // Il reste, en ligne droite et en pointillés — ce qui est honnête, il est estimé — et sa
+      // distance continue d'être comptée dans le « ≈ » de la journée.
+      if (MODES[m].path === "road" && !tropLong(A, B)) { const known = roadKnown(A, B); if (known) { leg.coords = known; leg.road = true; } }
       legs.push(leg);
     }
     return legs.length ? legs : null;
@@ -505,10 +508,38 @@ window.BVMAP = (() => {
     for (const l of legs) for (let i = 0; i < l.coords.length; i++) { const c = l.coords[i]; const last = coords[coords.length - 1]; if (last && last[0] === c[0] && last[1] === c[1]) continue; coords.push(c); modes.push(l.mode); }
     return coords.length >= 2 ? Object.assign(coords, { modes }) : null;
   }
+  // #57 · Au-delà de cette distance, on ne demande PAS d'itinéraire routier.
+  //
+  // Pourquoi 150 km : un itinéraire OSRM demandé en `overview=full` rend un point tous les
+  // quarante mètres environ. À 150 km cela fait déjà quelques milliers de points — c'est le
+  // plus qu'on accepte de charger, de dessiner et de garder en cache pour UN tronçon.
+  // Au-delà, le trait reste droit et en pointillés : il est estimé, et il le dit.
+  //
+  // Ce n'est PAS PROCHE_M, qui répond à une tout autre question (« est-ce déjà sur place ? »).
+  // C'est ce seuil qui manquait quand un camp de base à Paris, reconduit sur douze journées
+  // en Algarve, a lancé vingt-quatre itinéraires de 1 500 km et figé l'application.
+  const ROUTE_MAX_M = 150000;
+  const tropLong = (A, B) => dist(A, B) > ROUTE_MAX_M;
+
   // Routes (OSRM, serveur public de démonstration) : cache local « bv_roads » borné (≈ 400 Ko), échecs mémorisés 24 h
+  const ROADS_MAX_CHARS = 400000;        // le cache entier
+  const ROUTE_MAX_CHARS = 120000;        // UN itinéraire : au-delà, on ne le garde pas
   let roadCache = null;
   function roads() { if (!roadCache) { try { roadCache = JSON.parse(localStorage.getItem("bv_roads") || "{}"); } catch { roadCache = {}; } } return roadCache; }
-  function saveRoads() { try { const c = roads(); let s = JSON.stringify(c); if (s.length > 400000) { const ks = Object.keys(c); for (const k of ks.slice(0, Math.ceil(ks.length / 3))) delete c[k]; s = JSON.stringify(c); } localStorage.setItem("bv_roads", s); } catch { } }
+  // #57 · Le dégraissage BOUCLE jusqu'à repasser sous le seuil. Il n'enlevait qu'un tiers,
+  // une seule fois : un seul gros itinéraire suffisait à ce que l'enregistrement échoue
+  // toujours — et l'échec était avalé, donc le cache entier ne servait plus jamais.
+  function saveRoads() {
+    try {
+      const c = roads(); let s = JSON.stringify(c), tours = 0;
+      while (s.length > ROADS_MAX_CHARS && tours++ < 20) {
+        const ks = Object.keys(c); if (!ks.length) break;
+        for (const k of ks.slice(0, Math.max(1, Math.ceil(ks.length / 3)))) delete c[k];
+        s = JSON.stringify(c);
+      }
+      localStorage.setItem("bv_roads", s);
+    } catch { }
+  }
   function roadKey(A, B) { return `${A[0].toFixed(4)},${A[1].toFixed(4)}>${B[0].toFixed(4)},${B[1].toFixed(4)}`; }
   function roadKnown(A, B) { const v = roads()[roadKey(A, B)]; return Array.isArray(v) ? v : null; }
   const roadPending = new Map();
@@ -523,31 +554,50 @@ window.BVMAP = (() => {
       .then((r) => r.json()).then((j) => {
         if (j.code !== "Ok" || !j.routes || !j.routes[0]) throw new Error("no route");
         const coords = j.routes[0].geometry.coordinates.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]);
-        c[key] = coords; saveRoads(); return coords;
+        // Un itinéraire hors gabarit n'entre pas dans le cache : il le remplirait à lui seul.
+        // On le rend quand même — c'est le dessin de cette fois-ci qui compte.
+        if (JSON.stringify(coords).length <= ROUTE_MAX_CHARS) { c[key] = coords; saveRoads(); }
+        return coords;
       }).catch((e) => { c[key] = { fail: Date.now() }; saveRoads(); throw e; })
       .finally(() => { if (timer) clearTimeout(timer); roadPending.delete(key); });
     roadPending.set(key, p); return p;
   }
-  // Applique les routes connues aux tronçons ; lance les recherches manquantes et prévient quand l'une arrive
+  // Applique les routes connues aux tronçons ; lance les recherches manquantes et prévient quand l'une arrive.
+  //
+  // #57 · DEUX garde-fous, et le second est celui qui manquait :
+  //   · un tronçon trop long ne demande rien (ROUTE_MAX_M) ;
+  //   · le rappel n'est branché QUE sur un appel neuf. `roadPending` évitait déjà l'appel
+  //     réseau en double, mais pas le `.then(onReady)` en double : chaque redessin en
+  //     rebranchait un sur chaque itinéraire encore en vol, et le nombre de redessins
+  //     enflait tout seul.
   function applyRoads(legs, onReady) {
     let missing = 0;
     for (const l of legs) {
       if (!MODES[l.mode] || MODES[l.mode].path !== "road") continue;
-      const A = [l.from.lng, l.from.lat], B = [l.to.lng, l.to.lat], known = roadKnown(A, B);
-      if (known) { l.coords = known; l.road = true; }
-      else { missing++; if (onReady) fetchRoad(A, B).then(() => onReady()).catch(() => { }); }
+      const A = [l.from.lng, l.from.lat], B = [l.to.lng, l.to.lat];
+      if (tropLong(A, B)) continue;                       // trop long : la droite suffit
+      const known = roadKnown(A, B);
+      if (known) { l.coords = known; l.road = true; continue; }
+      missing++;
+      const neuf = !roadPending.has(roadKey(A, B));
+      const p = fetchRoad(A, B);
+      if (onReady && neuf) p.then(() => onReady()).catch(() => { }); else p.catch(() => { });
     }
     return missing;
   }
-  // Arc « vol d'avion » entre deux points (courbe bombée, 24 points)
-  function arc(A, B, n = 24) {
-    const d = dist(A, B), bulge = Math.min(.25, d / 4000000 + .04);
-    const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2, dx = B[0] - A[0], dy = B[1] - A[1];
-    const cx = mx - dy * bulge * 2, cy = my + dx * bulge * 2;  // point de contrôle perpendiculaire
-    const out = [];
-    for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; out.push([u * u * A[0] + 2 * u * t * cx + t * t * B[0], u * u * A[1] + 2 * u * t * cy + t * t * B[1]]); }
-    return out;
+  // #57 · Un redessin AU PLUS, groupé. Les itinéraires arrivent par paquets ; sans ce
+  // regroupement, chacun redessinait toute la carte. Tant que la minuterie court, personne
+  // n'en arme une seconde.
+  let redrawTimer = null;
+  function planRedraw(M) {
+    if (redrawTimer) return;
+    redrawTimer = setTimeout(() => {
+      redrawTimer = null;
+      if (M.data && !M.replaying) draw(M, M.data, M.drawOpts);
+    }, 400);
   }
+  // (« arc » — la courbe des vols — a été retirée en v10.42 : un vol se trace droit,
+  //  décision de Sophie, et plus personne ne l'appelait.)
   function dayListOf(data, options) {
     if (options.dayList) return options.dayList;
     return [...new Set([...(data.tracks || []).map((t) => t.day_date), ...(data.media || []).map((m) => m.day_date)].filter(Boolean))].sort();
@@ -619,14 +669,34 @@ window.BVMAP = (() => {
   // ⛔ Ne pas « harmoniser » les dix pictos d'arrêt là-dessus : eux restent
   // affichés seulement quand une journée est ouverte. C'est une décision de Sophie
   // prise en v10.8, et les rendre permanents déferait #37.
+  // #59 · Deux nuits au même endroit à des dates différentes, c'est permis — et ça ne doit
+  // pas empiler deux pastilles l'une sur l'autre. On dédoublonne donc sur LA POSITION, pas
+  // sur l'identifiant : deux nuits au même hôtel sont deux lignes, donc deux identifiants.
+  //
+  // ⚠️ Tolérance d'UN MÈTRE, et surtout pas PROCHE_M (300 m) : celui-là répond à une autre
+  // question — « est-ce déjà sur place ? » — et à 300 m deux hôtels d'une même rue
+  // deviendraient le même endroit. Ici on veut « exactement le même point ».
+  const MEME_LIEU_M = 1;
+  function dedupCamps(liste) {
+    const vus = [];
+    for (const c of liste) {
+      if (!c) continue;
+      const i = vus.findIndex((x) => dist([x.lng, x.lat], [c.lng, c.lat]) <= MEME_LIEU_M);
+      if (i < 0) { vus.push(c); continue; }
+      // Même lieu : on garde le nom de la ligne NOMMÉE la plus récente.
+      const a = vus[i];
+      if (c.name && (!a.name || c.night_date > a.night_date)) vus[i] = c;
+    }
+    return vus;
+  }
   function campsOfView(data, filter) {
     const camps = (data.camps || []).filter((c) => c && c.lat != null && c.lng != null);
     if (!camps.length) return [];
-    if (!filter) return camps;
-    const o = CV.campOpening(camps, filter), f = CV.campClosing(camps, filter);
-    const vus = [];
-    for (const c of [o, f]) if (c && !vus.some((x) => x.id === c.id)) vus.push(c);
-    return vus;
+    if (!filter) return dedupCamps(camps);
+    // Même garde que dans estimatedLegs : on ne suppose pas que common.js est déjà là.
+    const CVx = window.CV || {};
+    if (!CVx.campOpening) return dedupCamps(camps);
+    return dedupCamps([CVx.campOpening(camps, filter), CVx.campClosing(camps, filter)]);
   }
   function drawCampMarkers(M, data, options) {
     for (const mk of M.campMarkers) mk.remove(); M.campMarkers = [];
@@ -1050,5 +1120,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, arc, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
