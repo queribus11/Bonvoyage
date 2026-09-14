@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.43**
+- Version actuelle : **v10.44**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -451,6 +451,35 @@ disait `camp → photo → photo → camp` ; l'écran de Sophie disait `photo �
   appel, et la comparaison semblait bonne alors qu'elle ne mesurait rien. Deuxième fois dans le
   même mois (après `CV` nu dans `campsOfView`). **Un résultat identique des deux côtés doit
   toujours faire suspecter le banc avant de faire conclure.**
+
+### Les leçons de la v10.44 (#64, #61)
+
+- 🔴 **Un retard d'affichage se mesure en GÉOMÉTRIE, pas en ressenti.** #64 : la ligne de
+  lecture (`readLine`, `js/share.js`) tenait déjà compte de la carte collante — 755 px à
+  440 × 956, le milieu exact de ce qui reste visible sous le plan. L'hypothèse « la photo doit
+  passer derrière le plan pour être élue » était fausse. La vraie cause est une **durée** :
+  `FLY_BASE_MS = 2000` (`js/map.js`) — tout vol vers une photo dure au moins deux secondes, et
+  `busyUntil` bloque tout pendant ce temps. À 300 px/s, la photo élue passe sous le plan en
+  0,67 s : la carte arrive plus d'une seconde après sa disparition, et ~7 photos ont défilé.
+- **On peut viser où la lecture SERA.** L'élection anticipe de `vitesse × durée du vol`. Mais le
+  rattrapage a un **plafond géométrique** : on ne peut viser que 201 px plus bas (le bas de
+  l'écran), soit 101 px/s pour un vol de 2 s. Mesuré : à temps jusqu'à 200 px/s, encore
+  0,66 s de retard à 300. **Le dire, plutôt que de laisser croire que c'est réglé.**
+- **L'anticipation ne vaut que pour les PHOTOS.** L'élection de la journée garde la ligne nue :
+  #37 a été refermé sur ce passage (« 3 → 4 pendant que tu fais défiler est parfait »), et un
+  réglage qu'on n'a pas mesuré ne se rouvre pas par effet de bord.
+- 🔴 **Une échelle par tronçon est arithmétiquement impossible.** #61 : 9,0 crans de zoom
+  séparent le vol Paris → Faro des 3 km du soir à Tavira, soit **21 s** de recul à 0,42 cran/s,
+  **14 s** même à 0,65 carte immobile — deux fois par journée. La journée entière étant cadrée
+  sur 3,5 écrans, le vol prend 13,17 s des 13,5 s et les 3 km sont franchis en **26 ms** sur
+  **2,9 px**. Le remède n'est pas un réglage : c'est de **raccourcir la distance** (`couperAuxSauts`,
+  `js/map.js`) — un tronçon qui pèse plus de six fois tout le reste devient une coupure, et la
+  journée se joue en morceaux, chacun à son échelle. Le passage d'un morceau au suivant
+  **réemploie le vol qui existe déjà entre deux journées** : aucun mouvement nouveau n'est inventé.
+- **Une mécanique soumise au doigt vit dans le VRAI code, derrière une option éteinte.**
+  `options.saut` du survol est `undefined` partout dans l'app : tant que Sophie n'a pas choisi,
+  le survol en ligne est au octet près celui de la v10.43. La page d'essai appelle la même
+  fonction — aucune divergence possible entre ce qu'elle juge et ce qui sera livré.
 
 ---
 

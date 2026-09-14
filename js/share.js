@@ -43,7 +43,10 @@
     // un aperçu ne laisse aucune trace : le repère « déjà vu » n'est pas posé
     const stamp = () => { if (preview) return; try { localStorage.setItem(VISIT_KEY, new Date().toISOString()); } catch { } };
     let stamped = false; const stampOnce = () => { if (!stamped) { stamped = true; stamp(); } };
-    window.addEventListener("scroll", () => { if (scrollY > innerHeight * .6) stampOnce(); }, { passive: true });
+    window.addEventListener("scroll", () => { noteScroll(); if (scrollY > innerHeight * .6) stampOnce(); }, { passive: true });
+    // #64 · Le défilement s'arrête sans prévenir : sans ce rendez-vous, la dernière vitesse
+    // mesurée resterait en mémoire et la carte continuerait de viser devant elle.
+    setInterval(() => { if (Date.now() - dernierT > 180) { vitesse = 0; dernierT = 0; } }, 200);
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") stampOnce(); });
     setTimeout(stampOnce, 90000);
     // Lien direct vers une journée (#day-2026-09-05)
@@ -747,8 +750,46 @@
     const t = Math.min(88, Math.max(6, Math.round(readLine() / innerHeight * 100) - 6));
     return `-${t}% 0px -${Math.max(0, 100 - t - 12)}% 0px`;
   }
-  function nearestToLine(set) {
-    const line = readLine();
+  // #64 · Pour les PHOTOS, la bande descend jusqu'au bas de l'écran. La ligne de lecture ne
+  // bouge pas d'un pixel : on élargit seulement la liste des candidates, pour pouvoir viser
+  // une photo qui n'est pas encore arrivée dessus. Une bande de 12 % ne laissait le choix
+  // qu'entre des photos déjà là — aucune anticipation n'y était possible.
+  function bandMarginShots() {
+    const t = Math.min(88, Math.max(6, Math.round(readLine() / innerHeight * 100) - 6));
+    return `-${t}% 0px 0px 0px`;
+  }
+
+  // #64 · LA VITESSE DE DÉFILEMENT, et pourquoi il en faut une.
+  //
+  // Un vol vers une photo dure au moins deux secondes (FLY_BASE_MS, js/map.js) et la carte
+  // ne démarre rien pendant ce temps. À 300 px/s de lecture, la photo élue passe sous le plan
+  // en 0,67 s : la carte arrive plus d'une seconde après qu'elle a disparu. C'est exactement
+  // ce que Sophie décrit.
+  // On élit donc la photo qui sera SUR la ligne à la fin du vol, pas celle qui y est au
+  // moment de partir. À l'arrêt la vitesse est nulle : le comportement d'avant, à l'identique.
+  let vitesse = 0, dernierY = 0, dernierT = 0;
+  const VITESSE_LISSAGE = .35;          // moyenne glissante : un à-coup ne fait pas viser loin
+  const VISEE_MAX_PX = 1200;            // garde-fou : au-delà on viserait hors de tout
+  function noteScroll() {
+    const t = Date.now(), y = window.scrollY;
+    if (dernierT) {
+      const dt = t - dernierT;
+      if (dt >= 16) {
+        const v = (y - dernierY) / dt * 1000;      // px/s, positif en descendant
+        vitesse = vitesse + (v - vitesse) * VITESSE_LISSAGE;
+        dernierY = y; dernierT = t;
+      }
+    } else { dernierY = y; dernierT = t; }
+  }
+  // Une photo perd `vitesse × durée` pixels pendant le vol : pour qu'elle soit sur la ligne
+  // à l'arrivée, elle doit être aujourd'hui d'autant PLUS BAS.
+  function viseeShots() {
+    const ms = (window.BVMAP && BVMAP.FLY_BASE_MS) || 2000;
+    const avance = Math.max(-VISEE_MAX_PX, Math.min(VISEE_MAX_PX, vitesse * ms / 1000));
+    return readLine() + avance;
+  }
+  function nearestToLine(set, cible) {
+    const line = cible == null ? readLine() : cible;
     let best = null, bd = Infinity;
     for (const el of set) { const r = el.getBoundingClientRect(); const d = Math.abs((r.top + r.bottom) / 2 - line); if (d < bd) { bd = d; best = el; } }
     return best;
@@ -795,7 +836,8 @@
     dayIO = new IntersectionObserver((es) => { for (const e of es) e.isIntersecting ? seenDays.add(e.target) : seenDays.delete(e.target); schedule(); }, { rootMargin });
     $$(".day-section", root).forEach((s) => dayIO.observe(s));
     if (!photoFollow()) return;
-    shotIO = new IntersectionObserver((es) => { for (const e of es) e.isIntersecting ? seenShots.add(e.target) : seenShots.delete(e.target); schedule(); }, { rootMargin });
+    // #64 · Les photos ont leur propre bande, plus large : voir bandMarginShots.
+    shotIO = new IntersectionObserver((es) => { for (const e of es) e.isIntersecting ? seenShots.add(e.target) : seenShots.delete(e.target); schedule(); }, { rootMargin: bandMarginShots() });
     $$(".gallery figure[data-geo], .day-lead[data-geo]", root).forEach((f) => shotIO.observe(f));
   }
 
@@ -863,7 +905,11 @@
     // consommé ici, donc le vol vers la photo aura bien lieu ensuite — au rendez-vous déjà
     // pris, ou au repassage que `laterOn` programme.
     if (Date.now() < busyUntil) { laterOn(); return; }
-    const fig = nearestToLine(seenShots);
+    // #64 · On vise où la lecture SERA à la fin du vol, pas où elle est au moment de partir.
+    // L'élection de la JOURNÉE, elle, garde la ligne nue (plus haut) : #37 a été refermé sur
+    // ce passage-là — « le passage 3 → 4 pendant que tu fais défiler est parfait » — et il ne
+    // doit pas se rouvrir. L'anticipation ne concerne que les photos.
+    const fig = nearestToLine(seenShots, viseeShots());
     const m = fig ? mediaById.get(fig.dataset.id) : null;
     if (!m || m.lat == null || m.day_date !== iso || followShot === m.id) return;
     // #37 · Un petit déplacement glisse, un grand fait monter la caméra avant de redescendre :

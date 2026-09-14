@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.43";
+window.BV_VERSION = "10.44";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -956,7 +956,10 @@ window.BVMAP = (() => {
         if (!modes.some(Boolean)) modes = null;
       }
       return { iso, coords, modes, legs, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
-    }).filter((d) => d.coords.length >= 2 || d.photos.length);
+    }).filter((d) => d.coords.length >= 2 || d.photos.length)
+      // #61 · ÉTEINT PAR DÉFAUT. Tant que Sophie n'a pas choisi au doigt, le survol est
+      // exactement celui de la v10.43. Voir couperAuxSauts juste en dessous.
+      .flatMap((d) => (options.saut ? couperAuxSauts(d, options.saut) : [d]));
     if (!days.length) { M.replaying = false; return null; }
 
     const wasTerrain = M.terrain, wasBase = M.base, calm = reducedMotion();
@@ -1156,10 +1159,84 @@ window.BVMAP = (() => {
     })();
     return ctl;
   }
+  // #61 · COUPER UNE JOURNÉE AUX TRONÇONS QUI L'ÉCRASENT.
+  //
+  // Le problème, mesuré sur le Jour 1 d'Algarve : la journée entière est cadrée sur 3,5
+  // largeurs d'écran, et chaque tronçon reçoit une durée PROPORTIONNELLE à sa longueur. Le vol
+  // Paris → Faro pèse 97,9 % du trajet : il prend 13,17 s des 13,5 s de la journée, et les
+  // 3 km du soir dans Tavira sont franchis en 26 millisecondes, sur 2,9 pixels de large.
+  //
+  // On ne peut PAS y répondre en donnant une caméra à chaque tronçon : 9,0 crans de zoom
+  // séparent le vol des 3 km, soit 21 s de recul au plafond de 0,42 cran/s, ou 14 s même au
+  // rythme carte immobile de 0,65 — deux fois par journée. C'est l'arithmétique de #37, et
+  // elle ne laisse que trois sorties : allonger (injouable), RACCOURCIR LA DISTANCE, ou ne
+  // pas bouger. On raccourcit, comme en v10.21.
+  //
+  // Un tronçon qui, à lui seul, pèse plus que `ratio` fois tout le reste de la journée n'est
+  // plus PARCOURU : il devient une coupure. La journée se joue alors en morceaux, chacun à
+  // SON échelle — et le passage d'un morceau au suivant emprunte le vol qui existe déjà entre
+  // deux journées (`goTo` puis le recul à 0,65 cran/s), celui que Sophie accepte. Aucun
+  // mouvement nouveau n'est inventé : c'est la boucle du survol qui s'en charge, telle quelle.
+  //
+  // Le seuil se dérive : on accepte ~4 s de transition à 0,65 cran/s, soit 2,6 crans, soit un
+  // rapport d'échelle de 2^2,6 ≈ 6. C'est une valeur de DÉPART, pas une vérité — d'où la page
+  // d'essai, et d'où le fait que rien n'est allumé tant que Sophie n'a pas tranché.
+  function couperAuxSauts(d, ratio) {
+    const r = typeof ratio === "number" && ratio > 0 ? ratio : 6;
+    const c = d.coords;
+    if (!c || c.length < 3) return [d];
+    const longs = [];
+    let total = 0;
+    for (let i = 1; i < c.length; i++) { const l = dist(c[i - 1], c[i]); longs.push(l); total += l; }
+    // Du plus long au plus court : un tronçon est une coupure s'il pèse plus que `r` fois ce
+    // qui reste une fois les coupures déjà retenues mises de côté.
+    const ordre = longs.map((l, i) => ({ l, i })).sort((a, b) => b.l - a.l);
+    const coupe = new Set();
+    let reste = total;
+    for (const { l, i } of ordre) {
+      if (l <= r * (reste - l)) break;      // il n'écrase plus rien : les suivants non plus
+      coupe.add(i); reste -= l;
+    }
+    if (!coupe.size) return [d];
+    // Découpe : chaque morceau est une suite de points sans coupure à l'intérieur.
+    // Un morceau d'UN SEUL POINT est légitime : c'est une escale. Le survol sait déjà la
+    // jouer — `d.coords.length < 2` plus haut cadre sur ses photos, les révèle et attend.
+    // C'est le cas de la photo prise à Paris au départ, et de celle de l'aéroport de Faro.
+    const bouts = [];
+    let debut = 0;
+    for (let i = 0; i < longs.length; i++) {
+      if (!coupe.has(i)) continue;
+      bouts.push([debut, i]);      // points debut..i (i compris) — au moins un
+      debut = i + 1;
+    }
+    bouts.push([debut, c.length - 1]);
+    if (bouts.length < 2) return [d];
+    // Une photo va au morceau dont le trajet passe le plus près d'elle : c'est là qu'elle
+    // se révélera, et nulle part ailleurs.
+    const ou = (m) => {
+      let best = 0, bd = Infinity;
+      bouts.forEach(([a, b], k) => {
+        for (let i = a; i <= b; i++) { const dd = dist(c[i], [m.lng, m.lat]); if (dd < bd) { bd = dd; best = k; } }
+      });
+      return best;
+    };
+    const pour = bouts.map(() => []);
+    for (const m of d.photos || []) pour[ou(m)].push(m);
+    const morceaux = bouts.map(([a, b], k) => Object.assign({}, d, {
+      coords: c.slice(a, b + 1),
+      modes: d.modes ? d.modes.slice(a, b + 1) : null,
+      photos: pour[k],
+      km: 0,                                  // la distance affichée reste celle de la journée
+      _bout: k + 1, _bouts: bouts.length,
+    // Un point seul SANS photo n'a rien à montrer : la caméra irait s'arrêter sur rien.
+    })).filter((m) => m.coords.length >= 2 || m.photos.length);
+    return morceaux.length >= 2 ? morceaux : [d];
+  }
+
   function dist(a, b) { const R = 6371000, dLat = (b[1] - a[1]) * Math.PI / 180, dLng = (b[0] - a[0]) * Math.PI / 180, s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); }
   function heading(a, b) { const y = Math.sin((b[0] - a[0]) * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180), x = Math.cos(a[1] * Math.PI / 180) * Math.sin(b[1] * Math.PI / 180) - Math.sin(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.cos((b[0] - a[0]) * Math.PI / 180); return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; }
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
