@@ -958,8 +958,8 @@ window.BVMAP = (() => {
       return { iso, coords, modes, legs, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
     }).filter((d) => d.coords.length >= 2 || d.photos.length)
       // #61 · ÉTEINT PAR DÉFAUT. Tant que Sophie n'a pas choisi au doigt, le survol est
-      // exactement celui de la v10.43. Voir couperAuxSauts juste en dessous.
-      .flatMap((d) => (options.saut ? couperAuxSauts(d, options.saut) : [d]));
+      // exactement celui de la v10.43. Voir couperEnSequences juste en dessous.
+      .flatMap((d) => (options.sequences ? couperEnSequences(d) : [d]));
     if (!days.length) { M.replaying = false; return null; }
 
     const wasTerrain = M.terrain, wasBase = M.base, calm = reducedMotion();
@@ -1053,7 +1053,11 @@ window.BVMAP = (() => {
         // qui s'y adapte, en pente et non plus par marches — et se parcourt à vitesse constante.
         // 0,26 écran/s est le réglage C de la page d'essai, choisi au doigt par Sophie sur son
         // carnet d'Écosse le 11/09/2026. La largeur vient de la CARTE, pas de la fenêtre.
-        const ECRANS = 3.5, ECRANS_PAR_S = .26;
+        // #61 · Une séquence de VOL tient sur UN écran — « tracé visible d'un bout à l'autre »,
+        // demande de Sophie. À 0,26 écran/s elle dure donc 3,8 s : franchi vite, comme voulu.
+        // Toute autre séquence garde les 3,5 écrans de la journée. La vitesse au sol, elle, ne
+        // change jamais : c'est le réglage choisi au doigt le 11/09.
+        const ECRANS = d._vol ? 1 : 3.5, ECRANS_PAR_S = .26;
         const largeurPx = Math.max(200, map.getContainer().clientWidth || 440);
         const lat0 = d.coords[0][1];
         // Pas de recul supplémentaire pour un chemin estimé : l'ancien escalier en ajoutait
@@ -1093,12 +1097,20 @@ window.BVMAP = (() => {
           // 0,26 choisi — cinq fois trop. La caméra recule donc seule, sans avancer, à
           // 0,65 cran par seconde (le rythme qu'elle accepte), puis Valdo part à la bonne
           // vitesse dès le premier pas. L'arc entre journées, lui, n'est pas touché.
+          // #61 · Le rythme du recul est réglable POUR LA PAGE D'ESSAI. Par défaut il vaut ce
+          // que le code fait depuis toujours — 0,65 cran/s, borné à 6 s — donc rien ne change
+          // pour personne tant que Sophie n'a pas tranché. Le plafond de 6 s est ce qui fait
+          // que le passage entre deux journées peut atteindre 1,8 cran/s sur un grand écart :
+          // c'est le mouvement qu'elle voit déjà et n'a jamais signalé.
+          const reglageRecul = options.recul || {};
+          const tauxRecul = reglageRecul.taux > 0 ? reglageRecul.taux : .65;
+          const plafondRecul = reglageRecul.plafondMs > 0 ? reglageRecul.plafondMs : 6000;
           const zAvant = map.getZoom();
-          const reculMs = Math.min(6000, Math.abs(zoom - zAvant) / .65 * 1000);
+          const reculMs = Math.min(plafondRecul, Math.abs(zoom - zAvant) / tauxRecul * 1000);
           // Le nord est remis d'aplomb ici, pendant que la carte est immobile : une rotation
           // qui arriverait en marchant serait exactement ce qu'on veut éviter.
           const tourne = Math.abs(((map.getBearing() + 540) % 360) - 180);
-          const remiseMs = Math.min(6000, Math.max(reculMs, tourne / 30 * 1000));   // 30°/s au plus
+          const remiseMs = Math.min(plafondRecul, Math.max(reculMs, tourne / 30 * 1000));   // 30°/s au plus
           if (remiseMs > 80) { map.easeTo({ zoom, pitch, bearing: 0, duration: remiseMs, essential: true }); await moveEnd(); }
           else if (map.getBearing() !== 0) map.setBearing(0);
         }
@@ -1116,7 +1128,8 @@ window.BVMAP = (() => {
         // Ne pas y remettre la prise du zoom : c'est ce qui faisait démarrer les longues
         // journées cinq fois trop vite (mesuré chez Sophie, v10.32 : pointe à 1,405 écran/s).
         const zDepart = map.getZoom(), pDepart = map.getPitch();
-        const POSE_MS = Math.max(1200, Math.min(6000, Math.abs(zoom - zDepart) / .65 * 1000));
+        const tauxPose = (options.recul && options.recul.taux > 0) ? options.recul.taux : .65;
+        const POSE_MS = Math.max(1200, Math.min(6000, Math.abs(zoom - zDepart) / tauxPose * 1000));
         let pose = 0;
         await new Promise((resolve) => {
           const frame = (now) => {
@@ -1159,78 +1172,58 @@ window.BVMAP = (() => {
     })();
     return ctl;
   }
-  // #61 · COUPER UNE JOURNÉE AUX TRONÇONS QUI L'ÉCRASENT.
+  // #61 · LA CAMÉRA SE CADRE PAR SÉQUENCE — ni par journée, ni par tronçon.
   //
-  // Le problème, mesuré sur le Jour 1 d'Algarve : la journée entière est cadrée sur 3,5
-  // largeurs d'écran, et chaque tronçon reçoit une durée PROPORTIONNELLE à sa longueur. Le vol
-  // Paris → Faro pèse 97,9 % du trajet : il prend 13,17 s des 13,5 s de la journée, et les
-  // 3 km du soir dans Tavira sont franchis en 26 millisecondes, sur 2,9 pixels de large.
+  // Décidé par Sophie. La journée entière est trop grossière : cadrée sur 3,5 écrans, le vol
+  // Paris → Algarve pèse 97,9 % du trajet, prend 13,17 s des 13,5 s, et les 3 km du soir dans
+  // Tavira sont franchis en 26 millisecondes sur 2,9 pixels. Le tronçon est trop fin : le
+  // Jour 1 en compte sept, la caméra se recadrerait sept fois et ce serait agité.
   //
-  // On ne peut PAS y répondre en donnant une caméra à chaque tronçon : 9,0 crans de zoom
-  // séparent le vol des 3 km, soit 21 s de recul au plafond de 0,42 cran/s, ou 14 s même au
-  // rythme carte immobile de 0,65 — deux fois par journée. C'est l'arithmétique de #37, et
-  // elle ne laisse que trois sorties : allonger (injouable), RACCOURCIR LA DISTANCE, ou ne
-  // pas bouger. On raccourcit, comme en v10.21.
+  // OÙ COUPER : un tronçon « en avion » fait sa propre séquence, ce qui vient après en est une
+  // autre. Rien de neuf à demander — Sophie a déjà marqué le moyen sur ce tronçon. Sur son
+  // Jour 1 cela donne exactement DEUX séquences : le vol, puis les six tronçons de Tavira.
   //
-  // Un tronçon qui, à lui seul, pèse plus que `ratio` fois tout le reste de la journée n'est
-  // plus PARCOURU : il devient une coupure. La journée se joue alors en morceaux, chacun à
-  // SON échelle — et le passage d'un morceau au suivant emprunte le vol qui existe déjà entre
-  // deux journées (`goTo` puis le recul à 0,65 cran/s), celui que Sophie accepte. Aucun
-  // mouvement nouveau n'est inventé : c'est la boucle du survol qui s'en charge, telle quelle.
+  // ⚠️ Ce n'est PAS « couper à toute rupture d'échelle ». Une journée de 300 km de voiture
+  // suivie d'une promenade reste une seule séquence : le cas est réel, aucun carnet ne le
+  // réclame encore, et Sophie a écarté la généralisation. Ne pas l'ajouter d'initiative.
   //
-  // Le seuil se dérive : on accepte ~4 s de transition à 0,65 cran/s, soit 2,6 crans, soit un
-  // rapport d'échelle de 2^2,6 ≈ 6. C'est une valeur de DÉPART, pas une vérité — d'où la page
-  // d'essai, et d'où le fait que rien n'est allumé tant que Sophie n'a pas tranché.
-  function couperAuxSauts(d, ratio) {
-    const r = typeof ratio === "number" && ratio > 0 ? ratio : 6;
-    const c = d.coords;
-    if (!c || c.length < 3) return [d];
-    const longs = [];
-    let total = 0;
-    for (let i = 1; i < c.length; i++) { const l = dist(c[i - 1], c[i]); longs.push(l); total += l; }
-    // Du plus long au plus court : un tronçon est une coupure s'il pèse plus que `r` fois ce
-    // qui reste une fois les coupures déjà retenues mises de côté.
-    const ordre = longs.map((l, i) => ({ l, i })).sort((a, b) => b.l - a.l);
-    const coupe = new Set();
-    let reste = total;
-    for (const { l, i } of ordre) {
-      if (l <= r * (reste - l)) break;      // il n'écrase plus rien : les suivants non plus
-      coupe.add(i); reste -= l;
-    }
-    if (!coupe.size) return [d];
-    // Découpe : chaque morceau est une suite de points sans coupure à l'intérieur.
-    // Un morceau d'UN SEUL POINT est légitime : c'est une escale. Le survol sait déjà la
-    // jouer — `d.coords.length < 2` plus haut cadre sur ses photos, les révèle et attend.
-    // C'est le cas de la photo prise à Paris au départ, et de celle de l'aéroport de Faro.
+  // ⚠️ Et ce n'est qu'un découpage de CAMÉRA : rien ici ne descend dans les données ni dans
+  // l'écran. Une journée reste une journée — même récit, même titre, même carte, même fiche.
+  // Il n'existe pas de « sous-journée » dans Bonvoyage, et il ne doit pas en apparaître.
+  //
+  // Le mode d'un segment : `pathFromLegs` empile un mode par point, donc le segment qui va du
+  // point i-1 au point i porte le mode `modes[i]` — c'est ainsi que la marche le lit déjà.
+  function couperEnSequences(d) {
+    const c = d.coords, m = d.modes;
+    if (!c || c.length < 3 || !m) return [d];
+    const vol = (i) => m[i] === "plane";                  // le segment i-1 → i
     const bouts = [];
-    let debut = 0;
-    for (let i = 0; i < longs.length; i++) {
-      if (!coupe.has(i)) continue;
-      bouts.push([debut, i]);      // points debut..i (i compris) — au moins un
-      debut = i + 1;
+    let debut = 0, nature = vol(1);
+    for (let i = 2; i < c.length; i++) {
+      if (vol(i) === nature) continue;
+      bouts.push([debut, i - 1, nature]);
+      debut = i - 1; nature = vol(i);
     }
-    bouts.push([debut, c.length - 1]);
+    bouts.push([debut, c.length - 1, nature]);
     if (bouts.length < 2) return [d];
-    // Une photo va au morceau dont le trajet passe le plus près d'elle : c'est là qu'elle
+    // Une photo va à la séquence dont le trajet passe le plus près d'elle : c'est là qu'elle
     // se révélera, et nulle part ailleurs.
-    const ou = (m) => {
+    const ou = (p) => {
       let best = 0, bd = Infinity;
       bouts.forEach(([a, b], k) => {
-        for (let i = a; i <= b; i++) { const dd = dist(c[i], [m.lng, m.lat]); if (dd < bd) { bd = dd; best = k; } }
+        for (let i = a; i <= b; i++) { const dd = dist(c[i], [p.lng, p.lat]); if (dd < bd) { bd = dd; best = k; } }
       });
       return best;
     };
     const pour = bouts.map(() => []);
-    for (const m of d.photos || []) pour[ou(m)].push(m);
-    const morceaux = bouts.map(([a, b], k) => Object.assign({}, d, {
+    for (const p of d.photos || []) pour[ou(p)].push(p);
+    return bouts.map(([a, b, estVol], k) => Object.assign({}, d, {
       coords: c.slice(a, b + 1),
-      modes: d.modes ? d.modes.slice(a, b + 1) : null,
+      modes: m.slice(a, b + 1),
       photos: pour[k],
-      km: 0,                                  // la distance affichée reste celle de la journée
-      _bout: k + 1, _bouts: bouts.length,
-    // Un point seul SANS photo n'a rien à montrer : la caméra irait s'arrêter sur rien.
-    })).filter((m) => m.coords.length >= 2 || m.photos.length);
-    return morceaux.length >= 2 ? morceaux : [d];
+      km: 0,                          // la distance affichée reste celle de la journée entière
+      _vol: estVol, _seq: k + 1, _seqs: bouts.length,
+    }));
   }
 
   function dist(a, b) { const R = 6371000, dLat = (b[1] - a[1]) * Math.PI / 180, dLng = (b[0] - a[0]) * Math.PI / 180, s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * Math.PI / 180) * Math.cos(b[1] * Math.PI / 180) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); }
@@ -1238,5 +1231,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

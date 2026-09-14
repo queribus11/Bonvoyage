@@ -47,8 +47,9 @@
   <div class="jour" id="carnets"></div>
   <div class="jour" id="jours"></div>
   <div class="choix">
-    <button id="bA" disabled><b>A · il franchit</b><span>Le très long tronçon n'est plus parcouru : Valdo est porté de l'autre côté, comme entre deux journées. Chaque morceau de la journée retrouve alors son échelle.</span></button>
-    <button id="bB" disabled><b>B · il marche quand même</b><span>Ce que fait l'app aujourd'hui : une seule échelle pour toute la journée, et le long tronçon prend presque tout le temps.</span></button>
+    <button id="bA" disabled><b>A · le recul d'aujourd'hui</b><span>Le même mouvement que l'app fait déjà entre deux journées : rapide, borné à six secondes. La journée dure environ 23 s.</span></button>
+    <button id="bB" disabled><b>B · le recul lent</b><span>La caméra recule trois fois plus doucement, sans limite de durée. Plus posé, mais la journée dure environ 46 s.</span></button>
+    <button id="bC" disabled><b>C · comme aujourd'hui en ligne</b><span>Sans coupure : une seule échelle pour toute la journée. C'est ce que tu as vu jusqu'ici — pour comparer.</span></button>
   </div>
   <table class="chiffres" id="chiffres"></table>
 </div>
@@ -129,32 +130,47 @@
     const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rd) * Math.cos(b[1] * rd) * Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(s)); };
   const ECRANS = 3.5, EPS = .26;
+  // Les séquences viennent de LA FONCTION DE L'APP, pas d'une copie : si un jour la règle de
+  // coupe change, cette page change avec elle.
+  const longueur = (c) => { let t = 0; for (let i = 1; i < c.length; i++) t += dd(c[i - 1], c[i]); return t; };
+  const zoomDe = (m, ecrans, lat) => Math.min(17, Math.max(3,
+    Math.log2(156543.03392 * Math.cos(lat * rd) * (map.container.clientWidth || 440) * ecrans / m)));
   function mesures(iso) {
     const ch = BVMAP.dayPath ? BVMAP.dayPath(D, iso) : null;
     const c = (ch && ch.coords) || [];
     if (c.length < 2) return null;
-    const L = []; let t = 0;
-    for (let i = 1; i < c.length; i++) { const l = dd(c[i - 1], c[i]); L.push(l); t += l; }
-    const duree = ECRANS / EPS, px = map.container.clientWidth || 440;
-    const plusLong = Math.max(...L), court = t - plusLong;
-    return { c, L, t, duree, px, plusLong, court, coupe: plusLong > 6 * court };
+    const t = longueur(c);
+    const seqs = BVMAP.couperEnSequences({ coords: c, modes: c.modes || null, photos: [], iso });
+    const coupe = seqs.length > 1;
+    const m = seqs.map((s) => {
+      const lg = longueur(s.coords), ec = s._vol ? 1 : ECRANS;
+      return { vol: !!s._vol, lg, ec, duree: ec / EPS, zoom: zoomDe(lg, ec, s.coords[0][1]) };
+    });
+    const dz = coupe ? Math.abs(m[m.length - 1].zoom - m[0].zoom) : 0;
+    return { c, t, coupe, seqs: m, dz, duree: ECRANS / EPS };
   }
   function ligne(a, b) { return `<tr><td>${a}</td><td><b>${b}</b></td></tr>`; }
   function afficher() {
     const m = mesures(iso);
     const t = $("#chiffres");
     if (!m) { t.innerHTML = ligne("cette journée", "pas de trajet à survoler"); return; }
-    const parEcran = m.t / ECRANS;
-    const sLong = m.duree * m.plusLong / m.t, sCourt = m.duree * m.court / m.t;
-    const pxCourt = m.court / parEcran * m.px;
-    t.innerHTML =
-      ligne("longueur de la journée", (m.t / 1000).toFixed(0) + " km") +
-      ligne("dont le plus long tronçon", (m.plusLong / 1000).toFixed(0) + " km") +
-      ligne("AUJOURD'HUI · le long tronçon", sLong.toFixed(1) + " s") +
-      ligne("AUJOURD'HUI · tout le reste", sCourt.toFixed(2) + " s, large de " + pxCourt.toFixed(0) + " px") +
-      (m.coupe
-        ? ligne("EN A · tout le reste", m.duree.toFixed(1) + " s, pleine largeur")
-        : ligne("en A", "cette journée n'a pas de tronçon qui l'écrase : rien ne change"));
+    let h = ligne("longueur de la journée", (m.t / 1000).toFixed(0) + " km");
+    if (!m.coupe) {
+      h += ligne("séquences", "une seule — aucun tronçon en avion") +
+           ligne("A, B et C", "identiques sur cette journée");
+    } else {
+      m.seqs.forEach((s, i) => {
+        h += ligne(`séquence ${i + 1} · ${s.vol ? "le vol" : "au sol"}`,
+          (s.lg / 1000).toFixed(s.lg > 10000 ? 0 : 1) + " km en " + s.duree.toFixed(1) + " s");
+      });
+      h += ligne("recul entre les deux", m.dz.toFixed(1) + " crans");
+      const a = Math.min(6, m.dz / .65), b = m.dz / .42;
+      h += ligne("A · recul", a.toFixed(1) + " s, soit " + (m.dz / a).toFixed(2) + " cran/s");
+      h += ligne("B · recul", b.toFixed(1) + " s, soit 0,42 cran/s");
+      h += ligne("durée de la journée", "A " + (1 / EPS + a + ECRANS / EPS).toFixed(0) + " s · B "
+        + (1 / EPS + b + ECRANS / EPS).toFixed(0) + " s · C " + (ECRANS / EPS).toFixed(0) + " s");
+    }
+    t.innerHTML = h;
   }
   function rendreJours() {
     $("#jours").innerHTML = jours.map((j) => {
@@ -168,25 +184,26 @@
   if (candidate) iso = candidate;
   rendreJours(); afficher();
   mot.innerHTML = `<b>${D.trip.title}</b> — choisis une journée (● = une journée où les deux variantes diffèrent), puis A ou B.
-    <br>Regarde la même chose les deux fois : <b>vois-tu ce que tu as fait dans la ville d'arrivée ?</b>`;
+    <br>Regarde la même chose à chaque fois : <b>vois-tu ce que tu as fait dans la ville d'arrivée ?</b>`;
 
   BVMAP.draw(map, D, { dayList: jours, dayFilter: null });
-  const jouer = (saut) => {
+  const boutons = ["#bA", "#bB", "#bC"];
+  const ouvrir = (oui) => boutons.forEach((b) => $(b).disabled = !oui);
+  const jouer = (opts) => {
     if (map.replaying) return;
-    $("#bA").disabled = $("#bB").disabled = true;
-    const ctl = BVMAP.replay(map, D, { dayList: jours, only: iso, saut });
-    const fin = setInterval(() => { if (!map.replaying) { clearInterval(fin); $("#bA").disabled = $("#bB").disabled = false; } }, 400);
-    if (!ctl) { clearInterval(fin); $("#bA").disabled = $("#bB").disabled = false; }
+    ouvrir(false);
+    const ctl = BVMAP.replay(map, D, Object.assign({ dayList: jours, only: iso }, opts));
+    const fin = setInterval(() => { if (!map.replaying) { clearInterval(fin); ouvrir(true); } }, 400);
+    if (!ctl) { clearInterval(fin); ouvrir(true); }
   };
-  $("#bA").onclick = () => jouer(6);
-  $("#bB").onclick = () => jouer(false);
-  // Les deux boutons n'ouvrent que quand la carte est prête : un appui dans le vide ferait
-  // croire à Sophie que la page ne marche pas.
-  const prete = setInterval(() => {
-    if (!map.ready) return;
-    clearInterval(prete);
-    $("#bA").disabled = $("#bB").disabled = false;
-  }, 200);
+  // Les trois variantes appellent LA MÊME fonction que l'app : aucune divergence possible
+  // entre ce que Sophie juge et ce qui sera livré.
+  $("#bA").onclick = () => jouer({ sequences: true });                                        // 0,65 cran/s, borné à 6 s
+  $("#bB").onclick = () => jouer({ sequences: true, recul: { taux: .42, plafondMs: 60000 } });
+  $("#bC").onclick = () => jouer({});                                                          // le survol en ligne
+  // Les boutons n'ouvrent que quand la carte est prête : un appui dans le vide ferait croire
+  // à Sophie que la page ne marche pas.
+  const prete = setInterval(() => { if (!map.ready) return; clearInterval(prete); ouvrir(true); }, 200);
   }
 
   if (D) demarrer();
