@@ -244,6 +244,19 @@ main. L'ordre :
 référence est le dépôt. Ne jamais lui demander de corriger un fichier chez elle, ni de
 déposer quoi que ce soit à la main sur github.com.
 
+🔴 **Pousser n'est pas publier — l'étape 6 ne se déduit JAMAIS de l'étape 5.** Un commit arrivé
+sur `main` ne dit rien de ce que le site sert : la mise en ligne est une exécution séparée, chez
+GitHub, et elle peut rester coincée. Le 13 septembre 2026, la v10.42 est arrivée sur `main` à
+08:54 et n'était toujours pas publiée **seize heures plus tard**. Deux exécutions affichées « en
+attente », **zéro tâche**, pas un horodatage qui bouge — et l'annulation refusée, par le bouton
+comme par l'API, avec ce message : `409 Cannot cancel a workflow run that has not been queued
+yet`. Autrement dit GitHub les montrait dans la file **sans les y avoir mises**. Ce qu'il faut en
+retenir : si le site sert l'ancienne version, **regarder l'état de la publication avant de
+soupçonner le code, le cache ou le service worker** — le contrôle du fichier témoin dit qu'il
+manque quelque chose, pas où. Et le seul levier qui marche est de **pousser un commit neuf** :
+une publication remplace la précédente, donc rien ne s'empile vraiment ; relancer l'exécution
+coincée, non.
+
 ---
 
 ## Le vocabulaire du projet
