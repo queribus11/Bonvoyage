@@ -218,9 +218,14 @@
     // Sans repli, l'horodatage partait de « maintenant » — on prend le jour concerné.
     let t = Date.parse(legs[0].from.taken_at || legs[0].from.created_at || "") || Date.parse(iso + "T08:00:00") || Date.now();
     for (const l of legs) {
-      const mode = l.mode && BVMAP.MODES[l.mode] ? BVMAP.MODES[l.mode] : null;
+      const mode = l.mode && window.BVMAP.MODES[l.mode] ? window.BVMAP.MODES[l.mode] : null;
       let coords = l.coords;
-      if (mode && mode.path === "road") {
+      // v10.43 · Le garde-fou de #57 manquait ici : « Tracer l'itinéraire » sur une journée
+      // Paris → Algarve redemandait bel et bien un itinéraire routier de mille cinq cents
+      // kilomètres, celui-là même qui avait figé l'application. Même seuil, même raison.
+      const trop = window.BVMAP.ROUTE_MAX_M != null &&
+        haversine({ lat: l.from.lat, lng: l.from.lng }, { lat: l.to.lat, lng: l.to.lng }) > window.BVMAP.ROUTE_MAX_M;
+      if (mode && mode.path === "road" && !trop) {
         try { const r = await roadRoute([{ lat: l.from.lat, lng: l.from.lng }, { lat: l.to.lat, lng: l.to.lng }]); if (r && r.length >= 2) coords = r.map((p) => [p.lng, p.lat]); } catch { /* ligne droite en secours */ }
       }
       for (const c of coords) { t += 1000; push(c[0], c[1], t); }
