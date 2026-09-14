@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.43**
+- Version actuelle : **v10.44**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -451,6 +451,45 @@ disait `camp → photo → photo → camp` ; l'écran de Sophie disait `photo �
   appel, et la comparaison semblait bonne alors qu'elle ne mesurait rien. Deuxième fois dans le
   même mois (après `CV` nu dans `campsOfView`). **Un résultat identique des deux côtés doit
   toujours faire suspecter le banc avant de faire conclure.**
+
+### Les leçons de la v10.44 (#64, #61)
+
+- 🔴 **Un retard d'affichage se mesure en GÉOMÉTRIE, pas en ressenti.** #64 : la ligne de
+  lecture (`readLine`, `js/share.js`) tenait déjà compte de la carte collante — 755 px à
+  440 × 956, le milieu exact de ce qui reste visible sous le plan. L'hypothèse « la photo doit
+  passer derrière le plan pour être élue » était fausse. La vraie cause est une **durée** :
+  `FLY_BASE_MS = 2000` (`js/map.js`) — tout vol vers une photo dure au moins deux secondes, et
+  `busyUntil` bloque tout pendant ce temps. À 300 px/s, la photo élue passe sous le plan en
+  0,67 s : la carte arrive plus d'une seconde après sa disparition, et ~7 photos ont défilé.
+- **On peut viser où la lecture SERA.** L'élection anticipe de `vitesse × durée du vol`. Mais le
+  rattrapage a un **plafond géométrique** : on ne peut viser que 201 px plus bas (le bas de
+  l'écran), soit 101 px/s pour un vol de 2 s. Mesuré : à temps jusqu'à 200 px/s, encore
+  0,66 s de retard à 300. **Le dire, plutôt que de laisser croire que c'est réglé.**
+- **L'anticipation ne vaut que pour les PHOTOS.** L'élection de la journée garde la ligne nue :
+  #37 a été refermé sur ce passage (« 3 → 4 pendant que tu fais défiler est parfait »), et un
+  réglage qu'on n'a pas mesuré ne se rouvre pas par effet de bord.
+- 🔴 **L'unité de cadrage est la SÉQUENCE — ni la journée, ni le tronçon.** Tranché par Sophie.
+  La journée entière est trop grossière : cadrée sur 3,5 écrans, le vol Paris → Algarve prend
+  13,17 s des 13,5 s et les 3 km du soir à Tavira sont franchis en **26 ms** sur **2,9 px**. Le
+  tronçon est trop fin : le Jour 1 en compte sept, la caméra se recadrerait sept fois.
+  **Où couper : un tronçon « en avion » fait sa propre séquence** (`couperEnSequences`,
+  `js/map.js`) — rien de neuf à demander, le moyen est déjà marqué. Une séquence de vol tient
+  sur **un** écran (« tracé visible d'un bout à l'autre »), les autres gardent les 3,5.
+  ⚠️ Ce n'est **pas** « couper à toute rupture d'échelle » : une journée de 300 km de voiture
+  suivie d'une promenade reste une seule séquence. La généralisation a été **écartée** — ne pas
+  l'ajouter d'initiative. ⚠️ Et c'est un découpage de **caméra seulement** : aucune notion de
+  « sous-journée » ne descend dans les données ni dans l'écran. Une journée reste une journée.
+- **Un plafond de confort peut être déjà violé par le code sans que personne s'en plaigne.**
+  Le recul entre les deux séquences du Jour 1 fait **12,1 crans**. À 0,42 cran/s (le plafond du
+  survol au sol) il durerait 28,8 s ; or `js/map.js` borne le recul entre deux journées à **6 s**
+  (`Math.min(6000, …)`), ce qui donne **2,02 cran/s** — cinq fois le plafond, et c'est le
+  mouvement que Sophie voit tous les jours sans l'avoir jamais signalé. *Avant d'appliquer un
+  plafond annoncé, vérifier ce que le code fait vraiment : les deux peuvent diverger depuis
+  longtemps.*
+- **Une mécanique soumise au doigt vit dans le VRAI code, derrière une option éteinte.**
+  `options.saut` du survol est `undefined` partout dans l'app : tant que Sophie n'a pas choisi,
+  le survol en ligne est au octet près celui de la v10.43. La page d'essai appelle la même
+  fonction — aucune divergence possible entre ce qu'elle juge et ce qui sera livré.
 
 ---
 
