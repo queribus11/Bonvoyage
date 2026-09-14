@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.42**
+- Version actuelle : **v10.43**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -41,7 +41,7 @@ bases de données.
   résiste, changer d'outil — pas d'exécutant.
 - **Lui annoncer ce qui change et le vérifier soi-même.** Ne pas lui faire deviner si
   une mise en ligne a fonctionné.
-- Elle annonce souvent un sujet par son **numéro de backlog** (#1 à #54). Les numéros
+- Elle annonce souvent un sujet par son **numéro de backlog** (#1 à #59). Les numéros
   sont stables et vivent dans le projet Claude « App Carnet de voyages », pas ici.
 
 ---
@@ -206,6 +206,11 @@ Seule exception : la fonction Edge `join-trip`, contre un lien d'invitation vala
 révoqué, à usage unique.
 
 **Stockage** : chemin `<user_id de l'auteur>/<trip_id>/…`.
+
+**Deux rayons, deux questions (v10.43)** : `PROCHE_M` (300 m, `js/map.js`) sert à **nommer** les
+bouts d'une journée (#42) ; `AU_CAMP_M` (25 m) décide si un **trait** vers le camp vaut la peine
+d'être dessiné. Ne jamais les confondre, ni les fusionner « pour n'avoir qu'une valeur » : c'est
+exactement la faute qui a laissé les journées ouvertes.
 
 **Les arrêts d'une journée (v10.8, #5)** : table `day_stops`, calquée sur `media` (donc
 `user_id` + `author_id` posés par `stamp_contribution`, et la règle « auteur ou
@@ -400,6 +405,52 @@ cliquable, Safari qui recharge en boucle.
   débordait. Le défaut dormait dans **neuf** endroits à la fois (liste des journées, fiche
   journée, fiche-carte, fiche d'arrêt, page du proche, export texte). Partout où `0` ou `""`
   sont des valeurs légitimes, `n != null` est la seule garde juste.
+
+### Les leçons de la v10.43 (#38 rouvert) — le camp ne refermait plus la journée
+
+Livré en v10.40-10.41, mesuré sur banc, déclaré clos — et **faux sur le carnet réel**. Le banc
+disait `camp → photo → photo → camp` ; l'écran de Sophie disait `photo → photo`, et rien après.
+
+- 🔴 **Une constante nommée pour une QUESTION ne sert pas à en trancher une autre.** `PROCHE_M`
+  (300 m) répond à « ce bout de trace est-il assez près d'un lieu pour porter son nom ? » (#42).
+  Il avait été réemployé pour décider d'un **dessin** — « faut-il ajouter le tronçon vers le
+  camp ? ». Or 300 m, c'est la largeur d'un village : une photo prise le soir devant le
+  logement supprimait le retour au camp, et la journée restait ouverte. Le commentaire disait
+  même « une seule valeur, deux usages : elle ne peut plus diverger d'elle-même » — c'était
+  l'inverse du bon raisonnement. **Deux questions, deux constantes** : `AU_CAMP_M` (25 m, la
+  précision d'un GPS) décide du trait, `PROCHE_M` continue de nommer les lieux.
+- 🔴 **Une garde écrite pour une version antérieure survit à ce qui la justifiait.**
+  `js/map.js` sautait le dessin estimé de toute journée portant un « Itinéraire estimé
+  (route) ». C'était juste en v10.40, où `estimatedLegs` reliait les photos et aurait doublé
+  l'itinéraire. Depuis la v10.41 une journée tracée ne rend plus que ses deux bouts vers le
+  camp : il n'y avait plus rien à doubler, et ce saut jetait précisément ces deux tronçons —
+  que `dayDistance` continuait de compter. **La seule façon, dans tout le code, qu'une distance
+  affichée compte un trait que la carte ne dessine pas.** *Quand un lot change ce qu'une
+  fonction renvoie, relire toutes les gardes qui la contournaient.*
+- 🔴 **Un réglage « pour toute la journée » s'applique aussi aux bouts de journée où il est
+  absurde.** Une journée réglée « en avion » faisait voler les trois kilomètres du soir dans la
+  ville d'arrivée — et `plane.path === "straight"` : aucune route n'était jamais demandée. Sous
+  `VOL_MIN_M` (50 km), le calcul automatique reprend la main.
+- **`""` passe avant TOUTE date.** Un arrêt sans heure et sans prédécesseur prenait `ordre = ""`
+  et ouvrait donc la journée — avant la première photo, où qu'elle ait été prise. Sur une
+  journée partie de Paris, un arrêt posé le soir au Portugal fabriquait un tronçon fantôme de
+  1 534 km (≈ 3 103 km affichés au lieu de ≈ 1 579). Il se range désormais **près de la photo
+  dont il est le plus proche** — c'est toujours un ordre de dessin, jamais une donnée.
+- **Un écart entre l'atelier et la page du proche vient des DONNÉES avant de venir du code.**
+  Les deux partagent `estimatedLegs`. Quand le proche voyait juste et l'atelier non, la cause
+  ne pouvait être que dans ce que chacun reçoit — et `get_shared_trip` renvoyait les arrêts
+  **sans leur moyen de locomotion**, et sans ceux qui n'ont pas de nom. *Avant de soupçonner le
+  code partagé, comparer les deux jeux de données.*
+- **Le chiffre affiché dit quelle version tourne.** Pas besoin de le demander à Sophie : le
+  signe « ≈ » n'existe pas avant la v10.41, et l'arc d'avion de la v10.41 mesure 1 777 km là où
+  la droite de la v10.42 en mesure 1 548. Un kilométrage à l'écran a donc suffi à prouver que
+  son app et la page du proche faisaient tourner **le même code**, ce qui a fermé d'un coup
+  toutes les pistes de cache et de service worker.
+- **Du code qui ne tourne pas hors navigateur ne peut pas être mesuré.** `BVMAP.MODES` écrit
+  sans `window.` dans `js/common.js` arrêtait le banc — donc la version « avant » rendait zéro
+  appel, et la comparaison semblait bonne alors qu'elle ne mesurait rien. Deuxième fois dans le
+  même mois (après `CV` nu dans `campsOfView`). **Un résultat identique des deux côtés doit
+  toujours faire suspecter le banc avant de faire conclure.**
 
 ---
 

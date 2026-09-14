@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.42";
+window.BV_VERSION = "10.43";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -142,11 +142,18 @@ window.BVMAP = (() => {
   // journées en blanc discret pour situer, un cercle creux au départ, un cercle plein à
   // l'arrivée, et leur nom s'il y en a un. Aucune pastille photo, aucun arrêt, aucun numéro
   // de jour : ce qui est caché ici l'est par la classe `bv-overview` posée sur la carte.
-  // « Assez près pour que ce soit le même endroit » : 300 m. Ce rayon sert à nommer
-  // les bouts d'une journée (#42) — et, au lot suivant, à ne pas rajouter un tronçon
-  // quand la trace part déjà du camp. Une seule valeur, deux usages : elle ne peut
-  // plus diverger d'elle-même.
+  // « Assez près pour porter le nom du lieu » : 300 m. Ce rayon sert à NOMMER les bouts
+  // d'une journée (#42), et rien d'autre.
+  //
+  // ⚠️ v10.43 · Il a servi un temps à décider d'un DESSIN — « faut-il ajouter le tronçon
+  // vers le camp ? » — et c'était l'erreur : 300 m, c'est la largeur d'un village. Une
+  // photo prise le soir devant le logement suffisait à supprimer le retour au camp, et la
+  // journée restait ouverte. Nommer un lieu et tracer un trait ne se décident pas au même
+  // rayon : voir AU_CAMP_M.
   const PROCHE_M = 300;
+  // « Le même endroit, à la précision du GPS près » : en deçà, un trait ne dirait rien de
+  // plus que le point lui-même. C'est le SEUL cas où la journée ne se referme pas.
+  const AU_CAMP_M = 25;
   function nearestStopName(data, iso, pt, maxM) {
     let best = null, bd = Infinity;
     for (const st of data.stops || []) {
@@ -360,9 +367,13 @@ window.BVMAP = (() => {
     // de la trace au camp. Le milieu reste en trait plein, c'est du relevé.
     for (const iso of dayList) {
       if (filter && iso !== filter) continue;
-      // Un itinéraire déjà matérialisé en trace (« Tracer l'itinéraire ») est une estimation
-      // complète : on ne la double pas.
-      if (tracks.some((t) => t.day_date === iso && t.source === "route" && (t.points || []).length >= 2)) continue;
+      // v10.43 · Ici se trouvait un « on saute la journée entière si elle porte un itinéraire
+      // tracé ». C'était juste en v10.40, quand estimatedLegs reliait les photos et aurait
+      // doublé l'itinéraire. Depuis la v10.41, une journée QUI A une trace ne rend plus que
+      // ses deux bouts — du camp au début de la trace, de la fin au camp : il n'y a plus rien
+      // à doubler, et ce saut jetait précisément les deux tronçons du camp. Pire, dayDistance
+      // (js/common.js) continuait de les compter : la seule façon, dans tout le code, qu'une
+      // distance affichée compte un trait que la carte ne dessine pas.
       const legs = estimatedLegs(data, iso);
       if (legs) applyRoads(legs, () => planRedraw(M));   // #57 · un redessin au plus, groupé
       if (legs) legs.forEach((l, i) => lines.push({ type: "Feature", properties: { id: `est-${iso}-${i}`, color: colorForDay(dayList, iso), day: iso, dash: true, est: true, mode: l.mode || "" }, geometry: { type: "LineString", coordinates: l.coords } }));
@@ -433,15 +444,29 @@ window.BVMAP = (() => {
     // (l'ordre d'affichage dans la grille). Les deux ne se comparent pas.
     const arrets = (data.stops || []).filter((st) => st.day_date === iso && st.lat != null && st.lng != null)
       .slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (a.at_time || "").localeCompare(b.at_time || ""));
+    // v10.43 · Le repli d'un arrêt qui ouvre le fil sans aucune heure : celle de la PHOTO
+    // DONT IL EST LE PLUS PROCHE.
+    //
+    // Avant, `ordre` valait "" dans ce cas — et une chaîne vide passe avant TOUTE date, donc
+    // avant la première photo de la journée, où qu'elle ait été prise. Un arrêt posé le soir
+    // dans la ville d'arrivée ouvrait ainsi une journée partie de Paris, et fabriquait un
+    // tronçon fantôme de mille cinq cents kilomètres. Se ranger près de la photo la plus
+    // proche garde le cas du parking (on se gare, puis on photographie juste à côté) et
+    // supprime le fantôme. Et c'est toujours un ORDRE DE DESSIN : cette heure ne quitte
+    // pas la fonction, rien n'est enregistré, l'app n'invente toujours pas d'heure.
+    const prochePhoto = (st) => {
+      let best = "", bd = Infinity;
+      for (const p of photos) { const d = dist([p.lng, p.lat], [st.lng, st.lat]); if (d < bd) { bd = d; best = p.ordre; } }
+      return best;
+    };
     let derniere = "";
     const pts = arrets.map((st) => {
       const t = st.at_time || "";
       if (t) derniere = t;
-      // Un arrêt sans heure prend celle de l'arrêt qui le précède dans le fil. S'il est le
-      // premier, il ouvre la journée — c'est le cas du parking : on se gare, puis on marche.
-      // Si ce n'est pas le bon endroit, Sophie lui donne une heure : le champ est là.
+      // Un arrêt sans heure prend celle de l'arrêt qui le précède dans le fil — le fil que
+      // Sophie contrôle. S'il ouvre le fil, il se range près de la photo la plus proche.
       return { kind: "stop", ref: st, lat: st.lat, lng: st.lng, transport: st.transport || null,
-               ordre: t || derniere || "", rang: st.sort_order || 0 };
+               ordre: t || derniere || prochePhoto(st) || "", rang: st.sort_order || 0 };
     });
     // À heure égale, la photo passe avant l'arrêt : on photographie, puis on s'arrête.
     return photos.concat(pts).sort((a, b) => a.ordre.localeCompare(b.ordre) || (a.rang - b.rang) || (a.kind === b.kind ? 0 : a.kind === "media" ? -1 : 1));
@@ -487,11 +512,17 @@ window.BVMAP = (() => {
       if (a.transport && MODES[a.transport]) mode = a.transport;   // « à partir d'ici, je voyage… »
       if (a.lng === b.lng && a.lat === b.lat) continue;
       const A = [a.lng, a.lat], B = [b.lng, b.lat];
-      // #38 · assez près du camp pour que ce soit le même endroit : on n'ajoute rien.
-      // La journée part déjà de là. (Même rayon que celui qui nomme les bouts en #42.)
-      if ((a.kind === "camp" || b.kind === "camp") && dist(A, B) <= PROCHE_M) continue;
+      // #38 · le point EST le camp, à la précision du GPS près : un trait n'ajouterait rien.
+      // v10.43 : c'était PROCHE_M (300 m), et une photo prise devant le logement suffisait
+      // alors à effacer le retour au camp — la journée ne se refermait plus.
+      if ((a.kind === "camp" || b.kind === "camp") && dist(A, B) <= AU_CAMP_M) continue;
       let m = mode, auto = false;
       if (!m) { m = dist(A, B) > 2500 ? "car" : "walk"; auto = true; }
+      // v10.43 · Un réglage de journée vaut pour TOUTE la journée : « en avion » s'appliquait
+      // donc aussi aux trois kilomètres du soir dans la ville d'arrivée, qui restaient droits
+      // et sans route puisque plane.path vaut "straight". Sous VOL_MIN_M, ce n'est pas un vol :
+      // on rend la main au calcul automatique, exactement comme si rien n'était réglé.
+      if (m === "plane" && dist(A, B) < VOL_MIN_M) { m = dist(A, B) > 2500 ? "car" : "walk"; auto = true; }
       const leg = { from: a.ref || a, to: b.ref || b, fromKind: a.kind, toKind: b.kind,
                     mode: m, auto, coords: [A, B], road: false };
       // #57 · Un tronçon trop long ne va PAS chercher d'itinéraire routier (voir ROUTE_MAX_M).
@@ -520,6 +551,12 @@ window.BVMAP = (() => {
   // en Algarve, a lancé vingt-quatre itinéraires de 1 500 km et figé l'application.
   const ROUTE_MAX_M = 150000;
   const tropLong = (A, B) => dist(A, B) > ROUTE_MAX_M;
+
+  // v10.43 · En deçà de cette distance, « en avion » ne veut rien dire : le plus court vol
+  // commercial du monde fait quelques kilomètres, mais une journée réglée « en avion » est
+  // une journée où l'on a pris l'avion UNE FOIS — le reste s'est fait autrement. 50 km est
+  // le seuil au-delà duquel un vol redevient l'explication la plus simple.
+  const VOL_MIN_M = 50000;
 
   // Routes (OSRM, serveur public de démonstration) : cache local « bv_roads » borné (≈ 400 Ko), échecs mémorisés 24 h
   const ROADS_MAX_CHARS = 400000;        // le cache entier
@@ -909,9 +946,13 @@ window.BVMAP = (() => {
       if (est) { modes = coords.modes; }
       else if (coords.length >= 2) {
         const dayMode = dayTransport(data, iso);
-        const ph = dayPhotosSorted(data.media, iso).filter((m) => m.transport && MODES[m.transport]);
+        // #56 · v10.43 · Le survol ne lisait le moyen QUE sur les photos, alors que depuis la
+        // v10.41 un arrêt en porte un lui aussi. Un « à pied » posé sur un arrêt était honoré
+        // par le tracé et ignoré par Valdo, qui traversait la ville en voiture. `dayPoints`
+        // est la même liste que celle du tracé : une seule vérité, plus deux.
+        const ph = dayPoints(data, iso).filter((p) => p.transport && MODES[p.transport]);
         modes = new Array(coords.length).fill(dayMode);
-        if (ph.length) { let cur = dayMode, pi = 0; const at = ph.map((m) => ({ i: nearestIndex(coords, [m.lng, m.lat]), mode: m.transport })).sort((a, b) => a.i - b.i); for (let i = 0; i < coords.length; i++) { while (pi < at.length && at[pi].i <= i) { cur = at[pi].mode; pi++; } modes[i] = cur; } }
+        if (ph.length) { let cur = dayMode, pi = 0; const at = ph.map((p) => ({ i: nearestIndex(coords, [p.lng, p.lat]), mode: p.transport })).sort((a, b) => a.i - b.i); for (let i = 0; i < coords.length; i++) { while (pi < at.length && at[pi].i <= i) { cur = at[pi].mode; pi++; } modes[i] = cur; } }
         if (!modes.some(Boolean)) modes = null;
       }
       return { iso, coords, modes, legs, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
@@ -1120,5 +1161,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

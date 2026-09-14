@@ -1,0 +1,3 @@
+v10.43 — #38 · la journée se referme sur son camp.
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-42.txt donne 404,
+c'est bien la v10.43 qui est servie.
