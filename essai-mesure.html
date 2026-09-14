@@ -37,8 +37,14 @@
 <div id="essai-map"></div>
 <div class="essai">
   <h1 style="font-family:var(--font-title);font-size:21px;margin:14px 0 6px">Deux façons de survoler une journée</h1>
-  <p class="mot" id="mot">Ouvre cette page avec le jeton d'un de tes liens de partage :
-     <code>essai-mesure.html?jeton=…</code></p>
+  <p class="mot" id="mot">Un instant, je cherche tes carnets…</p>
+  <form id="connexion" hidden>
+    <div class="field"><label>Ton adresse</label><input name="email" type="email" autocomplete="username" required></div>
+    <div class="field"><label>Ton mot de passe</label><input name="mdp" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary" type="submit">Voir mes carnets</button>
+    <p class="small muted" id="connexion-ko" style="margin:8px 0 0"></p>
+  </form>
+  <div class="jour" id="carnets"></div>
   <div class="jour" id="jours"></div>
   <div class="choix">
     <button id="bA" disabled><b>A · il franchit</b><span>Le très long tronçon n'est plus parcouru : Valdo est porté de l'autre côté, comme entre deux journées. Chaque morceau de la journée retrouve alors son échelle.</span></button>
@@ -65,15 +71,55 @@
 (async () => {
   const $ = (s) => document.querySelector(s);
   const params = new URLSearchParams(location.search);
-  const jeton = params.get("jeton") || params.get("t") || "";
   const mot = $("#mot");
-  if (!jeton) return;
-  let D;
-  try { mot.textContent = "Chargement du carnet…"; D = await API.getSharedTrip(jeton); }
-  catch (e) { mot.innerHTML = `<span class="ko">Carnet introuvable : ${e.message}</span>`; return; }
+
+  // D'OÙ VIENT LE CARNET. Sophie n'a rien à composer ni à coller : c'est le même site que
+  // son app, donc la même session. On la lui demande seulement si elle n'en a pas.
+  let D = null;
+  const jeton = params.get("jeton") || params.get("t") || "";   // second recours, jamais affiché
+
+  async function ouvrir(id, titre) {
+    mot.textContent = "Ouverture de « " + titre + " »…";
+    $("#carnets").innerHTML = "";
+    $("#connexion").hidden = true;
+    try { D = await API.loadTrip(id); } catch (e) { mot.innerHTML = `<span class="ko">${e.message}</span>`; return; }
+    demarrer();
+  }
+  async function listerCarnets() {
+    let liste;
+    try { liste = await API.listTrips(); } catch (e) { return demanderConnexion(e.message); }
+    if (!liste || !liste.length) { mot.innerHTML = `<span class="ko">Aucun carnet sur ce compte.</span>`; return; }
+    mot.textContent = "Quel carnet veux-tu regarder ?";
+    $("#carnets").innerHTML = liste.map((t, i) => `<button data-i="${i}">${t.title || "Sans titre"}</button>`).join("");
+    $("#carnets").querySelectorAll("button").forEach((b) => b.onclick = () => ouvrir(liste[+b.dataset.i].id, liste[+b.dataset.i].title));
+    // Un seul carnet : on l'ouvre, il n'y a rien à choisir.
+    if (liste.length === 1) ouvrir(liste[0].id, liste[0].title);
+  }
+  function demanderConnexion(raison) {
+    mot.textContent = "Connecte-toi, comme dans ton app.";
+    $("#connexion").hidden = false;
+    if (raison) $("#connexion-ko").textContent = "";
+  }
+  $("#connexion").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    $("#connexion-ko").textContent = "";
+    try { await API.signIn(f.email.value.trim(), f.mdp.value); $("#connexion").hidden = true; await listerCarnets(); }
+    catch (err) { $("#connexion-ko").innerHTML = `<span class="ko">${err.message}</span>`; }
+  };
+
+  if (jeton) {
+    try { D = await API.getSharedTrip(jeton); } catch (e) { mot.innerHTML = `<span class="ko">${e.message}</span>`; return; }
+  } else {
+    const u = await API.getUser().catch(() => null);
+    if (u) await listerCarnets(); else demanderConnexion();
+  }
 
   const map = BVMAP.create("essai-map", { reading: true });
-  await new Promise((r) => setTimeout(r, 600));
+
+  // Tout ce qui suit démarre une fois le carnet là — tout de suite si on est arrivée par un
+  // lien de partage, après le choix sinon.
+  function demarrer() {
   const jours = [...new Set((D.media || []).map((m) => m.day_date).concat((D.days || []).map((d) => d.day_date)).filter(Boolean))].sort();
   let iso = jours[0];
 
@@ -132,9 +178,18 @@
     const fin = setInterval(() => { if (!map.replaying) { clearInterval(fin); $("#bA").disabled = $("#bB").disabled = false; } }, 400);
     if (!ctl) { clearInterval(fin); $("#bA").disabled = $("#bB").disabled = false; }
   };
-  $("#bA").disabled = $("#bB").disabled = false;
   $("#bA").onclick = () => jouer(6);
   $("#bB").onclick = () => jouer(false);
+  // Les deux boutons n'ouvrent que quand la carte est prête : un appui dans le vide ferait
+  // croire à Sophie que la page ne marche pas.
+  const prete = setInterval(() => {
+    if (!map.ready) return;
+    clearInterval(prete);
+    $("#bA").disabled = $("#bB").disabled = false;
+  }, 200);
+  }
+
+  if (D) demarrer();
 })();
 </script>
 </body>
