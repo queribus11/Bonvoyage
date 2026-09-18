@@ -507,6 +507,10 @@
     // obstacle » : celui qui veut revoir touche « Revoir », qui est juste là.
     $("#panel").classList.add("collapsed"); setTimeout(() => BVMAP.resize(S.map), 300);
   }
+  // #70 · SUR LE RAIL ON DÉPLACE LA CAMÉRA ; dans le panneau et sur la fiche on change ce
+  // qu'on regarde. Ce bouton cadre donc CE QUI EST DESSINÉ — le voyage entier hors filtre,
+  // la journée seule quand une journée est ouverte, puisque `S.drawn` suit `S.dayFilter`.
+  // Il ne touche jamais au filtre : un bouton de caméra ne change pas ce qui est à l'écran.
   function fit() {
     if (S.drawn && S.drawn.bounds) BVMAP.fitBounds(S.map, S.drawn.bounds, { padding: 48, maxZoom: 15 });
     else { const me = BVMAP.meLngLat(S.map); if (me) BVMAP.easeTo(S.map, me.lat, me.lng, 13); }
@@ -602,7 +606,7 @@
       ${drafts.length > 1 ? `<div class="row" style="margin-bottom:12px"><button class="btn sm secondary grow" id="pub-all">${ic("check", "sm")} Publier les ${drafts.length} brouillons</button></div>` : ""}
       <div class="row between" style="margin-bottom:12px">
         <span class="kicker">${days.length} journée${days.length > 1 ? "s" : ""}${S.dayFilter ? " · " + fmtDate(S.dayFilter, false) : ""}</span>
-        <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout voir</button>` : ""}<button class="btn sm" id="add-day">${ic("plus")} Journée</button></div>
+        <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout le voyage</button>` : ""}<button class="btn sm" id="add-day">${ic("plus")} Journée</button></div>
       </div>
       ${days.length ? "" : `<div class="empty valdo-empty"><img src="icons/valdo.svg" alt="">Ajoute une journée pour commencer ton récit.</div>`}
       <div class="day-list">${days.map((iso) => {
@@ -1134,7 +1138,7 @@
       <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div>
       <div class="row between" style="margin-bottom:10px">
         <span class="muted small">${S.dayFilter ? `Filtre : ${fmtDate(S.dayFilter, false)}` : `${list.length} photo${list.length > 1 ? "s" : ""}`}</span>
-        <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout voir</button>` : ""}${list.length ? `<button class="btn sm ${S.selecting ? "secondary" : ""}" id="select-toggle">${S.selecting ? "Terminer" : `${ic("check", "sm")} Sélectionner`}</button>` : ""}</div>
+        <div class="row">${S.dayFilter ? `<button class="btn sm" id="clear-filter">Tout le voyage</button>` : ""}${list.length ? `<button class="btn sm ${S.selecting ? "secondary" : ""}" id="select-toggle">${S.selecting ? "Terminer" : `${ic("check", "sm")} Sélectionner`}</button>` : ""}</div>
       </div>
       ${S.selecting ? `<div class="select-bar" id="select-bar"><span id="sel-count">0 sélectionnée</span><span class="grow"></span><button class="btn sm ghost" id="sel-all">Tout</button><button class="btn sm ghost" id="sel-move" disabled>${ic("calendar", "sm")} Déplacer</button><button class="btn sm ghost danger" id="sel-del" disabled>${ic("trash", "sm")} Supprimer</button></div>` : ""}
       ${S.pendingMedia.length ? `<div class="setup-help" style="margin-bottom:10px">⏳ ${S.pendingMedia.length} photo${S.pendingMedia.length > 1 ? "s" : ""} en attente d'envoi (gardée${S.pendingMedia.length > 1 ? "s" : ""} sur le téléphone jusqu'au retour du réseau)</div>` : ""}

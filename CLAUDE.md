@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.61**
+- Version actuelle : **v10.62**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -1131,6 +1131,45 @@ zéro croix muette. Ce qu'elle voyait est la **carte de journée**, une fiche po
 - **Ce qu'on ne peut pas vérifier se dit** : cette fiche est posée **sur la carte**, et les
   tuiles sont refusées par le proxy. Les images montrent la fiche sur un **aplat** — la
   géométrie est juste, le contraste sur un vrai fond ne l'est pas.
+
+### Les leçons de la v10.62 (#70) — la colonne bouge la caméra, le panneau change la vue
+
+Deux boutons portaient **« Tout voir »** pour deux actions différentes, et celui de la colonne
+promettait en plus, par son infobulle, ce qu'il ne faisait pas. Sophie : *« le bouton "Tout
+voir" n'a absolument rien »*.
+
+🔴 **LA RÈGLE, à appliquer partout : sur la colonne posée sur la carte (`.map-tools`) on
+DÉPLACE LA CAMÉRA ; dans le panneau et sur la fiche on CHANGE CE QU'ON REGARDE.** Un bouton de
+caméra ne touche jamais au filtre — sinon Sophie perdrait sa journée sans l'avoir demandé.
+`fit()` s'appelle donc **« Recadrer »** et cadre **ce qui est dessiné** (`S.drawn.bounds`, qui
+suit `S.dayFilter`), et le retour au voyage entier reste dans le panneau.
+
+- 🔴 **Le bouton n'était pas cassé : son NOM mentait.** `fit()` cadre `S.drawn.bounds`, et
+  `redraw` passe `dayFilter` à `draw` — le rectangle a toujours suivi le filtre. Journée
+  ouverte, il recadre sur la journée : invisible tant qu'on n'a pas fait glisser la carte,
+  **utile dès qu'on l'a fait**. *Un mot juste posé sur un bouton qu'on croit inopérant vaut
+  mieux qu'un mot faux : il dit quand s'en servir.*
+- 🔴 **Deux boutons qui font la même chose doivent porter le même mot — et ça se PROUVE en
+  comparant leurs lignes.** `#clear-filter` fait `S.dayFilter = null; redraw(true);
+  renderPanel();` ; `closeCard` (« Tout le voyage », #73) fait **exactement ces trois lignes**,
+  plus deux qui ne concernent que sa propre fiche. Donc même mot : « Tout le voyage » l'emporte,
+  parce qu'il dit **où le geste ramène** (v10.49) et que Sophie l'a déjà validé.
+- 🔴 **Mon banc a encore supposé au lieu de lire.** Il attendait que la colonne s'efface pendant
+  le survol — or la règle `.replaying` (`css/style.css:650`) nomme **`.map-rail`**, le rail de
+  la **page du proche**, et **jamais `.map-tools`**, la colonne de l'atelier. Celle-ci reste
+  donc visible pendant « Revoir », avant comme après ce lot. *Deux noms voisins pour deux
+  écrans différents : vérifier lequel une règle nomme avant d'en déduire un comportement.*
+- **Un allongement de libellé se mesure là où il vit.** « Tout le voyage » fait **120,1 px**
+  contre 84,6 pour « Tout voir ». Dans le bandeau du panneau à 393, la ligne s'arrête à 278 px
+  pour **377 disponibles** : aucun débordement, dans les deux onglets et les deux variantes de
+  la barre des photos. Et le bouton de la colonne **rétrécit** — « Recadrer » est plus court.
+- **Un banc qui LIT le libellé dans le code ne peut pas montrer l'ancien.** Le mot affiché est
+  extrait de `js/app.js` et d'`index.html` par le générateur de la page : changer le code change
+  la page, sans qu'on ait à y penser. *C'est la leçon de la v10.60 (« les valeurs doivent suivre
+  la donnée ») appliquée aux mots.*
+- **Ce qu'on ne peut pas vérifier se dit** : je prouve que le rectangle visé suit le filtre — ça
+  se lit dans le code — mais **je ne peux pas voir la caméra bouger**, le moteur de carte étant
+  refusé par le proxy. Cette partie-là, seule Sophie la juge (v10.46).
 
 ---
 
