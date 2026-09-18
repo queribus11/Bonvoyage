@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.50**
+- Version actuelle : **v10.51**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -662,6 +662,40 @@ prime, *« tu ne vérifies pas ce que tu fais ? »*. Elle avait raison.
   `.modal` en `max-height: 94vh` parlaient du viewport **sans** la barre de Safari — le bas de
   la fenêtre passait dessous. Passés en `svh`, comme `#screen-trip` en v10.48. *Corriger une
   unité à un endroit oblige à la chercher partout : je ne l'avais faite qu'à moitié.*
+
+### Les leçons de la v10.51 (#62) — « ça ne change absolument rien »
+
+Troisième signalement de Sophie sur le même lot. Le mécanisme d'essai, livré en v10.48, ne
+montrait rien — et pour deux raisons indépendantes, toutes deux invisibles dans le code et
+évidentes à l'écran.
+
+- 🔴 **UN RÉGLAGE JUGÉ AU DOIGT SE JUGE SUR L'OBJET, jamais dans une fenêtre qui le recouvre.**
+  Les trois boutons vivaient dans la fenêtre des réglages. Mesuré : à 440 × 956 cette fenêtre
+  fait **899 px de haut** et laisse **57 px de carte visible**. J'avais écrit sous les boutons
+  « le tracé se redessine tout de suite, sur la vraie carte » — c'était faux, et Sophie a passé
+  du temps à essayer trois réglages qu'elle ne pouvait pas voir. La règle 12 disait déjà
+  « une page d'essai se vérifie contre la vraie page **avant** de la faire juger » : elle vaut
+  aussi quand l'essai vit dans l'app. La bande est désormais posée **sur la carte**
+  (`.essai-trait`, `js/app.js` + `css/style.css`), au-dessus du panneau.
+- 🔴 **UN SEUL COEFFICIENT POUR TOUTES LES COUCHES D'UN TRAIT NE CHANGE RIEN À L'ŒIL.** Un
+  tracé est fait de trois couches : la couleur, le liseré blanc, le halo. Les multiplier
+  ensemble garde **exactement les mêmes proportions** — c'est le même dessin, à peine plus
+  petit. Mesuré au zoom 12 : le liseré passait de 6,17 à 4,93 px, soit **1,2 px**. Ce que l'œil
+  lit, c'est le **rapport** entre la couleur et son enrobage. D'où deux échelles dans `TRAITS`
+  (`js/map.js`) : `coef` pour la couleur, `enrobage` pour le liseré et le halo, qui maigrit
+  plus vite. L'écart visible passe à **2,1 px** et le rapport de 0,62 à 0,77.
+- **Le motif d'un pointillé suit un RAPPORT, pas une largeur.** `DASH_EDGE` était une constante
+  calculée une fois depuis `READ.w / READ.edgeW`. Dès que les deux échelles diffèrent, ce
+  rapport bouge : c'est devenu `dashEdge(V)`, un calcul. *Une constante dérivée de deux valeurs
+  qui peuvent désormais varier séparément n'est plus une constante.*
+- 🔴 **Un défaut que seule l'image montre.** Au premier réglage essayé (`enrobage: .38`), le
+  liseré tombait à 2,34 px pour une couleur de 2,30 : **il disparaissait entièrement sous
+  elle**. Aucun chiffre ne criait ; la vignette des trois traits, si. Le liseré doit rester
+  plus large que la couleur, sinon le tracé perd sa lisibilité sur fond clair.
+- **Un réglage qui ne peut pas s'appliquer ne doit pas dire qu'il s'est appliqué.**
+  `setTrait` rend maintenant `true`/`false`, et le bouton n'affiche « c'est fait » que si la
+  carte a vraiment changé. C'est la règle de #51 (*pas d'enregistrement, pas de message de
+  succès*) appliquée à un réglage d'affichage.
 
 ---
 

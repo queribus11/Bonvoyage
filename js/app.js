@@ -169,10 +169,6 @@
           <option value="live" ${trip.publish_mode === "live" ? "selected" : ""}>Tout apparaît en direct, « Publier » sert seulement à prévenir</option></select></div>
         <div class="field"><label>Vitesse du survol (pour toi et tes proches)</label><select name="replay_speed">
           ${BVMAP.SPEEDS.map((s) => `<option value="${s.k}" ${(+trip.replay_speed || 1) === s.k ? "selected" : ""}>${s.icon} ${s.label}</option>`).join("")}</select></div>
-        <div class="field"><label>Essai en cours (#62) — épaisseur du tracé</label>
-          <div class="row" id="essai-trait">${Object.entries(BVMAP.TRAITS).map(([k, v]) =>
-            `<button type="button" class="btn sm${+k === BVMAP.traitActuel() ? " primary" : ""}" data-trait="${k}">${esc(v.nom)}</button>`).join("")}</div>
-          <span class="small muted">Le tracé se redessine tout de suite, sur la vraie carte. « Voir comme un proche » (bouton Partager) emporte le même réglage. Quand tu auras choisi, dis-le-moi : ces boutons disparaîtront et ta valeur restera.</span></div>
         ` : ""}
         <div class="field"><label>Introduction (affichée en haut du récit)</label><textarea name="description" placeholder="Pourquoi ce voyage, avec qui, l'état d'esprit du départ…">${esc(trip?.description || "")}</textarea></div>
         ${!isNew ? `<div class="field"><label>Photo de couverture</label><select name="cover_path"><option value="">— aucune —</option>
@@ -202,13 +198,6 @@
         else { S.cur.trip = await API.updateTrip(trip.id, fd); m.close(); renderTripHeader(); renderPanel(); }
       } catch (err) { errToast(err); }
     };
-    // #62 · L'épaisseur se juge sur la VRAIE carte, pas sur une maquette : le bouton repose
-    // les traits sans recharger, et la fenêtre des réglages reste ouverte pour comparer.
-    $$("#essai-trait button", m.el).forEach((b) => b.onclick = () => {
-      BVMAP.setTrait(S.map, +b.dataset.trait);
-      $$("#essai-trait button", m.el).forEach((x) => x.classList.toggle("primary", x === b));
-      toast(`Tracé « ${BVMAP.TRAITS[b.dataset.trait].nom} »`, "ok", 1800);
-    });
     const acc = $("#access", m.el); if (acc) acc.onclick = () => { m.close(); openAccess(); };
     const bk = $("#backup", m.el); if (bk) bk.onclick = () => backup(true, bk);
     const bkl = $("#backup-light", m.el); if (bkl) bkl.onclick = () => backup(false, bkl);
@@ -284,6 +273,31 @@
     if (!S.cur) return;
     try { S.members = await API.listMembers(S.cur.trip.id); MEMBERS.setCrew(S.members, S.user.id); } catch { }
   }
+  // 🔴 #62 · ÉCHAFAUDAGE TEMPORAIRE — à retirer dès que Sophie aura choisi son épaisseur.
+  //
+  // La v10.48 avait posé ces trois boutons dans la fenêtre des réglages, en promettant
+  // « le tracé se redessine tout de suite, sur la vraie carte ». C'était faux : à
+  // 440 × 956, cette fenêtre fait 899 px de haut et ne laisse voir que 57 px de carte.
+  // Sophie a essayé les trois et n'a rien vu — elle ne pouvait rien voir.
+  //
+  // Un réglage jugé au doigt se juge SUR l'objet. La bande est donc posée sur la carte,
+  // juste au-dessus du panneau : rien ne la recouvre, et le tracé change sous l'œil.
+  function essaiTrait() {
+    const ecran = $("#screen-trip"); if (!ecran || $("#essai-trait")) return;
+    const bande = document.createElement("div");
+    bande.className = "essai-trait"; bande.id = "essai-trait";
+    bande.innerHTML = `<span class="lib">Épaisseur du tracé</span>`
+      + Object.entries(BVMAP.TRAITS).map(([k, v]) =>
+        `<button type="button" class="btn sm${+k === BVMAP.traitActuel() ? " primary" : ""}" data-trait="${k}">${esc(v.nom)}</button>`).join("");
+    ecran.appendChild(bande);
+    $$("button", bande).forEach((b) => b.onclick = () => {
+      // `setTrait` rend `false` si la carte n'a pas pu changer : on ne dit jamais « c'est
+      // fait » sans que ce soit fait. C'est la règle de #51, appliquée à un réglage.
+      if (!BVMAP.setTrait(S.map, +b.dataset.trait)) return toast("La carte n'est pas prête", "error");
+      $$("button", bande).forEach((x) => x.classList.toggle("primary", x === b));
+    });
+  }
+
   function openAccess() {
     MEMBERS.openAccess({
       trip: S.cur.trip, user: S.user, api: API, openModal, confirm, toast,
@@ -402,6 +416,7 @@
         Object.assign(m, u); redraw(); toast("Photo placée sur la carte", "ok"); renderPanel();
       }).catch((err) => errToast(err));
     });
+    essaiTrait();
     $("#btn-fit").onclick = () => fit();
     $("#btn-replay").onclick = () => startReplay();
     $("#app-replay-stop").onclick = () => { if (S.map.stopReplay) S.map.stopReplay(); };

@@ -1,0 +1,9 @@
+v10.51 — l'essai d'épaisseur du tracé (#62) se voit enfin.
+Deux fautes corrigées, toutes deux signalées par Sophie (« ça ne change absolument
+rien ») : les trois boutons vivaient dans une fenêtre qui cache 94 % de la carte,
+et un coefficient unique multipliait les trois couches d'un trait — donc le même
+dessin, à peine plus petit. Les boutons sont désormais posés SUR la carte, et deux
+coefficients règlent la couleur et son enrobage séparément.
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-50.txt donne 404,
+c'est bien la v10.51 qui est servie.
+Preuve de nature : « enrobage » dans js/map.js, un mot qui n'a jamais existé avant.
