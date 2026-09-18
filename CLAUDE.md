@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.44**
+- Version actuelle : **v10.45**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -490,6 +490,19 @@ disait `camp → photo → photo → camp` ; l'écran de Sophie disait `photo �
   `options.saut` du survol est `undefined` partout dans l'app : tant que Sophie n'a pas choisi,
   le survol en ligne est au octet près celui de la v10.43. La page d'essai appelle la même
   fonction — aucune divergence possible entre ce qu'elle juge et ce qui sera livré.
+
+### Les leçons de la v10.45 — deux pièges de l'app posée sur l'écran d'accueil
+
+- 🔴 **L'app de l'écran d'accueil a SA PROPRE mémoire de connexion**, séparée de celle de
+  Safari. Une page du même site ouverte par un lien extérieur (Safari, le navigateur intégré
+  d'une autre app) n'y trouve **aucune session** et redemande le mot de passe. Toute page
+  annexe — page d'essai, page de mesure — doit donc être atteignable **depuis l'app**, dans le
+  même onglet (`location.href = …`), et non par un lien qu'on envoie à Sophie.
+- 🔴 **Il n'y a PAS de bouton « retour » de navigateur dans une app posée sur l'écran
+  d'accueil.** Emmener Sophie sur une autre page du site, c'est l'y enfermer — la règle 13 au
+  pied de la lettre, hors de la carte cette fois. Toute page annexe porte donc sa propre
+  sortie : visible en permanence, en haut à gauche, libellée en clair, une seule pression. Et
+  elle ramène **au voyage qu'on lisait** (`index.html#trip=<id>`), pas à la liste.
 
 ---
 
