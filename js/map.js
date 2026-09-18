@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.47";
+window.BV_VERSION = "10.48";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -90,6 +90,36 @@ window.BVMAP = (() => {
   // lit garde sa couleur, plus fine, posée sur un liseré SOMBRE ; les autres reculent en
   // blanc fin. La distinction pointillé (estimé) / trait plein (vraie trace) reste des deux
   // côtés : c'est une vraie information.
+  // #62 · L'ÉPAISSEUR DE TOUS LES TRAITS, en un seul coefficient.
+  //
+  // Sophie : « le tracé de l'avion me semble un peu épais, les autres aussi d'ailleurs ».
+  // Les largeurs vivent à cinq endroits (l'atelier, la lecture, la vue d'ensemble, et les
+  // liserés de chacune) : un réglage par endroit, ce sont cinq listes à tenir d'accord, donc
+  // cinq listes qui divergeront. Un seul coefficient les multiplie toutes — et le pointillé
+  // suit tout seul, puisqu'il est déjà exprimé en multiples de la largeur du trait.
+  //
+  // Éteint par défaut (coefficient 1 = exactement les traits d'aujourd'hui) : tant que Sophie
+  // n'a pas choisi au doigt, rien ne change. Le choix se lit dans l'adresse (pour la page du
+  // proche, qu'elle ouvre depuis son carnet) puis dans la mémoire du navigateur.
+  const TRAIT_KEY = "bv_trait";
+  const TRAITS = { 1: { nom: "aujourd'hui", coef: 1 }, 2: { nom: "fin", coef: .8 }, 3: { nom: "très fin", coef: .66 } };
+  function traitChoisi() {
+    // Lecture protégée : Safari en navigation privée lève sur localStorage (piège connu).
+    try {
+      const p = new URLSearchParams(location.search).get("trait") || (location.hash.match(/trait=(\d)/) || [])[1];
+      if (p && TRAITS[p]) return +p;
+    } catch { }
+    try { const v = localStorage.getItem(TRAIT_KEY); if (v && TRAITS[v]) return +v; } catch { }
+    return 1;
+  }
+  let traitCoef = TRAITS[traitChoisi()].coef;
+  const T = (x) => Math.round(x * traitCoef * 100) / 100;
+  // Largeur d'un trait de l'atelier : elle grandit avec le zoom, et suit le coefficient.
+  const W = (a, b) => ["interpolate", ["linear"], ["zoom"], 8, T(a), 14, T(b)];
+
+  // Les largeurs de l'atelier, écrites UNE fois : elles servent à créer les couches, et à les
+  // reposer quand l'épaisseur change sans recharger la page. Deux listes auraient divergé.
+  const ATELIER = { "track-dash-edge": [8, 12], "track-dash": [3.5, 5.5], "track-halo": [6, 12], "track-edge": [4.5, 7], "track-line": [2.5, 4.5] };
   const READ = { w: 3.2, otherW: 1.8, otherOp: .34, edge: "rgba(8,14,20,.40)", edgeW: 6 };
   const DASH = [1.6, 1.4];
   // Le regroupement des vignettes photo, au même endroit pour tout le monde : il est coupé
@@ -100,18 +130,18 @@ window.BVMAP = (() => {
   const DASH_EDGE = [DASH[0] * READ.w / READ.edgeW, DASH[1] * READ.w / READ.edgeW];
   function trackLayers(reading) {
     if (!reading) return [
-      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 8, 14, 12], "line-opacity": .45, "line-blur": 4 } },
-      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 14, 5.5], "line-dasharray": DASH, "line-opacity": 1 } },
-      { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 12], "line-opacity": .35, "line-blur": 3 } },
-      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4.5, 14, 7], "line-opacity": .9 } },
-      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 14, 4.5], "line-opacity": 1 } },
+      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": W(...ATELIER["track-dash-edge"]), "line-opacity": .45, "line-blur": 4 } },
+      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": W(...ATELIER["track-dash"]), "line-dasharray": DASH, "line-opacity": 1 } },
+      { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": W(...ATELIER["track-halo"]), "line-opacity": .35, "line-blur": 3 } },
+      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": W(...ATELIER["track-edge"]), "line-opacity": .9 } },
+      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": W(...ATELIER["track-line"]), "line-opacity": 1 } },
     ];
     return [
-      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": READ.edgeW, "line-dasharray": DASH_EDGE, "line-opacity": 1 } },
-      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": READ.w, "line-dasharray": DASH, "line-opacity": 1 } },
+      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": T(READ.edgeW), "line-dasharray": DASH_EDGE, "line-opacity": 1 } },
+      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": T(READ.w), "line-dasharray": DASH, "line-opacity": 1 } },
       { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 0, "line-opacity": 0 } },
-      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": READ.edgeW, "line-opacity": 1 } },
-      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": READ.w, "line-opacity": 1 } },
+      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": T(READ.edgeW), "line-opacity": 1 } },
+      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": T(READ.w), "line-opacity": 1 } },
     ];
   }
   // #42 · LA JOURNÉE IMMOBILE : le tracé du jour porté plus franchement, les autres
@@ -125,18 +155,30 @@ window.BVMAP = (() => {
     const pick = (a, b) => (iso ? ["case", ["==", ["get", "day"], iso], a, b] : a);
     for (const id of ["track-line", "track-dash"]) {
       map.setPaintProperty(id, "line-color", pick(["get", "color"], "#ffffff"));
-      map.setPaintProperty(id, "line-width", pick(V.w, V.otherW));
+      map.setPaintProperty(id, "line-width", pick(T(V.w), T(V.otherW)));
       map.setPaintProperty(id, "line-opacity", pick(1, V.otherOp));
     }
     for (const id of ["track-edge", "track-dash-edge"]) {
       map.setPaintProperty(id, "line-color", V.edge);   // la vue d'ensemble a son propre liseré
-      map.setPaintProperty(id, "line-width", pick(V.edgeW, 0));
+      map.setPaintProperty(id, "line-width", pick(T(V.edgeW), 0));
       map.setPaintProperty(id, "line-opacity", 1);
     }
     if (M.overview) map.setPaintProperty("track-dash-edge", "line-dasharray", OVER_DASH_EDGE);
     else map.setPaintProperty("track-dash-edge", "line-dasharray", DASH_EDGE);
     map.setPaintProperty("track-halo", "line-opacity", 0);
   }
+  // #62 · Changer l'épaisseur sans recharger : les cinq largeurs se reposent d'un coup, à
+  // partir de la MÊME table qui a servi à les créer. `n` vaut 1, 2 ou 3 (voir TRAITS).
+  function setTrait(M, n) {
+    if (!TRAITS[n]) return;
+    traitCoef = TRAITS[n].coef;
+    try { localStorage.setItem(TRAIT_KEY, String(n)); } catch { }
+    if (!M || !M.map || !M.ready || !M.map.getLayer("track-line")) return;
+    if (M.reading) { applyTrackStyle(M); return; }
+    for (const id of Object.keys(ATELIER)) M.map.setPaintProperty(id, "line-width", W(...ATELIER[id]));
+  }
+  const traitActuel = () => traitChoisi();
+
   // ---------- #42 · La journée immobile ----------
   // Un état plein écran où l'on ne voit QUE la forme d'un jour : son tracé porté, les autres
   // journées en blanc discret pour situer, un cercle creux au départ, un cercle plein à
@@ -376,7 +418,11 @@ window.BVMAP = (() => {
       // distance affichée compte un trait que la carte ne dessine pas.
       const legs = estimatedLegs(data, iso);
       if (legs) applyRoads(legs, () => planRedraw(M));   // #57 · un redessin au plus, groupé
-      if (legs) legs.forEach((l, i) => lines.push({ type: "Feature", properties: { id: `est-${iso}-${i}`, color: colorForDay(dayList, iso), day: iso, dash: true, est: true, mode: l.mode || "" }, geometry: { type: "LineString", coordinates: l.coords } }));
+      // #62 · LE POINTILLÉ VEUT DIRE « J'AI DEVINÉ LE CHEMIN ». Pour un avion il n'y a rien à
+      // deviner : la ligne droite EST le trajet. Il se trace donc plein — dans l'atelier comme
+      // chez le proche, puisque c'est le même code : une seule règle, pas deux à tenir
+      // d'accord. Les autres tronçons estimés gardent leur pointillé, où il dit vrai.
+      if (legs) legs.forEach((l, i) => lines.push({ type: "Feature", properties: { id: `est-${iso}-${i}`, color: colorForDay(dayList, iso), day: iso, dash: l.mode !== "plane", est: true, mode: l.mode || "" }, geometry: { type: "LineString", coordinates: l.coords } }));
     }
     map.getSource("tracks").setData({ type: "FeatureCollection", features: lines });
     map.getSource("dots").setData({ type: "FeatureCollection", features: dots });
@@ -1261,5 +1307,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, TRAITS, setTrait, traitActuel, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

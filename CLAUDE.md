@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.47**
+- Version actuelle : **v10.48**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -573,6 +573,44 @@ de chiffre ; quand elle ne sait pas, elle se tait.*
 - **Le dixième endroit du `0` qui ment.** Les deux fiches de survol testaient encore `info.n ?`
   alors que `dayNumber` rend `0` pour une journée datée la veille du départ. Neuf endroits
   avaient été corrigés en v10.42 ; ceux-là avaient été manqués. `n != null`, toujours.
+
+### Les leçons de la v10.48 (#60, #62)
+
+- 🔴 **Un symptôme de mise en page se MESURE sur la vraie page, pas sur une maquette.**
+  #60 : « la fenêtre bouge, les boutons sont tronqués ». Mesuré en pilotant Chromium sur
+  `index.html` à 440, 393 et 375 : **la page tenait dans l'écran** (440 = 440), et un seul
+  élément débordait — le bouton « Ma position », de 2 px, **par son propre contenu**. Les deux
+  moitiés du symptôme avaient donc deux causes sans rapport, et aucune n'était « quelque chose
+  de plus large que l'écran ».
+- 🔴 **`position: fixed; inset: 0` ne se cale PAS sur ce que Sophie voit.** Sur iOS c'est le
+  viewport *sans* la barre de Safari. Le panneau, lui, était en `vh` — la même hauteur. Quand
+  la barre apparaît, la coquille dépasse par le bas ; quand elle se rétracte, tout remonte.
+  D'où `height: 100svh` sur `#screen-trip`, et `svh` pour le panneau et la carte : `svh` est la
+  hauteur **la plus petite**, celle qui ne bouge jamais. `dvh` aurait suivi la barre — donc
+  bougé aussi. *Les trois unités ne sont pas interchangeables : `svh` pour ne pas bouger.*
+- **Un libellé qui ne tient pas se plie, il ne rétrécit pas le bouton.** `.btn` impose
+  `white-space: nowrap` ; les boutons de la carte ont une largeur choisie au doigt (60 px). Le
+  remède est `white-space: normal` sur ces boutons-là — « Ma position » passe sur deux lignes
+  sous son picto. `overflow-x: hidden` aurait caché le mot au lieu de le montrer.
+- 🔴 **LES POLICES NE SONT PAS CHARGEABLES ICI.** Nunito, Fredoka et Caveat viennent de Google
+  Fonts, refusé par le proxy : toute mesure de **largeur de texte** faite dans cette
+  conversation utilise une police de repli, et n'est donc **pas** celle de Sophie. Une
+  correction de mise en page ne doit jamais dépendre d'un ajustement au pixel près — elle doit
+  tenir quelle que soit la police. *Suspecter l'instrument : c'est la règle 8 appliquée aux
+  polices.*
+- **Le pointillé veut dire « j'ai deviné le chemin ».** Pour un avion il n'y a rien à deviner :
+  la ligne droite **est** le trajet (#62). Une seule ligne dans `draw` (`dash: l.mode !==
+  "plane"`), donc une seule règle pour l'atelier et pour le proche — le code est partagé.
+- **Un réglage qui vit à cinq endroits se règle par un coefficient, pas par cinq nombres.**
+  Les largeurs de trait existent pour l'atelier, la lecture, la vue d'ensemble et les liserés
+  de chacune. `TRAITS` / `traitCoef` les multiplient toutes (`js/map.js`), et le pointillé suit
+  seul, puisqu'il est déjà exprimé en multiples de la largeur. La table `ATELIER` est écrite
+  une fois et sert **et** à créer les couches **et** à les reposer : deux listes auraient
+  divergé.
+- **Une mécanique soumise au doigt n'a pas besoin d'une page d'essai si l'app peut la porter.**
+  Le choix d'épaisseur vit dans les réglages du voyage, se voit **immédiatement sur la vraie
+  carte**, et le bouton « Voir comme un proche » (déjà présent) emporte le réglage dans
+  l'adresse — donc aucune page annexe, et aucun des deux pièges de la v10.45.
 
 ---
 

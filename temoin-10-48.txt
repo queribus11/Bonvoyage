@@ -1,0 +1,10 @@
+v10.48 — deux lots dans une seule mise en ligne.
+  · v10.47 « les chiffres disent tous la même chose » (#34 + le trou n° 1 du survol) ;
+  · v10.48 #60 (la fenêtre qui glisse, les boutons tronqués) et #62 (le vol en trait
+    plein, et les trois épaisseurs à juger au doigt).
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-46.txt donne 404,
+c'est bien la v10.48 qui est servie. (temoin-10-47.txt n'a jamais été publié : la
+v10.47 est restée sur la branche de travail, elle part avec celle-ci.)
+Preuves de nature, qu'aucun cache ne peut fabriquer : « heuresFiables » dans
+js/common.js, et « 100svh » dans css/style.css — deux mots qui n'ont jamais existé
+avant dans ces fichiers.

@@ -183,7 +183,10 @@ html.is-dark .chip.pub { color: #B6E36A; }
 .trip-card.new { display: none; }
 
 /* ---------- Écran voyage ---------- */
-#screen-trip { position: fixed; inset: 0; display: none; }
+/* #60 · La coquille est calée sur le viewport le plus PETIT (barre de Safari visible) :
+   `inset: 0` seul la calait sur le plus grand, si bien que le bas du panneau passait sous
+   la barre, et que tout remontait quand elle se rétractait. `svh` ne bouge jamais, lui. */
+#screen-trip { position: fixed; inset: 0; height: 100svh; display: none; }
 #screen-trip.active { display: flex; flex-direction: column; animation: none; }
 .trip-header { position: absolute; top: 0; left: 0; right: 0; z-index: 1000; padding: calc(10px + var(--safe-t)) 12px 10px; display: flex; align-items: center; gap: 10px; pointer-events: none; }
 .trip-header > * { pointer-events: auto; }
@@ -191,12 +194,15 @@ html.is-dark .chip.pub { color: #B6E36A; }
 .trip-header h2 { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trip-header .sub { font-size: 11.5px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .04em; }
 .trip-header .btn.icon { background: var(--glass); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-color: rgba(255,255,255,.5); }
-#map { flex: 1; min-height: 40vh; background: #DCEBF7; z-index: 1; }
+#map { flex: 1; min-height: 40svh; background: #DCEBF7; z-index: 1; }
 .map-tools { position: absolute; right: 12px; top: calc(70px + var(--safe-t)); z-index: 1000; display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .map-tools .btn { background: var(--glass); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-color: rgba(255,255,255,.5); }
 .map-tools .btn.beacon { width: 56px; height: 56px; background: var(--mandarine); border-color: var(--mandarine); color: #fff; box-shadow: var(--sh-accent); flex-direction: column; gap: 0; font-size: 10px; font-weight: 800; letter-spacing: .04em; }
 .map-tools .btn.beacon svg.i { width: 22px; height: 22px; }
-.map-tools .btn.tool { width: 60px; height: 54px; flex-direction: column; gap: 1px; font-size: 10.5px; line-height: 1.05; text-align: center; padding: 0 3px; font-weight: 800; letter-spacing: .03em; color: var(--ink); }
+/* #60 · Le libellé passe à la ligne dans le bouton au lieu d'en sortir. `.btn` impose
+   white-space: nowrap, et « Ma position » est plus large que les 60 px choisis au doigt :
+   il débordait, et se faisait rogner. Le bouton NE RÉTRÉCIT PAS — c'est le mot qui plie. */
+.map-tools .btn.tool { width: 60px; height: 54px; flex-direction: column; gap: 1px; font-size: 10.5px; line-height: 1.05; text-align: center; padding: 0 3px; font-weight: 800; letter-spacing: .03em; color: var(--ink); white-space: normal; overflow-wrap: anywhere; }
 .map-tools .btn.tool svg.i { width: 20px; height: 20px; }
 .map-tools .btn.beacon.pop { animation: pop-btn var(--t-fast) var(--ease); }
 @keyframes pop-btn { 50% { transform: scale(1.15); } }
@@ -204,8 +210,8 @@ html.is-dark .chip.pub { color: #B6E36A; }
 .ping::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 3px solid var(--mandarine); animation: ping .7s var(--ease) forwards; }
 @keyframes ping { to { transform: scale(3.2); opacity: 0; } }
 
-.panel { position: relative; z-index: 2; background: var(--glass-strong); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border-radius: var(--r-lg) var(--r-lg) 0 0; box-shadow: 0 -8px 30px rgba(18,63,102,.14); height: 46vh; display: flex; flex-direction: column; transition: height var(--t-mid) var(--ease); }
-.panel.expanded { height: 88vh; }
+.panel { position: relative; z-index: 2; background: var(--glass-strong); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border-radius: var(--r-lg) var(--r-lg) 0 0; box-shadow: 0 -8px 30px rgba(18,63,102,.14); height: 46svh; display: flex; flex-direction: column; transition: height var(--t-mid) var(--ease); }
+.panel.expanded { height: 88svh; }
 .panel.collapsed { height: 118px; }
 .panel .grip { width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); margin: 10px auto 6px; flex: none; cursor: grab; }
 .panel-tabs { display: flex; gap: 2px; margin: 0 12px; padding: 4px; background: var(--cream); border-radius: 999px; flex: none; }

@@ -169,6 +169,10 @@
           <option value="live" ${trip.publish_mode === "live" ? "selected" : ""}>Tout apparaît en direct, « Publier » sert seulement à prévenir</option></select></div>
         <div class="field"><label>Vitesse du survol (pour toi et tes proches)</label><select name="replay_speed">
           ${BVMAP.SPEEDS.map((s) => `<option value="${s.k}" ${(+trip.replay_speed || 1) === s.k ? "selected" : ""}>${s.icon} ${s.label}</option>`).join("")}</select></div>
+        <div class="field"><label>Essai en cours (#62) — épaisseur du tracé</label>
+          <div class="row" id="essai-trait">${Object.entries(BVMAP.TRAITS).map(([k, v]) =>
+            `<button type="button" class="btn sm${+k === BVMAP.traitActuel() ? " primary" : ""}" data-trait="${k}">${esc(v.nom)}</button>`).join("")}</div>
+          <span class="small muted">Le tracé se redessine tout de suite, sur la vraie carte. « Voir comme un proche » (bouton Partager) emporte le même réglage. Quand tu auras choisi, dis-le-moi : ces boutons disparaîtront et ta valeur restera.</span></div>
         ` : ""}
         <div class="field"><label>Introduction (affichée en haut du récit)</label><textarea name="description" placeholder="Pourquoi ce voyage, avec qui, l'état d'esprit du départ…">${esc(trip?.description || "")}</textarea></div>
         ${!isNew ? `<div class="field"><label>Photo de couverture</label><select name="cover_path"><option value="">— aucune —</option>
@@ -193,6 +197,13 @@
         else { S.cur.trip = await API.updateTrip(trip.id, fd); m.close(); renderTripHeader(); renderPanel(); }
       } catch (err) { errToast(err); }
     };
+    // #62 · L'épaisseur se juge sur la VRAIE carte, pas sur une maquette : le bouton repose
+    // les traits sans recharger, et la fenêtre des réglages reste ouverte pour comparer.
+    $$("#essai-trait button", m.el).forEach((b) => b.onclick = () => {
+      BVMAP.setTrait(S.map, +b.dataset.trait);
+      $$("#essai-trait button", m.el).forEach((x) => x.classList.toggle("primary", x === b));
+      toast(`Tracé « ${BVMAP.TRAITS[b.dataset.trait].nom} »`, "ok", 1800);
+    });
     const acc = $("#access", m.el); if (acc) acc.onclick = () => { m.close(); openAccess(); };
     const bk = $("#backup", m.el); if (bk) bk.onclick = () => backup(true, bk);
     const bkl = $("#backup-light", m.el); if (bkl) bkl.onclick = () => backup(false, bkl);
@@ -2007,7 +2018,7 @@
     const m = openModal(`<h2>Partager avec tes proches</h2>
       <p class="small muted">Ils ouvrent simplement ce lien dans leur navigateur : pas de compte, rien à installer. Le lien est secret — ne le publie pas en public.</p>
       <div class="share-box"><input readonly value="${esc(url)}" id="su"><div class="row" style="margin-top:8px">
-        <button class="btn sm primary" id="copy">Copier le lien</button>${navigator.share ? `<button class="btn sm" id="nshare">${ic("send", "sm")} Envoyer</button>` : ""}<a class="btn sm ghost" href="${esc(url)}&apercu=1" target="_blank">Voir comme un proche</a></div>
+        <button class="btn sm primary" id="copy">Copier le lien</button>${navigator.share ? `<button class="btn sm" id="nshare">${ic("send", "sm")} Envoyer</button>` : ""}<a class="btn sm ghost" href="${esc(url)}&apercu=1&trait=${BVMAP.traitActuel()}" target="_blank">Voir comme un proche</a></div>
         <div class="row" style="margin-top:10px"><button class="btn sm ghost" id="named-links">${ic("share", "sm")} Plutôt un lien par personne…</button></div></div>
       ${cfg.VAPID_PUBLIC_KEY ? `<p class="small muted" id="push-count" style="margin-top:12px">…</p>` : ""}
       <label class="row" style="margin-top:16px"><input type="checkbox" id="is_shared" ${t.is_shared ? "checked" : ""}> Lien de partage actif</label>
