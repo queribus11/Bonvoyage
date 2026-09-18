@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.56**
+- Version actuelle : **v10.57**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -906,6 +906,43 @@ commandes, et **rien d'autre ne doit venir s'y ajouter**.
   en v10.55 ; je l'ai réécrite à côté du bouton en v10.56 sans voir la première. Trouvée au
   `grep` avant l'envoi — mais c'est la cinquième du mois. *Avant d'ajouter une règle, chercher
   son nom dans la feuille de style.*
+
+### Les leçons de la v10.57 (#40, lot 1) — un lot qui ne retire que des choses
+
+Six suppressions demandées, unanimes chez quatre regards UX. **Quatre ont été faites. Trois
+ne l'ont pas été, et chacune pour une raison différente** — c'est le résultat le plus utile
+du lot.
+
+- 🔴 **DEUX DES SIX ÉTAIENT DÉJÀ FAITES.** L'heure d'un arrêt sans photo : `timeFromNearbyPhotos`
+  (`js/common.js`) rend déjà `at: null` quand aucune photo n'est proche, et la fiche d'arrêt
+  porte déjà la phrase « *Vide quand il n'y a pas de photo : l'app n'invente pas d'heure* ».
+  Le « 0 km » d'une journée : les **quatre** écrans passent par `fmtDayDistance`, qui rend du
+  vide, et affichent `|| "—"` — corrigé en v10.47 sans que le registre l'enregistre. *C'est la
+  quatrième et la cinquième fois qu'un sujet du backlog est déjà clos dans le code. Trente
+  secondes de lecture valent mieux qu'un envoi inutile* (règle 6), **et il faut le dire au
+  registre, sinon le sujet revient.**
+- 🔴 **Retirer un bouton peut retirer la seule porte.** La corbeille de la barre du bas
+  (`js/app.js`, la fiche journée) est le **SEUL** appelant de `API.deleteDay` dans toute
+  l'app. La retirer sans lui donner sa nouvelle place aurait rendu une journée indestructible
+  — #11 aboli en silence. Le brief prévoyait cette condition d'arrêt ; elle s'est réalisée.
+  *Avant de retirer une commande, chercher qui d'autre mène à la même action. Si personne :
+  ce n'est pas un retrait, c'est une suppression de fonction.*
+- **Un retrait en entraîne d'autres, et il faut les suivre jusqu'au bout.** Le bouton de
+  vitesse vivait à **cinq** endroits : le gabarit du bandeau (`index.html`), celui de la
+  fiche-carte (`js/app.js`), deux liaisons d'événement, une règle de style — plus
+  `cycleSpeed` dans `js/map.js`, qui n'avait plus d'appelant. Un `grep` du nom après coup a
+  trouvé un sixième reliquat (`updateSpeedBtns()` seul au milieu de `startReplay`). *Un lot
+  de suppression se termine par un `grep` du nom retiré, dans tous les fichiers.*
+- **Ce qu'un retrait laisse de faux autour de lui.** L'aide de l'onglet GPS décrivait encore
+  « **Suivi** : trace continue, écran allumé » après le départ de « Démarrer ». Retirer la
+  phrase n'est pas ajouter : c'est finir le retrait. *Chercher les textes qui parlent de ce
+  qu'on vient d'enlever.*
+- **La mécanique de l'enregistrement GPS reste en place, volontairement** : plus aucun bouton
+  n'y mène, mais la reprise d'une trace interrompue au démarrage de l'app s'en sert encore.
+  Le brief disait « ne retire que le Démarrer » — c'est exactement ce qui a été fait.
+- **La dette du §6 ne s'efface pas toute seule.** `estimatedLegs` garde ses cinq appelants
+  (`js/map.js` ×2, `js/common.js` ×2, `js/app.js` ×1) : aucun des quatre retraits ne la
+  touche. Elle reste ouverte.
 
 ---
 

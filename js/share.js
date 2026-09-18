@@ -121,28 +121,9 @@
   }
   // #16 · Le proche peut faire suivre le carnet, par la feuille de partage de
   // son téléphone. « Envoyer » et « Copier le lien » restent deux gestes
-  // séparés : une phrase collée dans une barre d'adresse devient une recherche.
-  function shareBlockHtml() {
-    return `<div class="home-tip" id="share-block" style="text-align:center">
-      <b>Faire suivre ce carnet</b>
-      <div class="small muted" style="margin:4px 0 12px">À quelqu'un d'autre de la famille, qui aimerait le suivre aussi.</div>
-      <div class="row" style="justify-content:center">
-        ${navigator.share ? `<button class="btn primary" id="sb-send">${ic("send", "sm")} Envoyer</button>` : ""}
-        <button class="btn" id="sb-copy">Copier le lien</button>
-      </div></div>`;
-  }
-  function bindShareBlock() {
-    const send = $("#sb-send");
-    if (send) send.onclick = async () => {
-      try { await navigator.share({ title: D.trip.title, text: `Suis notre voyage « ${D.trip.title} » : `, url: shareLink() }); }
-      catch { /* annulé */ }
-    };
-    const copy = $("#sb-copy");
-    if (copy) copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(shareLink()); toast("Lien copié", "ok"); }
-      catch { toast(shareLink(), "info", 10000); }
-    };
-  }
+  // #40 · Le bloc « Faire suivre ce carnet » et le conseil d'écran d'accueil ont quitté la
+  // fin du fil : « le livre se terminait par sa quatrième de couverture et son colophon
+  // alors qu'il ne compte qu'une page ». Le conseil reste affiché ailleurs (#14).
 
   function dayList() {
     const set = new Set([...D.days.map((d) => d.day_date), ...D.tracks.map((t) => t.day_date), ...D.media.map((m) => m.day_date)].filter(Boolean));
@@ -210,12 +191,9 @@
         ${days.map((iso) => daySection(iso, days)).join("")}
         ${!days.length ? `<p class="muted" style="text-align:center">Le récit n'a pas encore commencé… revenez bientôt !</p>` : ""}
       </main>
-      ${shareBlockHtml()}
       <footer class="share-footer"><div class="logo"><img src="icons/icon.svg" alt="Valdo"></div><span class="wordmark"><span>bon</span><b>voyage</b></span><span class="hand">tes voyages, racontés</span><span class="version">v${window.BV_VERSION || "?"}</span>
-        <div class="home-tip">${homeTipHtml()}</div>
       </footer>`;
     animateKm();
-    bindShareBlock();
     brancherSortieApercu();
     const tc = $("#tip-close"); if (tc) tc.onclick = () => $("#tip-top").remove();
     installManifest();
