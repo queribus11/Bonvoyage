@@ -1,9 +1,0 @@
-v10.53 — #62 CLOS. Sophie a comparé les trois épaisseurs pendant le survol, carte
-immobile, et a choisi « fin » le 18/09/2026. Les deux coefficients de l'essai
-(0,80 sur la couleur, 0,66 sur le liseré et le halo) sont appliqués une fois pour
-toutes aux dix-huit largeurs : il n'y a plus de réglage, il y a des largeurs.
-L'échafaudage est parti en entier — la bande des trois boutons, le réglage gardé
-dans le navigateur, et le paramètre emporté par le lien « Voir comme un proche ».
-Témoin de mise en ligne : si ce fichier répond et que temoin-10-52.txt donne 404,
-c'est bien la v10.53 qui est servie.
-Preuve de nature : « TRAITS » n'existe plus nulle part dans js/map.js.

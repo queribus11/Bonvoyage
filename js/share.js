@@ -908,7 +908,8 @@
       // #37 · DROIT À LA PHOTO (v10.21), choisi au doigt par Sophie sur la page de mesure.
       // Le recadrage sur la journée entière disparaît du suivi par photo. Deux raisons,
       // mesurées sur son iPhone : il faisait plonger la caméra de 4,9 crans de zoom en 4 s
-      // (1,22 cran/s, quand le survol qu'elle accepte fait 0,42), et il doublait le nombre
+      // (1,22 cran/s, quand le survol qu'elle accepte fait 0,42 — le plafond « suivre », #65),
+      // et il doublait le nombre
       // de mouvements. Le plongeon et le balayage au sol sont couplés par la distance : à
       // durée constante on ne supprime pas l'inconfort, on le déplace — il aurait fallu
       // douze secondes. La seule vraie sortie est de RACCOURCIR LA DISTANCE : de la dernière

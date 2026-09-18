@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.53";
+window.BV_VERSION = "10.54";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -22,15 +22,20 @@ window.BVMAP = (() => {
   };
   const LEGACY = { voyager: "satellite", positron: "plan", osm: "plan", outdoors: "relief", hybrid: "satellite" };   // « voyager » était l'ancien défaut : on passe au satellite
   // Moyens de locomotion : icône, vitesse relative pendant le survol, tracé (route OSRM ou ligne droite)
+  // #57 · `far` — LE MOYEN LOINTAIN, et c'est une propriété du moyen, pas un test écrit
+  // ailleurs. Une journée déclarée en avion ou en train est une « journée de rupture » :
+  // au-delà d'elle, un camp de base ne se reconduit plus (voir `joursDeRupture`).
+  // Ajouter ⛵ un jour tiendra en un mot, ici. Ne JAMAIS écrire cette liste en dur dans
+  // une condition. ⛵ et 🚌 restent dehors : un kayak ou un bus de ville sont locaux.
   const MODES = {
     walk:  { label: "à pied",     icon: "🚶", speed: 1,   path: "straight" },
     bike:  { label: "à vélo",     icon: "🚲", speed: 1.2, path: "road" },
     car:   { label: "en voiture", icon: "🚗", speed: 1.5, path: "road" },
     bus:   { label: "en bus",     icon: "🚌", speed: 1.4, path: "road" },
-    train: { label: "en train",   icon: "🚆", speed: 1.6, path: "straight" },
+    train: { label: "en train",   icon: "🚆", speed: 1.6, path: "straight", far: true },
     boat:  { label: "en bateau",  icon: "⛵", speed: 1.2, path: "straight" },
     kayak: { label: "en kayak",   icon: "🛶", speed: 1.1, path: "straight" },
-    plane: { label: "en avion",   icon: "✈️", speed: 2.2, path: "straight" },   // #57 · droit, pas en courbe : décision de Sophie
+    plane: { label: "en avion",   icon: "✈️", speed: 2.2, path: "straight", far: true },   // #57 · droit, pas en courbe : décision de Sophie
     moto:  { label: "en moto",    icon: "🛵", speed: 1.5, path: "road" },
   };
 
@@ -448,6 +453,36 @@ window.BVMAP = (() => {
       .slice().sort((a, b) => (a.taken_at || a.created_at || "").localeCompare(b.taken_at || b.created_at || ""));
   }
   // Moyen de locomotion de la journée (réglage de la journée), sinon null
+  // #57 · LES JOURNÉES DE RUPTURE — la seule définition, dérivée de `MODES.far`.
+  //
+  // Décidé par Sophie : un camp de base ne se reconduit pas au-delà d'une journée dont le
+  // moyen déclaré est lointain (✈️ ou 🚆). Trois autres pistes avaient été proposées — un
+  // seuil de distance, une frontière de voyage, une question à l'écran — et elle les a
+  // toutes écartées : chacune demandait à l'app de DÉCIDER. La rupture, elle, ne décide
+  // rien : elle relit une saisie.
+  //
+  // 🔴 ET C'EST CE QUI LA REND SÛRE : l'app devine « en voiture par la route » au-delà de
+  // 2,5 km entre deux photos, mais elle ne devine JAMAIS « en avion ». Un ✈️ dans un carnet
+  // y a forcément été mis à la main. On ne lit donc QUE DU DÉCLARÉ — ni ici, ni ailleurs,
+  // un moyen deviné ne doit rompre quoi que ce soit.
+  //
+  // Le prix, assumé : une longue journée en voiture ne rompt rien, et un moyen non marqué
+  // ne rompt rien. Ne pas ajouter de rattrapage par la distance — c'est la piste écartée.
+  //
+  // Le moyen se lit sur la JOURNÉE (le cas courant) ou sur l'un de ses POINTS : une
+  // journée locale le matin, un vol le soir, le ✈️ posé sur une photo — elle rompt aussi.
+  const modeLointain = (m) => !!(m && MODES[m] && MODES[m].far);
+  function joursDeRupture(data) {
+    const jours = new Set();
+    if (!data) return jours;
+    for (const d of data.days || []) if (modeLointain(d.transport)) jours.add(d.day_date);
+    for (const m of data.media || []) if (modeLointain(m.transport)) jours.add(m.day_date);
+    for (const p of data.stops || []) if (modeLointain(p.transport)) jours.add(p.day_date);
+    jours.delete(null); jours.delete(undefined); jours.delete("");
+    return jours;
+  }
+  const estRupture = (data, iso) => joursDeRupture(data).has(iso);
+
   function dayTransport(data, iso) { const d = (data.days || []).find((x) => x.day_date === iso); return d && d.transport && MODES[d.transport] ? d.transport : null; }
   // #38 · Les points d'une journée : ses photos ET ses arrêts, dans l'ordre.
   //
@@ -514,8 +549,8 @@ window.BVMAP = (() => {
     // common.js est toujours chargé après map.js, mais on ne le suppose pas : sans lui,
     // la journée se dessine comme avant, sans camps.
     const CVx = window.CV || {};
-    const ouvre = CVx.campOpening ? campPoint(CVx.campOpening(camps, iso)) : null;
-    const ferme = CVx.campClosing ? campPoint(CVx.campClosing(camps, iso)) : null;
+    const ouvre = CVx.campOpening ? campPoint(CVx.campOpening(camps, iso, data)) : null;
+    const ferme = CVx.campClosing ? campPoint(CVx.campClosing(camps, iso, data)) : null;
     const trs = dayTracks(data, iso);
     let suite;
     if (trs.length) {
@@ -758,7 +793,7 @@ window.BVMAP = (() => {
     // Même garde que dans estimatedLegs : on ne suppose pas que common.js est déjà là.
     const CVx = window.CV || {};
     if (!CVx.campOpening) return dedupCamps(camps);
-    return dedupCamps([CVx.campOpening(camps, filter), CVx.campClosing(camps, filter)]);
+    return dedupCamps([CVx.campOpening(camps, filter, data), CVx.campClosing(camps, filter, data)]);
   }
   function drawCampMarkers(M, data, options) {
     for (const mk of M.campMarkers) mk.remove(); M.campMarkers = [];
@@ -1286,5 +1321,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, joursDeRupture, estRupture, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

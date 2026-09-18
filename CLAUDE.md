@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.53**
+- Version actuelle : **v10.54**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -210,6 +210,14 @@ révoqué, à usage unique.
 
 **Stockage** : chemin `<user_id de l'auteur>/<trip_id>/…`.
 
+**Deux plafonds de confort, un par usage (#65, v10.54)** : le zoom de la caméra n'a pas le même
+droit selon ce qu'il fait. **`suivre` = 0,42 cran/s** — le zoom pendant un survol, quand l'œil
+suit un tracé ; c'est la signature mesurée du survol que Sophie accepte. **`passer` = 2,0 cran/s**
+— le zoom entre deux journées, qui se lit comme une transition et non comme un déplacement.
+Le second a longtemps été pris pour une violation du premier : il n'en est pas une, c'est un
+autre usage. **Ne plus jamais citer 0,42 comme plafond unique** : chaque séance de réglage qui
+s'y comparait se comparait à une référence fausse.
+
 **Deux rayons, deux questions (v10.43)** : `PROCHE_M` (300 m, `js/map.js`) sert à **nommer** les
 bouts d'une journée (#42) ; `AU_CAMP_M` (25 m) décide si un **trait** vers le camp vaut la peine
 d'être dessiné. Ne jamais les confondre, ni les fusionner « pour n'avoir qu'une valeur » : c'est
@@ -299,7 +307,8 @@ immobile** (#42 : la vue d'ensemble d'un jour, qu'ouvre le bouton plein écran).
   MapLibre est un arc : la caméra recule pour que le sol défile lentement. Brider le recul,
   c'est accélérer le sol ; à durée constante on ne supprime pas l'inconfort, on le déplace.
   Mesuré sur l'iPhone de Sophie : d'une journée à la suivante, 4,9 crans de zoom en 4 s, soit
-  1,22 cran/s, quand le survol qu'elle accepte fait 3,6 crans en 8,5 s, soit 0,42. Pour
+  1,22 cran/s, quand le survol qu'elle accepte fait 3,6 crans en 8,5 s, soit 0,42 — c'est le
+  plafond **suivre** (#65), celui de l'œil qui suit un tracé, et lui seul. Pour
   retrouver ce rythme il aurait fallu **douze secondes**. Quatre versions de réglage ont
   échoué là-dessus (v10.17 à v10.20). Il n'existe que trois sorties : allonger la durée
   (injouable), **raccourcir la distance**, ou ne pas bouger pendant la lecture. En v10.21 le
@@ -482,13 +491,14 @@ disait `camp → photo → photo → camp` ; l'écran de Sophie disait `photo �
   suivie d'une promenade reste une seule séquence. La généralisation a été **écartée** — ne pas
   l'ajouter d'initiative. ⚠️ Et c'est un découpage de **caméra seulement** : aucune notion de
   « sous-journée » ne descend dans les données ni dans l'écran. Une journée reste une journée.
-- **Un plafond de confort peut être déjà violé par le code sans que personne s'en plaigne.**
-  Le recul entre les deux séquences du Jour 1 fait **12,1 crans**. À 0,42 cran/s (le plafond du
-  survol au sol) il durerait 28,8 s ; or `js/map.js` borne le recul entre deux journées à **6 s**
-  (`Math.min(6000, …)`), ce qui donne **2,02 cran/s** — cinq fois le plafond, et c'est le
-  mouvement que Sophie voit tous les jours sans l'avoir jamais signalé. *Avant d'appliquer un
-  plafond annoncé, vérifier ce que le code fait vraiment : les deux peuvent diverger depuis
-  longtemps.*
+- **Ce qui ressemble à une infraction peut être un SECOND plafond que personne n'a écrit.**
+  Le recul entre les deux séquences du Jour 1 fait **12,1 crans**. Rapporté au plafond
+  **suivre** (0,42 cran/s) il aurait dû durer 28,8 s ; or `js/map.js` borne le recul entre deux
+  journées à **6 s** (`Math.min(6000, …)`), ce qui donne **2,02 cran/s**. Pendant des semaines
+  ce chiffre a été lu comme « cinq fois le plafond » — alors que c'est le mouvement que Sophie
+  voit tous les jours sans l'avoir jamais signalé. **#65 a tranché : ce n'était pas une
+  infraction, c'était le plafond `passer`.** *Avant d'appliquer un plafond annoncé, vérifier ce
+  que le code fait vraiment — et se demander si l'écart n'est pas un usage différent.*
 - **Une mécanique soumise au doigt vit dans le VRAI code, derrière une option éteinte.**
   `options.saut` du survol est `undefined` partout dans l'app : tant que Sophie n'a pas choisi,
   le survol en ligne est au octet près celui de la v10.43. La page d'essai appelle la même
@@ -748,6 +758,41 @@ lui-même : à chaque fois, **le dispositif d'essai était faux d'une manière d
 Et le corollaire, payé trois fois : **c'est elle qui voyait juste à chaque fois.** « Ça ne
 change rien » n'était jamais une impression — c'était un constat exact, sur un défaut que je
 n'avais pas cherché au bon endroit.
+
+### Les leçons de la v10.54 (#57 clos, #65) — la rupture, et les deux plafonds
+
+**#57 · Un camp ne se reconduit pas au-delà d'une journée de RUPTURE** — une journée dont le
+moyen **déclaré** est lointain (`MODES[...].far` : ✈️ et 🚆, et rien d'autre). Elle s'ouvre
+normalement sur le camp qui la précède, ne se ferme que sur **son propre** camp, et les
+journées suivantes ne remontent pas chercher un camp au-delà d'elle. Mesuré sur le carnet
+d'Algarve sans camp de Tavira : le voyage passe de **36 871 km à 1 587 km**.
+
+- 🔴 **LA RÈGLE NE DÉCIDE RIEN : ELLE RELIT UNE SAISIE.** Trois autres pistes avaient été
+  proposées à Sophie — un seuil de distance, une frontière de voyage, une question à l'écran —
+  et elle les a **toutes écartées** pour en formuler une quatrième. Ce qui rend celle-ci sûre :
+  **l'app devine « en voiture » au-delà de 2,5 km entre deux photos, mais elle ne devine JAMAIS
+  « en avion »**. Un ✈️ dans un carnet y a forcément été mis à la main, donc la règle ne peut
+  pas se déclencher au mauvais moment. *On ne lit QUE du déclaré. Un moyen deviné ne rompt
+  jamais rien — c'est la ligne à ne pas franchir.*
+- **Le prix est assumé, ne pas chercher à le corriger** : une longue journée en voiture ne rompt
+  rien, un moyen non marqué ne rompt rien. Ajouter un rattrapage par la distance, c'est
+  reprendre exactement la piste que Sophie a écartée.
+- **`far` est une propriété du MOYEN, au même endroit que sa vitesse et son icône** (`MODES`,
+  `js/map.js`). Ajouter ⛵ un jour tiendra en un mot. Ne jamais écrire cette liste en dur dans
+  une condition : « ce moyen est-il lointain ? » ne se répond qu'à un seul endroit.
+- **Deux règles, pas une** : `campClosing` cesse de se replier sur la reconduction **le jour de
+  la rupture** ; `campOpening` arrête sa remontée à la première rupture rencontrée
+  **strictement entre** le camp candidat et la journée. Sans la seconde, le Jour 2 repartirait
+  encore de Paris — le banc le montre en une ligne.
+- **Un troisième argument facultatif plutôt qu'une signature cassée.** `campOpening(camps, iso,
+  data)` : sans `data`, l'ancien comportement, jamais une erreur. `common.js` ne suppose jamais
+  que `map.js` est là — c'est la même garde qu'`estimatedLegs` et `campsOfView`.
+
+**#65 · Deux plafonds de confort, un par usage.** Voir plus haut, dans l'architecture. Ce qui
+était lu depuis des semaines comme « le code viole le plafond de cinq fois » n'était pas une
+infraction : c'était un **second plafond que personne n'avait écrit**. *Quand une mesure
+s'écarte durablement d'une règle sans que personne ne s'en plaigne, se demander si ce n'est pas
+un usage différent — avant de corriger le code.*
 
 ---
 

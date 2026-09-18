@@ -986,18 +986,40 @@
   const campsSorted = (camps) => (camps || []).filter((c) => c && c.night_date && c.lat != null)
     .slice().sort((a, b) => a.night_date.localeCompare(b.night_date));
 
+  // #57 · LA RECONDUCTION S'ARRÊTE À UNE JOURNÉE DE RUPTURE (v10.54, décidé par Sophie).
+  //
+  // `data` est le troisième argument, et il est FACULTATIF : sans lui, ces deux fonctions
+  // se comportent exactement comme avant. C'est volontaire — la liste des journées de
+  // rupture vit dans `BVMAP` (elle dérive de `MODES.far`), et common.js ne suppose jamais
+  // que map.js est là. Les cinq appelants le passent ; s'il venait à manquer quelque part,
+  // on retomberait sur l'ancien comportement, jamais sur une erreur.
+  //
+  // ⚠️ UNE SEULE LISTE : « ce moyen est-il lointain ? » ne se répond QUE dans `MODES`.
+  // Ne pas en écrire une seconde ici.
+  const ruptures = (data) => (window.BVMAP && BVMAP.joursDeRupture ? BVMAP.joursDeRupture(data) : new Set());
+
   // Celui qui OUVRE la journée : le dernier camp marqué avant elle (la veille ou plus tôt).
-  function campOpening(camps, iso) {
+  // Une journée de rupture s'ouvre NORMALEMENT sur le camp qui la précède — on part bien
+  // de là. Mais la remontée s'arrête à la première rupture rencontrée STRICTEMENT entre le
+  // camp candidat et `iso` : sans cette seconde règle, le Jour 2 repartirait encore de Paris.
+  function campOpening(camps, iso, data) {
     let best = null;
     for (const c of campsSorted(camps)) { if (c.night_date < iso) best = c; else break; }
+    if (!best) return null;
+    for (const r of ruptures(data)) if (r > best.night_date && r < iso) return null;
     return best;
   }
-  // Celui qui la FERME : le camp de sa propre nuit s'il existe, sinon le précédent,
-  // reconduit. Une journée sans aucun camp avant elle n'en a pas — et c'est normal :
-  // rien n'est inventé.
-  function campClosing(camps, iso) {
+  // Celui qui la FERME : le camp de sa propre nuit s'il existe. À défaut, celui qui l'ouvre
+  // — la reconduction — SAUF si c'est une journée de rupture. Une journée sans aucun camp
+  // avant elle n'en a pas, et c'est normal : rien n'est inventé.
+  // #57 · Une journée de RUPTURE ne se ferme que sur son PROPRE camp : le camp d'avant
+  // ne ferme rien. Sinon elle se termine sur son dernier point — c'est ce qui a fabriqué
+  // les vingt-quatre trajets Paris ↔ Algarve de la v10.42.
+  function campClosing(camps, iso, data) {
     const own = campsSorted(camps).find((c) => c.night_date === iso);
-    return own || campOpening(camps, iso);
+    if (own) return own;
+    if (ruptures(data).has(iso)) return null;
+    return campOpening(camps, iso, data);
   }
 
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,

@@ -1414,7 +1414,7 @@
   // Le camp marqué sur une journée est l'endroit où l'on dort À LA FIN de cette
   // journée : il la ferme, et il ouvre la suivante. Il vaut ensuite tant qu'on n'en
   // marque pas un autre — trois nuits au même endroit, un seul geste.
-  const campOf = (iso) => CV.campClosing(S.cur.camps, iso);
+  const campOf = (iso) => CV.campClosing(S.cur.camps, iso, S.cur);   // #57 · les journées décident de la reconduction
   // #58 · La veille d'une date, en ISO. Sert au camp du matin du PREMIER jour.
   const veille = (iso) => { const [y, m, d] = iso.split("-").map(Number); const x = new Date(y, m - 1, d - 1); return isoDate(x); };
   // Le premier jour du voyage est le SEUL qui n'a pas de veille dont hériter : c'est pour
