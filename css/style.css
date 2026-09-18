@@ -320,6 +320,13 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
 .viewer-media .nav:disabled { opacity: .25; }
 .viewer-media .count { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 12px; font-weight: 700; background: rgba(11,22,34,.55); padding: 3px 10px; border-radius: 999px; backdrop-filter: blur(8px); }
 .viewer-media .close { position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(11,22,34,.55); color: #fff; display: flex; align-items: center; justify-content: center; }
+/* #68 · La croix de la visionneuse porte un MOT. Elle est posée SUR la photo, donc son fond
+   compte autant que son texte : à .55 d'opacité la pastille devient grise sur un ciel blanc,
+   et du blanc sur gris ne se lit plus. Elle passe à .72, avec un liseré clair — la pastille
+   reste sombre quelle que soit la photo dessous. Jugé en image sur fond très clair ET très
+   sombre, pas sur un gris moyen : c'est la leçon de la v10.56 (un banc dont la matière ne
+   ressemble pas à la matière réelle rend le verdict inverse). */
+.viewer-media .close.mot { width: auto; min-width: 0; padding: 0 15px; height: 36px; border-radius: 999px; font-size: 14px; font-weight: 800; letter-spacing: .01em; background: rgba(11,22,34,.72); border: 1px solid rgba(255,255,255,.30); }
 .caption-field textarea { background: transparent; border: 0; border-bottom: 1px solid var(--line-strong); border-radius: 0; padding: 8px 0; min-height: 56px; font-size: 16px; }
 .caption-field textarea::placeholder { font-family: var(--font-hand); font-size: 20px; color: var(--muted); }
 .caption-field textarea:focus { box-shadow: none; border-bottom-color: var(--azur); }

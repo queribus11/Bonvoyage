@@ -84,7 +84,7 @@
     async openAccess(ctx) {
       const t = ctx.trip;
       const m = ctx.openModal(`<div class="modal-head"><div class="grow"><div class="kicker">${esc(t.title)}</div><h2>Qui a accès</h2></div>
-          <button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+          <button type="button" class="btn ghost sm" data-close>Fermer</button></div>
         <div class="access-tabs">
           <button class="active" data-pane="crew">Co-auteurs</button>
           <button data-pane="links">Liens des proches</button>

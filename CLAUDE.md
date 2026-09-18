@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.58**
+- Version actuelle : **v10.59**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -853,14 +853,15 @@ sans aucune sortie : « Nouveau mot de passe » n'avait que « Changer ». Elle 
   un « Plus tard »). *Un instrument qui compte onze là où il y en a une ne distingue rien* —
   la leçon de la v10.50, reprise à la lettre : c'est la lecture des dix-neuf fenêtres, une par
   une, qui a tranché.
-- 🔴 **Un second constat, laissé ouvert exprès : CINQ fenêtres n'ont pour sortie qu'une croix
-  muette avec une infobulle** — fiche journée, visionneuse photo, camp de base, fiche d'arrêt,
-  « Qui a accès ». C'est la **règle 10** au pied de la lettre. Cinq, c'est un autre lot, et
-  Sophie doit dire si une croix lui suffit : aucune des cinq ne l'a jamais bloquée.
-  ⛔ **C'est le sujet #68, et c'est une DÉCISION EN ATTENTE, pas un oubli — ne pas y toucher.**
-  Sophie l'a dit en toutes lettres le 18/09. Une séance qui « corrigerait » ces cinq croix par
-  zèle déferait un choix qu'elle n'a pas encore fait. *Ne pas corriger en masse une règle qu'on
-  vient de rouvrir — la poser d'abord.*
+- 🔴 **Un second constat, relevé ici et tranché depuis : CINQ fenêtres n'avaient pour sortie
+  qu'une croix muette avec une infobulle** — fiche journée, visionneuse photo, camp de base,
+  fiche d'arrêt, « Qui a accès ». C'est la **règle 10** au pied de la lettre.
+  ✅ **#68 : Sophie a TRANCHÉ le 18/09 — les croix muettes disparaissent au profit d'un mot,
+  et les sorties deviennent cohérentes dans toute l'app.** L'interdiction d'y toucher, écrite
+  ici le matin même, est **levée** : elle ne valait que tant que le choix n'était pas fait.
+  Voir « Les leçons de la v10.59 » plus bas pour ce qui a été livré, et pour la règle du mot.
+  *La leçon qui reste : ne pas corriger en masse une règle qu'on vient de rouvrir — la poser
+  d'abord. C'est ce qui a été fait, et la question a coûté deux minutes.*
 - **Les barres collantes, elles, sont en règle** : les six fenêtres longues ont toutes
   `class="actions sticky"`. Le contrôle proposé en #67 n'aurait rien trouvé de plus ici.
 
@@ -999,6 +1000,48 @@ maintenant le troisième.**
 - **Le contrôle de #60 repassé** : à 440 comme à 393, replié comme déplié, la page fait
   exactement la largeur de l'écran, rien ne sort de la fenêtre, la barre reste dedans et
   visible, et le titre du repli fait au moins 44 px de haut.
+
+### Les leçons de la v10.59 (#68 clos) — le mot dit ce que le geste FAIT
+
+Sophie a tranché le 18/09 : *les croix muettes disparaissent, et les sorties deviennent
+cohérentes dans toute l'app.* **Cohérent ne veut pas dire « le même mot partout »** :
+
+| la fenêtre | le mot | pourquoi |
+|---|---|---|
+| on la **consulte** | **« Fermer »** | rien n'est en jeu |
+| on l'**édite** | **« Annuler »** | on abandonne une saisie |
+
+- 🔴 **UN MOT QUI PROMET CE QUE LE CODE NE FAIT PAS EST PIRE QU'UNE CROIX MUETTE.** La croix
+  ne disait rien ; un mot faux, lui, ment. D'où la règle : **lire ce que la sortie fait de la
+  saisie en cours AVANT de la nommer.** Deux des cinq ont changé de colonne à cette lecture.
+- 🔴 **La fiche journée ne perd rien — donc « Annuler » y aurait menti.** Ses quatre textes
+  (`DRAFT_FIELDS`, `js/app.js`) sont écrits dans le brouillon local **à chaque frappe** et
+  restaurés à la réouverture (« *Un brouillon non enregistré a été retrouvé et restauré* »).
+  Fermer ne annule pas : ça repousse. Elle porte donc **« Fermer »**, et c'est le contraire
+  de ce que le classement « c'est un formulaire → Annuler » aurait donné.
+- 🔴 **La FICHE D'ARRÊT n'a AUCUNE garde — trouvé en nommant sa sortie, pas en la cherchant.**
+  `dayForm`, `mediaViewer` et `campForm` passent tous `guard: () => dirty()` ; `stopForm` ferme
+  **sans rien demander**, et le nom du lieu, l'heure et la note tapés disparaissent en silence.
+  C'est la faute de #51 qui dort (*pas d'enregistrement, pas de message*). **Le mot « Annuler »
+  y est juste ; le comportement, non — et le corriger est une décision de Sophie, pas un
+  ajustement de libellé. Signalé, pas touché.**
+  *Nommer une sortie oblige à lire ce qu'elle fait : c'est un audit déguisé en changement de
+  libellé, et c'est pour ça qu'il en sort des trouvailles.*
+- **Un bouton posé SUR une photo se juge sur les DEUX extrêmes, pas sur un gris moyen.** La
+  pastille de la visionneuse était à `rgba(11,22,34,.55)` : sur un ciel blanc elle vire au gris
+  moyen, et du blanc dessus ne se lit plus. Passée à **.72 avec un liseré clair**, elle reste
+  sombre sur une photo claire **et** reste visible sur une photo noire. Rendue aux deux
+  largeurs, sur fond blanc et sur fond quasi noir. *C'est la leçon de la v10.56 appliquée à un
+  contraste au lieu d'une longueur.*
+- **L'inventaire refait après coup, et c'est lui la preuve** : **17 sorties de fenêtre, 17
+  mots, zéro croix muette.** Les deux autres fenêtres sortent par un bouton nommé
+  (« Passer », « Retour »). Le compte se refait, il ne se déduit pas.
+
+🔴 **Et le §0 de ce lot, qui vaut pour tous les suivants : une INTERDICTION écrite ici ne se
+lève pas toute seule.** Ce fichier portait « #68 : décision en attente, **ne pas y toucher** ».
+La séance qui exécute la décision doit **réécrire la note avant d'écrire le code** — sinon la
+séance suivante lit l'ancienne consigne et défait le travail. *Une leçon écrite n'est pas une
+leçon appliquée (v10.49) ; sa réciproque est vraie aussi.*
 
 ---
 

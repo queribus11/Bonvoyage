@@ -681,7 +681,7 @@
     // casse en deux lignes pour leur laisser la place.
     const m = openModal(`${iso ? `<div class="kicker" style="margin-bottom:6px">${n0 != null ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}
       <div class="modal-head" style="align-items:center"><div class="grow"><h2 style="margin-bottom:0">${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div>
-      <div class="row" style="gap:6px;flex:0 0 auto;flex-wrap:nowrap">${iso ? `<button type="button" class="btn icon ghost sm" id="day-prev" title="Journée précédente (enregistre)">${ic("chevron-left")}</button><button type="button" class="btn icon ghost sm" id="day-next" title="Journée suivante (enregistre)">${ic("chevron-right")}</button>` : ""}<button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div></div>
+      <div class="row" style="gap:6px;flex:0 0 auto;flex-wrap:nowrap">${iso ? `<button type="button" class="btn icon ghost sm" id="day-prev" title="Journée précédente (enregistre)">${ic("chevron-left")}</button><button type="button" class="btn icon ghost sm" id="day-next" title="Journée suivante (enregistre)">${ic("chevron-right")}</button>` : ""}<button type="button" class="btn ghost sm" data-close>Fermer</button></div></div>
       ${status ? `<div style="margin:-6px 0 14px">${status}${d?.published && !isLive() && mine ? ` <button type="button" class="btn sm ghost" id="unpub">Retirer de la vue de mes proches</button>` : ""}</div>` : ""}
       ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
       ${d?.place ? `<div class="kicker" style="margin:-4px 0 10px">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}
@@ -1262,7 +1262,7 @@
         <span class="count">${idxAll + 1} / ${listAll.length}</span>
         <button type="button" class="nav prev" id="prev" title="Photo précédente (enregistre)">${ic("chevron-left")}</button>
         <button type="button" class="nav next" id="next" title="Photo suivante (enregistre)">${ic("chevron-right")}</button>
-        <button type="button" class="close" data-close title="Fermer">${ic("close")}</button></div>
+        <button type="button" class="close mot" data-close>Annuler</button></div>
       ${m.author_id ? `<div style="margin:10px 0 -4px">${pill(m.author_id)}</div>` : ""}
       <form id="f">
         <div class="field caption-field"><label>Légende</label><textarea name="caption" placeholder="Un mot sur cette photo…">${esc(m.caption || "")}</textarea></div>
@@ -1504,7 +1504,7 @@
     const n = dayNumber(S.cur.trip, iso);
     const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n != null ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
       <div class="modal-head"><div class="grow"><h2 style="margin-bottom:0">Notre camp de base</h2></div>
-        <button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+        <button type="button" class="btn ghost sm" data-close>Annuler</button></div>
       <p class="small muted">Où dormez-vous à la fin de cette journée ? Cette nuit ferme le
         ${fmtDate(iso, false)} et ouvre le lendemain — et elle vaudra pour les nuits suivantes
         tant que tu n'en marques pas une autre.</p>
@@ -1580,7 +1580,7 @@
     const n = dayNumber(S.cur.trip, iso);
     const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n != null ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
       <div class="modal-head"><div class="grow"><h2 style="margin-bottom:0">${isNew ? "Un arrêt" : "Modifier l'arrêt"}</h2></div>
-        <button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div>
+        <button type="button" class="btn ghost sm" data-close>Annuler</button></div>
       <form id="sf">
         <div class="field"><label>Nom du lieu</label><input name="name" required value="${esc(cur.name || "")}" placeholder="Musée de l'Azulejo"></div>
         <div class="field"><label>Catégorie</label><select name="category">${CV.STOP_CATEGORIES.map((c) => `<option value="${c.k}" ${(cur.category || "autre") === c.k ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>
