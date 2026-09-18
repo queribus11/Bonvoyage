@@ -663,6 +663,15 @@
     const dBase = { title: d?.title || "", story: d?.story || "", my_story: myStory?.body || "", my_note: myNote?.body || "" };
     const dVal = (k) => (draft && draft[k] != null) ? draft[k] : dBase[k];
     const useDraft = !!draft && Object.keys(dBase).some((k) => dVal(k) !== dBase[k]);
+    // #40 T8 · « Dans l'atelier, pas de contenu, UN SIGNAL. » Le repli est fermé, mais son
+    // titre dit toujours ce qu'il y a dedans — « aucun arrêt » est une information, pas un vide.
+    const nStops = iso ? stopsOf(iso).length : 0, campJour = iso ? campOf(iso) : null;
+    const signalDetails = !iso ? "" : [
+      nStops ? `${nStops} arrêt${nStops > 1 ? "s" : ""}` : "aucun arrêt",
+      campJour ? "camp" : "pas de camp",
+      d?.transport && BVMAP.MODES[d.transport] ? BVMAP.MODES[d.transport].label : "",
+      dVal("my_note") ? "carnet de bord" : "",
+    ].filter(Boolean).join(" · ");
     const dayVoices = d ? S.voices.filter((v) => v.day_id === d.id) : [];
     // Le mot du jour n'a de sens qu'à plusieurs : sur un carnet solo, le récit
     // audio suffit et ce bloc n'existe pas.
@@ -673,24 +682,18 @@
     const m = openModal(`${iso ? `<div class="kicker" style="margin-bottom:6px">${n0 != null ? "Jour " + n0 + " · " : ""}${fmtDate(iso)} ${pill(d?.author_id, { small: true })}</div>` : ""}
       <div class="modal-head" style="align-items:center"><div class="grow"><h2 style="margin-bottom:0">${iso ? esc(d?.title || (n0 ? "Jour " + n0 : fmtDate(iso, false))) : "Nouvelle journée"}</h2></div>
       <div class="row" style="gap:6px;flex:0 0 auto;flex-wrap:nowrap">${iso ? `<button type="button" class="btn icon ghost sm" id="day-prev" title="Journée précédente (enregistre)">${ic("chevron-left")}</button><button type="button" class="btn icon ghost sm" id="day-next" title="Journée suivante (enregistre)">${ic("chevron-right")}</button>` : ""}<button type="button" class="btn icon ghost" data-close title="Fermer">${ic("close")}</button></div></div>
-      ${status ? `<div style="margin:-6px 0 14px">${status}</div>` : ""}
+      ${status ? `<div style="margin:-6px 0 14px">${status}${d?.published && !isLive() && mine ? ` <button type="button" class="btn sm ghost" id="unpub">Retirer de la vue de mes proches</button>` : ""}</div>` : ""}
       ${useDraft ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
       ${d?.place ? `<div class="kicker" style="margin:-4px 0 10px">${ic("pin", "sm")} ${esc(d.place)}</div>` : ""}
       <form id="f">
-        <div class="row"><div class="field grow"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
-        <div class="field grow" style="flex:2"><label>Titre de la journée</label><input name="title" value="${esc(dVal("title"))}" placeholder="Traversée des Highlands" ${mine ? "" : "readonly"}></div></div>
-        ${iso ? stopsFieldHtml(iso) : ""}
-        ${iso ? campFieldHtml(iso) : ""}
+        <!-- #40 T8 · DEHORS : ce qui fabrique le RÉCIT, et rien d'autre. Titre, photos,
+             récit. Le reste fabrique la carte : il descend dans le repli ci-dessous. -->
+        <div class="field"><label>Titre de la journée</label><input name="title" value="${esc(dVal("title"))}" placeholder="Traversée des Highlands" ${mine ? "" : "readonly"}></div>
         ${iso ? `<div class="field"><label>Photos de la journée${dayPhotos.length ? ` (${dayPhotos.length})` : ""}</label>
           ${d?.published && !isLive() ? `<p class="small muted" style="margin:-2px 0 8px">Journée publiée : les photos ajoutées ici sont <b>déjà visibles</b> par tes proches. « Envoyer le lien » sert seulement à les prévenir.</p>` : ""}
           ${dayPhotos.length ? `<div class="media-grid day-gallery" id="day-gallery">${dayPhotos.map((x) => mediaTile(x)).join("")}</div>` : `<p class="small muted">Aucune photo pour cette journée.</p>`}
           <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="day-add-photos">${ic("camera", "sm")} Ajouter des photos à cette journée</button><input type="file" id="day-files" accept="image/*,video/*" multiple hidden></div>
           <div id="uprog" hidden><div class="small muted" id="uptxt"></div><div class="progress"><div id="upbar"></div></div></div></div>` : ""}
-        ${iso && mine ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
-          <div class="mode-picker" id="day-mode-picker">${[["", "🤔", "l'app devine"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, v.icon, v.label.replace(/^(à|en) /, "")])].map(([k, icon, lab]) => `<button type="button" class="mode${dayMode === k ? " active" : ""}" data-mode="${k}">${icon}<small>${lab}</small></button>`).join("")}<input type="hidden" name="transport" value="${esc(dayMode)}"></div>
-          <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
-        ${legs && legs.length > 1 ? `<details class="legs-details"><summary>Changements en cours de journée (${legs.length} tronçons)</summary><div class="legs">${legs.map((l, i) => `<div class="leg">${legBout(l.from, l.fromKind)}<span class="arrow">→</span>${legBout(l.to, l.toKind)}
-            <select data-from="${l.from.id || ""}" data-kind="${l.fromKind || "media"}" class="leg-mode" ${l.fromKind === "trace" ? "disabled" : ""}><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : `comme avant (${BVMAP.MODES[l.mode].label})`}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.from.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div><p class="help">Chaque ligne = le trajet du point de gauche à celui de droite ; le choix vaut à partir du point de gauche jusqu'au prochain changement.</p></details>` : ""}` : ""}
         ${mine ? `<div class="field"><label>Récit</label><textarea name="story" class="story" placeholder="Raconte ta journée… (les paragraphes sont conservés)">${esc(dVal("story"))}</textarea></div>
         <div class="field"><label>Récit audio (en plus ou à la place du texte)</label><div id="day-rec"></div></div>`
         : `${d?.story ? `<div class="field"><label>Le récit de ${esc(MEMBERS.name(d.author_id) || "l'équipage")}</label><div class="story-read">${nl2p(d.story)}</div></div>` : ""}
@@ -698,6 +701,18 @@
         <div id="story-list"></div>
         ${showVoices ? `<div class="field"><label>Le mot du jour</label><div id="day-voice"></div><div id="voice-list"></div>
           <p class="help">Trente secondes à ta façon, en plus du récit — chacun laisse le sien. C'est ce qui vaudra le plus, plus tard.</p></div>` : ""}
+        <!-- #40 T8 · LE REPLI. Fermé, mais jamais muet : son titre DIT ce qu'il contient,
+             même quand il ne contient rien (« aucun arrêt · pas de camp »). Dans l'atelier,
+             pas de contenu ne veut pas dire pas de bloc — ça veut dire un signal. -->
+        ${iso ? `<details class="details-jour"><summary><b>Les détails de la journée</b> <span class="small muted">${signalDetails}</span></summary>
+        <div class="field"><label>Date</label><input type="date" name="day_date" required value="${iso || today()}" ${iso ? "readonly" : ""}></div>
+        ${iso ? stopsFieldHtml(iso) : ""}
+        ${iso ? campFieldHtml(iso) : ""}
+        ${iso && mine ? `<div class="field"><label>Comment as-tu voyagé ce jour-là ?</label>
+          <div class="mode-picker" id="day-mode-picker">${[["", "🤔", "l'app devine"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, v.icon, v.label.replace(/^(à|en) /, "")])].map(([k, icon, lab]) => `<button type="button" class="mode${dayMode === k ? " active" : ""}" data-mode="${k}">${icon}<small>${lab}</small></button>`).join("")}<input type="hidden" name="transport" value="${esc(dayMode)}"></div>
+          <p class="help">Le moyen de locomotion de la journée. S'il change en cours de route, indique-le sur la photo où ça change (ci-dessous ou dans la fiche de la photo). Sans indication, l'app devine : voiture par la route au-delà de 2,5 km entre deux photos, à pied en dessous.</p></div>
+        ${legs && legs.length > 1 ? `<div class="field legs-field"><label>Changements en cours de journée (${legs.length} tronçons)</label><div class="legs">${legs.map((l, i) => `<div class="leg">${legBout(l.from, l.fromKind)}<span class="arrow">→</span>${legBout(l.to, l.toKind)}
+            <select data-from="${l.from.id || ""}" data-kind="${l.fromKind || "media"}" class="leg-mode" ${l.fromKind === "trace" ? "disabled" : ""}><option value="">${l.auto ? `auto : ${BVMAP.MODES[l.mode].label}` : `comme avant (${BVMAP.MODES[l.mode].label})`}</option>${Object.entries(BVMAP.MODES).map(([k, v]) => `<option value="${k}" ${l.from.transport === k ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select></div>`).join("")}</div><p class="help">Chaque ligne = le trajet du point de gauche à celui de droite ; le choix vaut à partir du point de gauche jusqu'au prochain changement.</p></div>` : ""}` : ""}
         ${iso ? `<div class="field private-note${MEMBERS.isShared() ? " shared" : ""}"><label>Carnet de bord</label>
           <textarea name="my_note" placeholder="Ce qui ne va pas dans le récit : l'adresse du gîte, ce qu'il faut penser à faire demain…">${esc(dVal("my_note"))}</textarea>
           <div id="note-list"></div></div>` : ""}
@@ -706,11 +721,15 @@
           <button type="button" class="btn sm" id="day-route">${ic("route", "sm")} Tracer l'itinéraire par la route</button></div>` : ""}
         ${routeTrack ? `<div class="field"><label>Trajet</label><div class="row between"><span class="small">${ic("route", "sm")} Itinéraire par la route · <b>${fmtDistance(routeTrack.distance_m)}</b> · ${routeTrack.points.length} points</span><button type="button" class="btn sm ghost danger" id="day-route-del">Retirer</button></div>
           <p class="help">Retirer l'itinéraire fait revenir les pointillés entre les photos. Refais « Tracer » après avoir changé un moyen de locomotion.</p></div>` : ""}` : ""}
+          ${d && mine ? `<div class="field"><button type="button" class="btn ghost danger" id="del">${ic("trash", "sm")} Supprimer cette journée</button><p class="help">Le titre et le récit partent ; les photos et les traces restent.</p></div>` : ""}
+        </details>` : ""}
+        <!-- #40 T3 · DEUX boutons, et pas cinq. « Publier » ouvre la feuille du jour, où
+             vivent les deux façons de publier. « Retirer de la vue de mes proches » est
+             monté près du badge, avec l'état qu'il change. -->
         <div class="actions sticky">
-          ${d && mine ? `<button type="button" class="btn icon ghost danger" id="del" title="Supprimer le récit">${ic("trash")}</button>` : ""}${d?.published && !isLive() && mine ? `<button type="button" class="btn sm ghost" id="unpub" title="Repasser en brouillon">Brouillon</button>` : ""}<span class="grow"></span>
+          <span class="grow"></span>
           <button class="btn secondary" type="submit">Enregistrer</button>
-          ${iso && mine && !isLive() && !d?.published ? `<button type="button" class="btn secondary" id="pub-quiet" title="Rend la journée visible sans envoyer de message">${ic("check")} Publier</button>` : ""}
-          ${iso && mine ? `<button type="button" class="btn primary" id="pub" title="Enregistre aussi les modifications">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier et prévenir"}</button>` : ""}
+          ${iso && mine ? `<button type="button" class="btn primary" id="pub">${ic("sparkle")} ${isLive() || d?.published ? "Envoyer le lien" : "Publier"}</button>` : ""}
         </div></form>`,
       { guard: () => dirty() });
     const form = $("#f", m.el);
@@ -973,8 +992,7 @@
         if (notify) announceDay(saved); else toast("Journée publiée — tes proches la verront à leur prochaine visite", "ok", 5000);
       } catch (err) { errToast(err, 6000); }
     };
-    const pub = $("#pub", m.el); if (pub) pub.onclick = () => publish(true);
-    const pubQ = $("#pub-quiet", m.el); if (pubQ) pubQ.onclick = () => publish(false);
+    const pub = $("#pub", m.el); if (pub) pub.onclick = () => feuilleDuJour(iso, d, publish);
     const unpub = $("#unpub", m.el);
     if (unpub) unpub.onclick = async () => {
       try { const saved = await API.upsertDay(S.user, S.cur.trip.id, iso, { published: false });
@@ -982,6 +1000,37 @@
       catch (err) { errToast(err); }
     };
   }
+  // #40 T3 · LA FEUILLE DU JOUR. Un seul bouton « Publier » dans la barre, et les deux façons
+  // de publier vivent ici — « en silence » et « en prévenant ». Elles ont quitté la barre parce
+  // qu'un bouton qui envoie un message à toute la famille ne se touche pas du coin du pouce.
+  // Elle parle d'UN jour, jamais du voyage : c'est un geste du soir, pas le partage du carnet.
+  function feuilleDuJour(iso, d, publish) {
+    const n = dayNumber(S.cur.trip, iso);
+    const titre = n != null ? "Jour " + n : fmtDate(iso, false);
+    const dejaVisible = isLive() || !!d?.published;
+    const f = openModal(`<h2>${esc(titre)}</h2>
+      <p class="small muted">${dejaVisible
+        ? "Cette journée est déjà visible par tes proches."
+        : "Personne ne l'a encore vue. À toi de choisir comment elle arrive."}</p>
+      ${dejaVisible ? "" : `<div class="field"><button type="button" class="btn primary" id="fj-quiet" style="width:100%">${ic("check")} Publier en silence</button>
+        <p class="help">Elle devient visible. Tes proches la découvriront à leur prochaine visite.</p></div>`}
+      <div class="field"><button type="button" class="btn ${dejaVisible ? "primary" : "secondary"}" id="fj-notify" style="width:100%">${ic("sparkle")} ${dejaVisible ? "Envoyer le lien à mes proches" : "Publier et prévenir"}</button>
+        <p class="help">${dejaVisible ? "Ouvre le partage de ton téléphone, avec un message prêt." : "Elle devient visible, et le partage de ton téléphone s'ouvre avec un message prêt."}</p></div>
+      <div class="share-box"><input readonly value="${esc(shareUrl() + "#day-" + iso)}" id="fj-url">
+        <div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="fj-copy">Copier le lien de cette journée</button></div></div>
+      <div class="actions sticky"><button type="button" class="btn ghost" data-close>Annuler</button></div>`);
+    const quiet = $("#fj-quiet", f.el); if (quiet) quiet.onclick = () => { f.close(); publish(false); };
+    // En mode direct, une journée peut n'avoir que des photos et aucune fiche : `d` est alors
+    // absent, et `announceDay` lirait sa date dans le vide. On passe par `publish`, qui crée
+    // la fiche puis annonce.
+    $("#fj-notify", f.el).onclick = () => { f.close(); if (dejaVisible && d) announceDay(d); else publish(true); };
+    $("#fj-copy", f.el).onclick = async () => {
+      const url = $("#fj-url", f.el).value;
+      try { await navigator.clipboard.writeText(url); toast("Lien de la journée copié", "ok"); }
+      catch { $("#fj-url", f.el).select(); toast("Copie-le à la main", "info", 6000); }
+    };
+  }
+
   // Ouvre la feuille de partage du téléphone avec un message prêt à envoyer
   async function announceDay(d) {
     const n = dayNumber(S.cur.trip, d.day_date);

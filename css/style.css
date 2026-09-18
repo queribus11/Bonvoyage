@@ -293,6 +293,17 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
    dessous. Même faute que #screen-trip en v10.48, au même endroit du raisonnement. */
 .modal-back { position: fixed; inset: 0; height: 100svh; background: rgba(18,63,102,.45); z-index: 3000; display: flex; align-items: flex-end; justify-content: center; animation: fade var(--t-fast); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 @keyframes fade { from { opacity: 0; } }
+/* #40 T8 · LE REPLI DE LA FICHE JOURNÉE. Fermé par défaut : dehors il ne reste que ce qui
+   fabrique le récit — titre, photos, récit. Son titre porte un SIGNAL qui dit ce qu'il contient
+   même quand il est vide (« aucun arrêt · pas de camp ») : dans l'atelier, le vide est une
+   information, pas une raison de faire disparaître un bloc. */
+.details-jour { margin: 18px 0 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.details-jour > summary { cursor: pointer; list-style: none; min-height: 44px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 4px 0; }
+.details-jour > summary::-webkit-details-marker { display: none; }
+.details-jour > summary::after { content: "▾"; margin-left: auto; color: var(--muted); transition: transform var(--t-fast) var(--ease); }
+.details-jour[open] > summary::after { transform: rotate(180deg); }
+.details-jour > summary b { font-size: 15px; }
+.details-jour[open] { padding-bottom: 4px; }
 .modal { background: var(--paper); border-radius: var(--r-lg) var(--r-lg) 0 0; width: 100%; max-width: 640px; max-height: 94svh; overflow-y: auto; padding: 20px 20px calc(20px + var(--safe-b)); animation: up var(--t-mid) var(--ease); box-shadow: var(--sh-3); }
 @keyframes up { from { transform: translateY(40px); opacity: 0; } }
 .modal h2 { font-size: 26px; margin-bottom: 14px; }
@@ -717,9 +728,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .scroll-hint svg.i { transform: rotate(90deg); animation: nudge 1.6s ease-in-out infinite; width: 22px; height: 22px; }
 @keyframes nudge { 0%, 100% { transform: rotate(90deg) translateX(0); } 50% { transform: rotate(90deg) translateX(5px); } }
 @media (prefers-reduced-motion: reduce) { .scroll-hint svg.i, .bv-walker.walking .in, .bv-photo.pop .in { animation: none; } }
-.legs-details { margin: -6px 0 16px; }
-.legs-details summary { cursor: pointer; font-weight: 800; font-size: 14px; color: var(--azur); padding: 6px 0; }
-.legs-details .legs { margin-top: 8px; }
+.legs-field .legs { margin-top: 8px; }
 .replay-btn { margin-top: 16px; background: var(--mandarine); color: #fff; border-color: var(--mandarine); min-height: 52px; font-size: 16px; padding: 0 22px; box-shadow: var(--sh-accent); }
 .replay-btn:hover { background: #e2660f; }
 body.map-big { overflow: hidden; }
