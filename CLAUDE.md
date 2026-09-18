@@ -799,8 +799,12 @@ un usage différent — avant de corriger le code.*
 **#63 a changé de nature en cours de route, et c'est la leçon principale.** La demande
 d'origine — « réduire la carte du proche, reprendre la taille de l'atelier » — était
 **inexécutable, pas difficile** : l'atelier n'a pas de hauteur de carte (`#map { flex: 1 }`,
-sa carte est *ce qui reste* à côté d'un panneau à `46svh`). Et l'arithmétique donnait ~54svh
-contre 58vh : **quatre points, moins de 40 px**. Recopier n'aurait rien donné de perceptible.
+sa carte est *ce qui reste* à côté d'un panneau à `46svh`).
+**Le chiffre, une fois pour toutes : la carte de l'atelier vaut `100svh − 46svh = 54svh`** —
+516 px à 440 × 956, 460 px à 393 × 852. Les quatre habillages (`.trip-header`, `.map-tools`,
+`.day-card`, `.replay-overlay.app`) sont tous en `position: absolute`, donc hors du flux : le
+panneau est le SEUL frère de la carte. Ne plus le rechercher.
+Contre 58svh chez le proche, l'écart est de **38 px, quatre points**. Recopier n'aurait rien donné de perceptible.
 Remise devant ce fait, Sophie a demandé **un geste, pas une taille**. *Quand une demande cite
 une valeur à recopier, vérifier que cette valeur existe avant de planifier quoi que ce soit —
 elle est parfois un effet de bord, pas un réglage.*
@@ -852,8 +856,11 @@ sans aucune sortie : « Nouveau mot de passe » n'avait que « Changer ». Elle 
 - 🔴 **Un second constat, laissé ouvert exprès : CINQ fenêtres n'ont pour sortie qu'une croix
   muette avec une infobulle** — fiche journée, visionneuse photo, camp de base, fiche d'arrêt,
   « Qui a accès ». C'est la **règle 10** au pied de la lettre. Cinq, c'est un autre lot, et
-  Sophie doit dire si une croix lui suffit : aucune des cinq ne l'a jamais bloquée. *Ne pas
-  corriger en masse une règle qu'on vient de rouvrir — la poser d'abord.*
+  Sophie doit dire si une croix lui suffit : aucune des cinq ne l'a jamais bloquée.
+  ⛔ **C'est le sujet #68, et c'est une DÉCISION EN ATTENTE, pas un oubli — ne pas y toucher.**
+  Sophie l'a dit en toutes lettres le 18/09. Une séance qui « corrigerait » ces cinq croix par
+  zèle déferait un choix qu'elle n'a pas encore fait. *Ne pas corriger en masse une règle qu'on
+  vient de rouvrir — la poser d'abord.*
 - **Les barres collantes, elles, sont en règle** : les six fenêtres longues ont toutes
   `class="actions sticky"`. Le contrôle proposé en #67 n'aurait rien trouvé de plus ici.
 
