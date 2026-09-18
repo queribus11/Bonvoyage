@@ -1,3 +1,0 @@
-v10.44 — #64 : la carte vise où la lecture sera. #61 : la page d'essai essai-mesure.html.
-Témoin de mise en ligne : si ce fichier répond et que temoin-10-43.txt donne 404,
-c'est bien la v10.44 qui est servie.
