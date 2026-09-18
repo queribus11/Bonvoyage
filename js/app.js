@@ -273,36 +273,6 @@
     if (!S.cur) return;
     try { S.members = await API.listMembers(S.cur.trip.id); MEMBERS.setCrew(S.members, S.user.id); } catch { }
   }
-  // 🔴 #62 · ÉCHAFAUDAGE TEMPORAIRE — à retirer dès que Sophie aura choisi son épaisseur.
-  //
-  // La v10.48 avait posé ces trois boutons dans la fenêtre des réglages, en promettant
-  // « le tracé se redessine tout de suite, sur la vraie carte ». C'était faux : à
-  // 440 × 956, cette fenêtre fait 899 px de haut et ne laisse voir que 57 px de carte.
-  // Sophie a essayé les trois et n'a rien vu — elle ne pouvait rien voir.
-  //
-  // Un réglage jugé au doigt se juge SUR l'objet. La bande est donc posée sur la carte.
-  //
-  // 🔴 v10.52 · EN HAUT, et visible PENDANT LE SURVOL. En bas, le bandeau du survol la
-  // cachait — or c'est en regardant le survol que Sophie juge l'épaisseur, et d'un essai à
-  // l'autre la carte avait bougé : rien n'était comparable. En haut, elle touche les trois
-  // pendant que la trace se dessine, carte immobile.
-  function essaiTrait() {
-    const ecran = $("#screen-trip"); if (!ecran || $("#essai-trait")) return;
-    const bande = document.createElement("div");
-    bande.className = "essai-trait"; bande.id = "essai-trait";
-    bande.innerHTML = `<span class="lib">Épaisseur du tracé</span>`
-      + Object.entries(BVMAP.TRAITS).map(([k, v]) =>
-        `<button type="button" class="btn sm${+k === BVMAP.traitActuel() ? " primary" : ""}" data-trait="${k}">${esc(v.nom)}</button>`).join("");
-    ecran.appendChild(bande);
-    ecran.classList.add("essai-62");   // décale la fiche-carte, le temps de l'essai
-    $$("button", bande).forEach((b) => b.onclick = () => {
-      // `setTrait` rend `false` si la carte n'a pas pu changer : on ne dit jamais « c'est
-      // fait » sans que ce soit fait. C'est la règle de #51, appliquée à un réglage.
-      if (!BVMAP.setTrait(S.map, +b.dataset.trait)) return toast("La carte n'est pas prête", "error");
-      $$("button", bande).forEach((x) => x.classList.toggle("primary", x === b));
-    });
-  }
-
   function openAccess() {
     MEMBERS.openAccess({
       trip: S.cur.trip, user: S.user, api: API, openModal, confirm, toast,
@@ -421,7 +391,6 @@
         Object.assign(m, u); redraw(); toast("Photo placée sur la carte", "ok"); renderPanel();
       }).catch((err) => errToast(err));
     });
-    essaiTrait();
     $("#btn-fit").onclick = () => fit();
     $("#btn-replay").onclick = () => startReplay();
     $("#app-replay-stop").onclick = () => { if (S.map.stopReplay) S.map.stopReplay(); };
@@ -2043,7 +2012,7 @@
     const m = openModal(`<h2>Partager avec tes proches</h2>
       <p class="small muted">Ils ouvrent simplement ce lien dans leur navigateur : pas de compte, rien à installer. Le lien est secret — ne le publie pas en public.</p>
       <div class="share-box"><input readonly value="${esc(url)}" id="su"><div class="row" style="margin-top:8px">
-        <button class="btn sm primary" id="copy">Copier le lien</button>${navigator.share ? `<button class="btn sm" id="nshare">${ic("send", "sm")} Envoyer</button>` : ""}<a class="btn sm ghost" href="${esc(url)}&apercu=1&trait=${BVMAP.traitActuel()}">Voir comme un proche</a></div>
+        <button class="btn sm primary" id="copy">Copier le lien</button>${navigator.share ? `<button class="btn sm" id="nshare">${ic("send", "sm")} Envoyer</button>` : ""}<a class="btn sm ghost" href="${esc(url)}&apercu=1">Voir comme un proche</a></div>
         <div class="row" style="margin-top:10px"><button class="btn sm ghost" id="named-links">${ic("share", "sm")} Plutôt un lien par personne…</button></div></div>
       ${cfg.VAPID_PUBLIC_KEY ? `<p class="small muted" id="push-count" style="margin-top:12px">…</p>` : ""}
       <label class="row" style="margin-top:16px"><input type="checkbox" id="is_shared" ${t.is_shared ? "checked" : ""}> Lien de partage actif</label>

@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.52";
+window.BV_VERSION = "10.53";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -90,60 +90,27 @@ window.BVMAP = (() => {
   // lit garde sa couleur, plus fine, posée sur un liseré SOMBRE ; les autres reculent en
   // blanc fin. La distinction pointillé (estimé) / trait plein (vraie trace) reste des deux
   // côtés : c'est une vraie information.
-  // #62 · L'ÉPAISSEUR DES TRAITS — DEUX coefficients, et voici pourquoi.
+  // #62 · LES LARGEURS DE TRAIT — CLOS. Sophie a comparé trois épaisseurs sur son iPhone,
+  // pendant le survol et carte immobile, et a choisi « fin » le 18/09/2026.
   //
-  // Sophie : « le tracé de l'avion me semble un peu épais, les autres aussi d'ailleurs ».
+  // Les deux coefficients de l'essai (0,80 sur la couleur, 0,66 sur le liseré et le halo)
+  // sont APPLIQUÉS ici une fois pour toutes : il n'y a plus de réglage, il y a des largeurs.
+  // Ce qu'ils avaient appris et qu'il ne faut pas défaire :
+  //   · le liseré blanc reste toujours PLUS LARGE que la couleur, sinon il disparaît sous
+  //     elle et le tracé n'est plus lisible sur un fond clair ;
+  //   · l'œil lit le RAPPORT entre la couleur et son enrobage, pas la taille absolue —
+  //     c'est pour cela que les deux ne maigrissent pas du même facteur.
   //
-  // 🔴 La v10.48 n'en avait qu'UN, qui multipliait les trois couches d'un trait (la couleur,
-  // le liseré blanc, le halo). Résultat mesuré au zoom 12 : le liseré passait de 6,17 à
-  // 4,93 px — 1,2 px de moins — et surtout **les proportions du dessin ne changeaient pas**.
-  // Sophie a essayé les trois et a répondu « ça ne change absolument rien ». Elle avait
-  // raison : l'œil ne lit pas la taille absolue d'un trait, il lit le rapport entre sa
-  // couleur et son enrobage. Tout réduire du même facteur, c'est le même dessin, plus petit.
-  //
-  // Donc : `coef` amincit la COULEUR, `enrobage` amincit le liseré et le halo — plus vite.
-  // C'est l'enrobage qui fait le « gras » d'un trait ; c'est donc lui qui doit maigrir.
-  //
-  // Neutre par défaut (1 et 1 = exactement les traits d'aujourd'hui) : tant que Sophie n'a
-  // pas choisi au doigt, rien ne change. Le choix se lit dans l'adresse (pour la page du
-  // proche, qu'elle ouvre depuis son carnet) puis dans la mémoire du navigateur.
-  const TRAIT_KEY = "bv_trait";
-  const TRAITS = {
-    1: { nom: "aujourd'hui", coef: 1, enrobage: 1 },
-    // ⚠️ Le liseré doit rester PLUS LARGE que la couleur, sinon il disparaît sous elle et le
-    // tracé perd sa lisibilité sur un fond clair. Vu en image, pas dans les chiffres : à
-    // `enrobage: .38`, liseré 2,34 px pour une couleur de 2,30 — il ne restait rien.
-    2: { nom: "fin", coef: .80, enrobage: .66 },
-    3: { nom: "très fin", coef: .62, enrobage: .50 },
-  };
-  function traitChoisi() {
-    // Lecture protégée : Safari en navigation privée lève sur localStorage (piège connu).
-    try {
-      const p = new URLSearchParams(location.search).get("trait") || (location.hash.match(/trait=(\d)/) || [])[1];
-      if (p && TRAITS[p]) return +p;
-    } catch { }
-    try { const v = localStorage.getItem(TRAIT_KEY); if (v && TRAITS[v]) return +v; } catch { }
-    return 1;
-  }
-  let trait = TRAITS[traitChoisi()];
-  const T = (x) => Math.round(x * trait.coef * 100) / 100;       // la couleur
-  const E = (x) => Math.round(x * trait.enrobage * 100) / 100;   // le liseré et le halo
-
-  // Les largeurs de l'atelier, écrites UNE fois : elles servent à créer les couches, et à les
-  // reposer quand l'épaisseur change sans recharger la page. Deux listes auraient divergé.
-  // `ENROBAGE` dit laquelle des deux échelles s'applique à chaque couche.
-  // 🔴 v10.52 · LA TRACE DU SURVOL EST DANS CETTE TABLE, ELLE AUSSI. Elle vivait deux lignes
-  // plus haut, à côté — donc hors du réglage. Or pendant le survol les tracés sont estompés
-  // à 25 % (voir `replay`) : le seul trait épais à l'écran est justement celui-là, et Sophie
-  // le regardait. Elle a touché les trois boutons sans rien voir changer, et elle avait
-  // raison. Une valeur écrite à côté de sa liste finit toujours par diverger.
-  // (Sans zoom : les deux bornes sont égales, la largeur ne dépend pas de l'échelle.)
-  const ATELIER = { "track-dash-edge": [8, 12], "track-dash": [3.5, 5.5], "track-halo": [6, 12], "track-edge": [4.5, 7], "track-line": [2.5, 4.5],
-                    "progress-halo": [9, 9], "progress-line": [5, 5] };
-  const ENROBAGE = new Set(["track-dash-edge", "track-halo", "track-edge", "progress-halo"]);
-  // Largeur d'une couche de l'atelier : elle grandit avec le zoom, et suit son échelle.
-  const W = (id) => { const e = ENROBAGE.has(id) ? E : T, [a, b] = ATELIER[id]; return ["interpolate", ["linear"], ["zoom"], 8, e(a), 14, e(b)]; };
-  const READ = { w: 3.2, otherW: 1.8, otherOp: .34, edge: "rgba(8,14,20,.40)", edgeW: 6 };
+  // 🔴 CETTE TABLE EST LA SEULE LISTE DE LARGEURS, et la trace du survol en fait partie.
+  // Elle vivait à côté, et c'est précisément pour ça qu'elle avait été oubliée : pendant le
+  // survol les tracés sont estompés à 25 % (voir `replay`), et le seul trait épais à l'écran
+  // est justement celui-là. Toute couche de ligne nouvelle vient ici, jamais à côté.
+  // (Deux bornes égales = largeur qui ne dépend pas du zoom.)
+  const ATELIER = { "track-dash-edge": [5.28, 7.92], "track-dash": [2.8, 4.4], "track-halo": [3.96, 7.92], "track-edge": [2.97, 4.62], "track-line": [2, 3.6],
+                    "progress-halo": [5.94, 5.94], "progress-line": [4, 4] };
+  // Largeur d'une couche de l'atelier : elle grandit avec le zoom.
+  const W = (id) => { const [a, b] = ATELIER[id]; return ["interpolate", ["linear"], ["zoom"], 8, a, 14, b]; };
+  const READ = { w: 2.56, otherW: 1.44, otherOp: .34, edge: "rgba(8,14,20,.40)", edgeW: 3.96 };
   const DASH = [1.6, 1.4];
   // Le regroupement des vignettes photo, au même endroit pour tout le monde : il est coupé
   // le temps du survol (voir `replay`) et remis à la fin.
@@ -152,7 +119,7 @@ window.BVMAP = (() => {
   // sombre suive exactement les tirets de la couleur, son motif est mis à l'échelle.
   // Le motif du liseré suit le rapport entre la couleur et l'enrobage — rapport qui change
   // avec le réglage depuis la v10.51 : c'est un calcul, plus une constante.
-  const dashEdge = (V) => [DASH[0] * T(V.w) / E(V.edgeW), DASH[1] * T(V.w) / E(V.edgeW)];
+  const dashEdge = (V) => [DASH[0] * V.w / V.edgeW, DASH[1] * V.w / V.edgeW];
   function trackLayers(reading) {
     if (!reading) return [
       { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": W("track-dash-edge"), "line-opacity": .45, "line-blur": 4 } },
@@ -162,16 +129,16 @@ window.BVMAP = (() => {
       { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": W("track-line"), "line-opacity": 1 } },
     ];
     return [
-      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": E(READ.edgeW), "line-dasharray": dashEdge(READ), "line-opacity": 1 } },
-      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": T(READ.w), "line-dasharray": DASH, "line-opacity": 1 } },
+      { id: "track-dash-edge", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": READ.edgeW, "line-dasharray": dashEdge(READ), "line-opacity": 1 } },
+      { id: "track-dash", type: "line", source: "tracks", filter: ["==", ["get", "dash"], true], layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": READ.w, "line-dasharray": DASH, "line-opacity": 1 } },
       { id: "track-halo", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 0, "line-opacity": 0 } },
-      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": E(READ.edgeW), "line-opacity": 1 } },
-      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": T(READ.w), "line-opacity": 1 } },
+      { id: "track-edge", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": READ.edge, "line-width": READ.edgeW, "line-opacity": 1 } },
+      { id: "track-line", type: "line", source: "tracks", filter: ["!=", ["get", "dash"], true], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": READ.w, "line-opacity": 1 } },
     ];
   }
   // #42 · LA JOURNÉE IMMOBILE : le tracé du jour porté plus franchement, les autres
   // journées réduites à un repère blanc discret qui sert seulement à situer.
-  const OVER = { w: 3.6, edge: "rgba(6,12,20,.55)", edgeW: 9, otherW: 2.6, otherOp: .5 };
+  const OVER = { w: 2.88, edge: "rgba(6,12,20,.55)", edgeW: 5.94, otherW: 2.08, otherOp: .5 };
   // Sans journée en cours (vue de tout le voyage), toutes gardent leur couleur.
   function applyTrackStyle(M) {
     if (!M.reading || !M.ready) return;
@@ -179,34 +146,18 @@ window.BVMAP = (() => {
     const pick = (a, b) => (iso ? ["case", ["==", ["get", "day"], iso], a, b] : a);
     for (const id of ["track-line", "track-dash"]) {
       map.setPaintProperty(id, "line-color", pick(["get", "color"], "#ffffff"));
-      map.setPaintProperty(id, "line-width", pick(T(V.w), T(V.otherW)));
+      map.setPaintProperty(id, "line-width", pick(V.w, V.otherW));
       map.setPaintProperty(id, "line-opacity", pick(1, V.otherOp));
     }
     for (const id of ["track-edge", "track-dash-edge"]) {
       map.setPaintProperty(id, "line-color", V.edge);   // la vue d'ensemble a son propre liseré
-      map.setPaintProperty(id, "line-width", pick(E(V.edgeW), 0));
+      map.setPaintProperty(id, "line-width", pick(V.edgeW, 0));
       map.setPaintProperty(id, "line-opacity", 1);
     }
     if (M.overview) map.setPaintProperty("track-dash-edge", "line-dasharray", dashEdge(OVER));
     else map.setPaintProperty("track-dash-edge", "line-dasharray", dashEdge(READ));
     map.setPaintProperty("track-halo", "line-opacity", 0);
   }
-  // #62 · Changer l'épaisseur sans recharger : les cinq largeurs se reposent d'un coup, à
-  // partir de la MÊME table qui a servi à les créer. `n` vaut 1, 2 ou 3 (voir TRAITS).
-  function setTrait(M, n) {
-    if (!TRAITS[n]) return false;
-    trait = TRAITS[n];
-    try { localStorage.setItem(TRAIT_KEY, String(n)); } catch { }
-    if (!M || !M.map || !M.ready || !M.map.getLayer("track-line")) return false;
-    const map = M.map;
-    if (M.reading) { applyTrackStyle(M); return true; }
-    // Seules les largeurs : dans l'atelier le liseré du pointillé n'est pas lui-même
-    // pointillé (c'est un halo flou), lui poser un motif en ajouterait un qui n'existe pas.
-    for (const id of Object.keys(ATELIER)) map.setPaintProperty(id, "line-width", W(id));
-    return true;                 // 🔴 dit à l'appelant que la carte a VRAIMENT changé
-  }
-  const traitActuel = () => traitChoisi();
-
   // ---------- #42 · La journée immobile ----------
   // Un état plein écran où l'on ne voit QUE la forme d'un jour : son tracé porté, les autres
   // journées en blanc discret pour situer, un cercle creux au départ, un cercle plein à
@@ -1335,5 +1286,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, TRAITS, setTrait, traitActuel, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();

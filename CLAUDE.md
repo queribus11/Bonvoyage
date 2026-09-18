@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.52**
+- Version actuelle : **v10.53**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -724,6 +724,30 @@ trois des cinq étaient prises **pendant le survol**.
   recouvre le rail » alors qu'elle s'arrête à 360 px et que le rail commence à 368. Deux
   rectangles se recouvrent quand ils se croisent **dans les deux sens** — sinon l'instrument
   crie au loup, et on finit par ne plus l'écouter.
+
+### #62 — CLOS en v10.53. Ce que cinq versions ont appris
+
+Sophie a choisi **« fin »** le 18/09/2026, après avoir comparé les trois épaisseurs pendant
+le survol, carte immobile. Les largeurs sont figées dans `ATELIER`, `READ` et `OVER`
+(`js/map.js`) — plus aucun réglage, plus aucun échafaudage.
+
+**Une question d'une ligne a coûté cinq versions**, et pas une seule fois à cause du réglage
+lui-même : à chaque fois, **le dispositif d'essai était faux d'une manière différente**.
+
+| version | ce qui empêchait de juger |
+|---|---|
+| v10.48 | les boutons dans une fenêtre qui cache 94 % de la carte |
+| v10.51 | un coefficient unique : le même dessin, 1,2 px plus petit |
+| v10.52 | l'état qu'elle regardait — le survol — n'était pas réglé du tout |
+
+🔴 **Avant de demander un choix au doigt, vérifier les TROIS conditions, pas deux :**
+1. **visible** — la chose à juger est à l'écran pendant qu'on juge ;
+2. **comparable** — rien ne bouge entre deux essais (ni la vue, ni le zoom) ;
+3. **qui change vraiment** — l'écart est mesuré, et vérifié **dans l'état où elle regarde**.
+
+Et le corollaire, payé trois fois : **c'est elle qui voyait juste à chaque fois.** « Ça ne
+change rien » n'était jamais une impression — c'était un constat exact, sur un défaut que je
+n'avais pas cherché au bon endroit.
 
 ---
 

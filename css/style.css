@@ -618,17 +618,6 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
    Posée SUR la carte, juste au-dessus du panneau : c'est le seul endroit d'où Sophie
    voit ce qu'elle règle. Elle suit les trois hauteurs du panneau. À retirer avec le
    lot qui figera son choix. */
-/* 🔴 v10.52 · EN HAUT, ET VISIBLE PENDANT LE SURVOL. En bas, elle se faisait cacher par le
-   bandeau du survol — or c'est justement en regardant le survol que Sophie juge l'épaisseur.
-   Et d'un essai à l'autre la carte avait bougé : rien n'était comparable. Ici, elle peut
-   toucher les trois pendant que la trace se dessine. `right: 80px` laisse le rail libre. */
-.essai-trait { position: absolute; left: 12px; right: 80px; top: calc(70px + var(--safe-t)); z-index: 1003;
-  display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
-  background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border-radius: 18px; padding: 8px 10px; box-shadow: var(--sh-2); }
-.essai-trait .lib { font-size: 12.5px; font-weight: 800; color: var(--muted); letter-spacing: .02em; }
-/* Tant que l'essai est là, la fiche-carte de la journée descend : elles ne se recouvrent jamais. */
-#screen-trip.essai-62 .day-card { top: calc(142px + var(--safe-t)); }
 .day-card { position: absolute; left: 12px; right: 80px; top: calc(70px + var(--safe-t)); z-index: 1002; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-radius: 20px; padding: 12px 14px; box-shadow: var(--sh-2); max-width: 440px; }
 .day-card .dc-head { display: flex; align-items: center; gap: 10px; }
 .day-card .dc-head b { display: block; font-family: var(--font-title); font-weight: 500; font-size: 17px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
