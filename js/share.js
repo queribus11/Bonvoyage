@@ -189,7 +189,7 @@
       <div id="map-sentinel" aria-hidden="true"></div>
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
         <div class="map-caption" id="map-caption" hidden></div>
-        <div class="map-rail"><button type="button" class="map-btn" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand")}</button>${canReplay ? `<button type="button" class="map-btn" id="map-replay" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>` : ""}<button type="button" class="map-btn" id="map-layers" title="Fonds de carte" aria-label="Choisir le fond de carte" aria-expanded="false">${ic("layers")}</button></div>
+        <div class="map-rail"><button type="button" class="map-btn" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand")}</button>${canReplay ? `<button type="button" class="map-btn" id="map-replay" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>` : ""}<button type="button" class="map-btn" id="map-layers" title="Fonds de carte" aria-label="Choisir le fond de carte" aria-expanded="false">${ic("layers")}</button><button type="button" class="map-btn wide plier" id="map-plier" aria-label="Replier la carte">${ic("chevron-right")}<span class="lbl">Replier</span></button></div>
         <div class="jour-ui" id="jour-ui" hidden>
           <button type="button" class="jour-sortie" id="jour-sortie">${ic("chevron-left")}<span>Retour au récit</span></button>
           <button type="button" class="jour-play" id="jour-play" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>
@@ -515,6 +515,30 @@
       $("#map-wrap").classList.toggle("show-layers", on);
       ml.classList.toggle("on", on);
       ml.setAttribute("aria-expanded", on ? "true" : "false");
+    };
+    // #63 · LE REPLI DE LA CARTE — deux crans, et un MOT sur le bouton.
+    // Il rejoint le rail parce que la règle 11 ne tolère qu'UNE zone de contrôles sur la
+    // carte du lecteur. Une poignée posée sur le bord bas en aurait fabriqué une seconde —
+    // et donné un troisième sens au glissement vertical, en plein sur le terrain de #50.
+    // Et c'est la page de ses proches : ils n'ont jamais vu la barrette de l'atelier. Un
+    // mot se lit sans mode d'emploi, une barrette de 36 × 4 px se devine.
+    const plier = $("#map-plier");
+    if (plier) plier.onclick = () => {
+      const w = $("#map-wrap");
+      const replie = !document.body.classList.contains("carte-repliee");
+      // Sur le `body` : la hauteur sert AUSSI à la marge de défilement des journées, qui
+      // vit plus haut dans l'arbre. Une seule valeur (`--carte-h`), deux lecteurs.
+      document.body.classList.toggle("carte-repliee", replie);
+      w.classList.toggle("replie", replie);
+      plier.querySelector(".lbl").textContent = replie ? "Déployer" : "Replier";
+      plier.setAttribute("aria-label", replie ? "Déployer la carte" : "Replier la carte");
+      // #64 · La hauteur de la carte vient de changer, et DEUX choses en dépendent.
+      // `readLine()` se recalcule toute seule : elle mesure la carte à chaque appel.
+      // Les bandes d'élection, non — un `rootMargin` est figé à la création de
+      // l'observateur. Sans `armFollow()`, l'élection viserait encore l'ancienne carte et
+      // #64 se rouvrirait par effet de bord. `resize` remet la toile MapLibre d'aplomb :
+      // sans lui, tout cadrage mesuré en écrans est faux.
+      setTimeout(() => { if (map) BVMAP.resize(map); armFollow(); schedule(); }, 280);
     };
     draw(false);
     // Intro : le globe tourne vers le voyage quand la carte arrive à l'écran (une seule fois)

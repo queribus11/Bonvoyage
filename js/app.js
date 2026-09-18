@@ -2111,7 +2111,8 @@
       const m = openModal(`<h2>Nouveau mot de passe</h2><form id="f">
         <div class="field"><label>Mot de passe (6 caractères minimum)</label><input type="password" name="p1" minlength="6" required autocomplete="new-password"></div>
         <div class="field"><label>Confirme-le</label><input type="password" name="p2" minlength="6" required autocomplete="new-password"></div>
-        <div class="actions"><button class="btn primary" type="submit">Changer</button></div></form>`);
+        <div class="actions"><button type="button" class="btn ghost" data-close>Annuler</button><span class="grow"></span>
+          <button class="btn primary" type="submit">Changer</button></div></form>`);
       $("#f", m.el).onsubmit = async (e) => {
         e.preventDefault(); const f = e.target;
         if (f.p1.value !== f.p2.value) return toast("Les deux mots de passe sont différents", "error");
