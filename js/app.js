@@ -477,7 +477,7 @@
     if (S.map.replaying && S.map.stopReplay) S.map.stopReplay();
     S.dayFilter = iso; redraw(true); renderPanel();
     const card = $("#day-card");
-    card.innerHTML = `<div class="dc-head"><span class="dc-num" id="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n != null ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b id="dc-title">${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted" id="dc-meta">${dayCardMeta(iso)}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
+    card.innerHTML = `<div class="dc-head"><span class="dc-num" id="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n != null ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b id="dc-title">${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted" id="dc-meta">${dayCardMeta(iso)}</span></div></div>
       <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
     card.hidden = false;
     $("#dc-open").onclick = () => dayForm(iso);
@@ -490,8 +490,11 @@
       toast("Touche la carte à l'endroit de l'arrêt");
       setTimeout(() => BVMAP.resize(S.map), 280);
     };
+    // #73 · la fiche n'a plus qu'UNE sortie. La croix muette d'avant appelait exactement
+    // cette fonction, comme « Tout le voyage » : deux sorties pour une seule action, dans
+    // une fiche de sept centimètres. Le mot était déjà là — c'est la croix qui est partie.
     const closeCard = () => { card.hidden = true; if (S.map.stopReplay && S.map.replaying) S.map.stopReplay(); S.dayFilter = null; redraw(true); renderPanel(); };
-    $("#dc-close").onclick = closeCard; $("#dc-all").onclick = closeCard;
+    $("#dc-all").onclick = closeCard;
     const rp = $("#dc-replay");
     const dayReplay = () => {
       if (S.map.replaying) { S.map.stopReplay(); return; }

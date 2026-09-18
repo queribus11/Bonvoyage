@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.60**
+- Version actuelle : **v10.61**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -1088,6 +1088,49 @@ entier** — et rien ici ne lui ferme la porte.
 - **Un défaut trouvé en NOMMANT une sortie, pas en le cherchant.** Dix mois de sommeil, et
   c'est un lot de libellés (#68) qui l'a mis au jour. *Uniformiser un vocabulaire révèle les
   comportements qui ne l'étaient pas — c'est un bénéfice, pas un effet de bord.*
+
+### Les leçons de la v10.61 (#73) — un inventaire sans bord passe pour exhaustif
+
+Sophie a vu des croix **le soir même de la livraison de #68**. Elle avait raison, et #68
+n'avait rien manqué : il avait inventorié **les fenêtres** de l'atelier — 17 sorties, 17 mots,
+zéro croix muette. Ce qu'elle voyait est la **carte de journée**, une fiche posée sur la carte.
+
+- 🔴 **TOUT LOT QUI INVENTORIE DOIT DIRE OÙ S'ARRÊTE SON PÉRIMÈTRE.** C'est la règle qui naît
+  de ce sujet, et elle vaut pour tous les suivants. *Un inventaire sans bord déclaré passe pour
+  exhaustif — et ce qu'il laisse dehors devient invisible.* Ce lot-ci nomme le sien : la carte
+  de journée de l'atelier, et elle seule ; dehors, la visionneuse du proche, la croix d'un
+  commentaire, les trois de `js/members.js`.
+- 🔴 **Une croix n'est pas forcément une sortie — lire ce qu'elle FAIT avant de la classer.**
+  Sur quatre « croix restantes », **une seule** était une sortie. Celle d'un commentaire
+  (`js/app.js`) et les trois de `js/members.js` **suppriment** : retirer du voyage, annuler une
+  invitation, couper un lien, effacer un commentaire. *Même famille de dessin, question
+  opposée : ranger une croix destructive avec les sorties aurait produit un correctif faux.*
+- 🔴 **Deux sorties pour une seule action : le remède est un RETRAIT, pas un libellé.**
+  `#dc-close` et `#dc-all` appelaient tous deux `closeCard`. Le mot « Tout le voyage » était
+  déjà là. *Quand un écran a deux chemins vers la même fonction, en nommer un deuxième coûte
+  plus cher que d'en supprimer un.*
+- 🔴 **Un seuil chiffré se lit avec la question qu'il pose.** Le brief demandait « au moins
+  44 px » avant de retirer la croix. Mesuré : le bouton restant fait **120 × 36**, la croix
+  faisait **36 × 36** — même hauteur au pixel près, cible **3,3 fois plus large**. La question
+  de fond était « la croix était-elle la cible facile des deux ? » : non. *Les 36 px sont la
+  taille de tous les `.btn.sm` de l'app, pas une dette que ce lot fabrique.* Sophie a tranché
+  ainsi, en deux minutes, plutôt que de laisser un chiffre bloquer un retrait sûr.
+- 🔴 **Une sonde qui lit le style de l'ENFANT ne voit pas un PARENT masqué.** Mon contrôle du
+  survol annonçait un écart : il lisait `getComputedStyle(bouton).display`, alors que c'est la
+  **fiche entière** que `dayReplay` masque (`card.hidden = true`) — le `display` du bouton ne
+  change pas, seul son rectangle rendu tombe à zéro. *Quatrième instrument faux ce mois-ci : la
+  visibilité se mesure sur le rectangle rendu, jamais sur le style propre de l'élément.*
+- **Un banc qui construit son balisage doit REFUSER de mentir.** La page « avant » vérifie sept
+  fragments présents dans `js/app.js` ; depuis le retrait, elle **échoue** — c'est exactement ce
+  qu'on lui demande. *Un banc qui continuerait de bâtir l'écran d'avant après le changement ne
+  prouverait plus rien.*
+- **Le mot qui disparaît se vérifie DANS le fichier nommé, jamais dans tout le dépôt** — le
+  témoin cite le mot qu'il déclare mort et le fait donc réapparaître à une recherche globale.
+  Ici le témoin l'écrit en toutes lettres (« id égale dc-close ») plutôt qu'en code, donc les
+  deux contrôles tombent à zéro ; mais la règle reste : **restreindre au fichier.**
+- **Ce qu'on ne peut pas vérifier se dit** : cette fiche est posée **sur la carte**, et les
+  tuiles sont refusées par le proxy. Les images montrent la fiche sur un **aplat** — la
+  géométrie est juste, le contraste sur un vrai fond ne l'est pas.
 
 ---
 
