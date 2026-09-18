@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.59**
+- Version actuelle : **v10.60**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -1042,6 +1042,52 @@ lève pas toute seule.** Ce fichier portait « #68 : décision en attente, **ne 
 La séance qui exécute la décision doit **réécrire la note avant d'écrire le code** — sinon la
 séance suivante lit l'ancienne consigne et défait le travail. *Une leçon écrite n'est pas une
 leçon appliquée (v10.49) ; sa réciproque est vraie aussi.*
+
+### Les leçons de la v10.60 (#72, lot 1) — la question qui NOMME ce qu'elle va perdre
+
+Sophie a tranché le lot : *« On arrête le saignement, puis on soigne. »* Le lot 1 pose la
+confirmation ; **le lot 2 (conserver la saisie, et alors seulement passer à « Fermer ») reste
+entier** — et rien ici ne lui ferme la porte.
+
+- 🔴 **UNE GARDE NE SE POSE QU'APRÈS AVOIR COMPTÉ LES PORTES.** Le brief en soupçonnait six ;
+  la lecture en a trouvé **trois**, et elles convergent toutes vers `tryClose` (`js/app.js`) —
+  donc **une seule garde les couvre**. Les flèches ◀ ▶ de #31, données comme « le chemin à
+  surveiller en premier », sont **inatteignables** : la fiche d'arrêt est une *seconde* pleine
+  page posée par-dessus la fiche journée (`.modal-back { position: fixed; inset: 0; z-index:
+  3000 }`), et `goDay()` ne retire que **son propre** fond. Le balayage vers le bas n'existe
+  sur aucune fenêtre, et il n'y a pas de retour de navigateur dans l'atelier (v10.45).
+  *C'est la méthode de #66 : onze fenêtres annoncées, une seule réelle. Le compte se refait.*
+- 🔴 **Le garde-fou de la v10.3 sort intact SANS QU'ON Y TOUCHE — et c'est le comptage qui le
+  prouve.** Les deux fenêtres ne pouvant être touchées en même temps, les deux questions ne
+  peuvent pas se superposer : `saveDay()`, `goDay()` et le `dirty()` de la fiche journée ne
+  sont touchés par aucune ligne. *Avant de protéger une mécanique, vérifier si elle n'est pas
+  déjà hors d'atteinte : la meilleure protection est celle qu'on n'écrit pas.*
+- 🔴 **UNE PHRASE FAUSSE EN FRANÇAIS NE SE VOIT PAS DANS LE CODE — elle se voit au banc.**
+  Le premier jet accordait le participe : « la note sera **perdu** ». Aucun test logique ne
+  criait. D'où la règle : **une énumération plutôt qu'une phrase à accorder** — « Ce qui n'est
+  pas enregistré : le nom du lieu et la note. » vaut pour tous les genres. *Un message dont les
+  mots changent avec les données doit être rendu et LU, pas seulement calculé.*
+- 🔴 **DEUX BANCS QUI SE CONTREDISENT : c'est le banc qu'on suspecte, pas le code (v10.43).**
+  Le banc Node disait « aucune question » sur un arrêt neuf intact ; le banc navigateur disait
+  l'inverse, aux deux largeurs. Cause : **mon balisage écrit à la main portait des valeurs
+  figées** et ne suivait pas l'arrêt qu'on lui donnait — je photographiais un écran qui ne
+  montrait pas le cas mesuré. C'est la faute de la v10.58 dans une autre famille : un banc qui
+  construit lui-même son balisage doit **poser les valeurs d'ouverture** comme le vrai gabarit
+  le fait par ses `value=`.
+- **Une absence ne se photographie qu'en regard de ce qu'il y avait avant.** L'image « rien
+  saisi, aucune question » était un écran **vide** : elle ressemblait à un banc cassé. Elle est
+  devenue une **paire** — la fiche intacte, puis le même écran après « Annuler ».
+- **Le piège de l'heure, repayé d'avance.** Le champ `type="time"` ne descend qu'à la minute,
+  `at_time` porte des secondes : comparés au texte près, la fiche se serait crue modifiée à
+  **chaque** ouverture — et la question se serait affichée **toujours**, ce qui tuait la
+  première exigence du lot. Le `minute()` de `photoFields()` est repris tel quel (v10.38).
+- **Ce que le banc ne prouve pas, et qui se dit** : le format d'heure qu'il affiche
+  (« 02:03 PM ») vient de la langue du navigateur d'essai, pas du code — chez Sophie c'est
+  « 14:03 ». Et les polices restent celles du repli : aucune mesure au pixel près ne repose
+  dessus (v10.48).
+- **Un défaut trouvé en NOMMANT une sortie, pas en le cherchant.** Dix mois de sommeil, et
+  c'est un lot de libellés (#68) qui l'a mis au jour. *Uniformiser un vocabulaire révèle les
+  comportements qui ne l'étaient pas — c'est un bénéfice, pas un effet de bord.*
 
 ---
 

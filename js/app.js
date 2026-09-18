@@ -45,15 +45,20 @@
   //  Modales génériques
   // ---------------------------------------------------------------
   // guard() : renvoie true si des modifications non enregistrées existent → on demande confirmation avant de fermer
-  function openModal(html, { wide = false, onClose, guard } = {}) {
+  function openModal(html, { wide = false, onClose, guard, guardText } = {}) {
     const host = $("#modal-host");
     const back = document.createElement("div");
     back.className = "modal-back";
     back.innerHTML = `<div class="modal${wide ? " wide" : ""}">${html}</div>`;
     host.appendChild(back);
     const close = () => { back.remove(); document.removeEventListener("keydown", onKey); onClose && onClose(); };
+    // #72 · la phrase de la question est FACULTATIVE : sans elle, celle d'avant, et les
+    // fenêtres qui protégeaient déjà ne changent pas d'un mot. Une fenêtre qui sait NOMMER
+    // ce qu'elle va perdre la fournit — et la construit depuis sa liste de champs, jamais
+    // à côté d'elle. Une phrase vide retombe sur la phrase générale.
     const tryClose = async () => {
-      if (guard && guard() && !(await confirm("Tu as des modifications non enregistrées. Fermer quand même ?", "Fermer sans enregistrer"))) return;
+      const dit = (guardText && guardText()) || "Tu as des modifications non enregistrées. Fermer quand même ?";
+      if (guard && guard() && !(await confirm(dit, "Fermer sans enregistrer"))) return;
       close();
     };
     back.addEventListener("click", (e) => { if (e.target === back) tryClose(); });
@@ -1594,20 +1599,62 @@
         <div class="actions sticky">
           ${!isNew ? `<button type="button" class="btn icon ghost danger" id="sdel" title="Supprimer cet arrêt">${ic("trash")}</button>` : ""}<span class="grow"></span>
           <button class="btn primary" type="submit">Enregistrer</button>
-        </div></form>`);
+        </div></form>`,
+      // #72 · la fiche d'arrêt était la SEULE fenêtre de saisie sans garde : elle fermait
+      // sans un mot et la saisie partait en silence. Les trois portes qui la referment
+      // (« Annuler », un doigt à côté de la fenêtre, Échap) passent toutes par `tryClose` :
+      // une seule garde les couvre. « Enregistrer » et la corbeille ferment directement.
+      { guard: () => dirty(), guardText: () => perdu() });
     const f = $("#sf", m.el);
-    f.onsubmit = async (e) => {
-      e.preventDefault();
-      const fd = Object.fromEntries(new FormData(f));
-      const name = (fd.name || "").trim();
-      if (!name) return toast("Il faut un nom", "error");
-      const fields = {
-        day_date: iso, lat: cur.lat, lng: cur.lng, name,
+    // #51 · UNE SEULE LISTE : ce qui part en base. La garde et la phrase de la question la
+    // parcourent ; aucune des deux n'écrit la sienne à côté. `from === "cur"` relit l'état
+    // d'ouverture avec les MÊMES expressions que les `value=` du formulaire ci-dessus —
+    // d'où : ouvrir une fiche et la refermer aussitôt ne change rien, donc ne demande rien.
+    const stopFields = (from) => {
+      const fd = from === "cur"
+        ? { name: cur.name || "", category: cur.category || "autre", note: cur.note || "",
+            hhmm: cur.at_time ? toLocalTime(cur.at_time) : "", transport: cur.transport || "" }
+        : Object.fromEntries(new FormData(f));
+      // Le champ « Heure » ne descend qu'à la minute ; `at_time` en base porte des secondes.
+      // Tant qu'il montre la même minute que l'heure enregistrée, on garde celle-ci telle
+      // quelle — sinon la fiche se croirait modifiée à chaque ouverture (v10.38).
+      const minute = (x) => x ? Math.floor(+new Date(x) / 60000) : null;
+      const saisie = timeToIso(iso, fd.hhmm);
+      const out = {
+        day_date: iso, lat: cur.lat, lng: cur.lng, name: (fd.name || "").trim(),
         category: fd.category || "autre", note: (fd.note || "").trim(),
-        at_time: timeToIso(iso, fd.hhmm) || null,
+        at_time: minute(saisie) === minute(cur.at_time) ? (cur.at_time || null) : saisie,
         transport: fd.transport || null,
       };
-      if (isNew) { fields.media_ids = cur.media_ids || []; if (cur.osm_type) { fields.osm_type = cur.osm_type; fields.osm_id = cur.osm_id; } }
+      if (isNew) { out.media_ids = cur.media_ids || []; if (cur.osm_type) { out.osm_type = cur.osm_type; out.osm_id = cur.osm_id; } }
+      return out;
+    };
+    const same = (a, b) => Array.isArray(a) || Array.isArray(b) ? (a || []).join() === (b || []).join()
+      : (typeof a === "number" && typeof b === "number") ? Math.abs(a - b) < 1e-6
+      : (a ?? "") === (b ?? "");
+    const stopChanged = () => { const g = stopFields(), o = stopFields("cur"); return Object.keys(g).filter((k) => !same(g[k], o[k])); };
+    const dirty = () => stopChanged().length > 0;
+    const STOP_WORDS = { name: "le nom du lieu", category: "la catégorie", at_time: "l'heure",
+      transport: "le moyen de locomotion", note: "la note" };
+    // La v10.38 retournée : l'accusé de réception nomme ce qu'il a GARDÉ, la question nomme
+    // ce qui va PARTIR. « Fermer quand même ? » tout seul ne dit rien de ce qu'on perd.
+    const perdu = () => {
+      const liste = stopChanged().map((k) => STOP_WORDS[k]).filter(Boolean);
+      if (!liste.length) return "";                        // retombe sur la phrase générale
+      // Sur un arrêt neuf, l'endroit touché sur la carte et les photos rattachées partent
+      // avec : la phrase les nomme aussi, sinon elle ment par omission.
+      const nPh = (cur.media_ids || []).length;
+      if (isNew) { liste.push("le point posé sur la carte"); if (nPh) liste.push(nPh > 1 ? `ses ${nPh} photos` : "sa photo"); }
+      // Une énumération, pas une phrase à accorder : « la note » et « le nom » ne
+      // demandent pas le même participe, et une phrase fausse en français se voit.
+      const quoi = liste.length > 1 ? `${liste.slice(0, -1).join(", ")} et ${liste[liste.length - 1]}` : liste[0];
+      return isNew ? `Cet arrêt ne sera pas créé. Ce qui part : ${quoi}. Fermer quand même ?`
+        : `Ce qui n'est pas enregistré : ${quoi}. Fermer quand même ?`;
+    };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const fields = stopFields();
+      if (!fields.name) return toast("Il faut un nom", "error");
       try {
         if (isNew) { const r = await API.createStop(S.cur.trip.id, fields); S.cur.stops.push(r); }
         else { const r = await API.updateStop(st.id, fields); Object.assign(st, r); }
