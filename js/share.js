@@ -456,6 +456,7 @@
       if (introDone) setTimeout(go, isMobile() ? 400 : 700);
       else { replayArming = false; replayWanted = only || true; }   // reporté : le verrou se relâche
     };
+    sortieRecit = retourAuRecit;   // #78 · la visionneuse s'en sert pour revenir au récit
     $("#replay-stop").onclick = retourAuRecit;
     $("#replay-pause").onclick = () => { const c = map.replayCtl; if (!c) return; c.paused ? c.resume() : c.pause(); };
     $("#replay-next").onclick = () => { const c = map.replayCtl; if (c) c.next(); };
@@ -1040,6 +1041,10 @@
   // appuie sur le bouton retour du téléphone — pour refermer. Les mots des proches
   // attendent dans un tiroir qu'on fait monter.
   let lbOpen = false;   // une seule visionneuse à la fois
+  // #78 · Règle 13 : tout bouton qui porte « Retour au récit » appelle `retourAuRecit`.
+  // Celle-ci vit dans `render()` ; la visionneuse en est la sœur, pas la fille — sans ce
+  // relais, l'appel passerait `node --check` et échouerait à l'écran.
+  let sortieRecit = null;
 
   // Un audio lancé depuis la visionneuse continuerait de jouer après la fermeture :
   // le lecteur « gros bouton » garde son son hors du DOM. On appuie donc sur Pause.
@@ -1070,7 +1075,7 @@
       <button type="button" class="bv-lb-nav prev" id="lb-prev" title="Photo précédente" aria-label="Photo précédente">${ic("chevron-left")}</button>
       <button type="button" class="bv-lb-nav next" id="lb-next" title="Photo suivante" aria-label="Photo suivante">${ic("chevron-right")}</button>
       <div class="bv-lb-foot" id="lb-foot"></div>
-      <div class="bv-lb-sheet" id="lb-sheet"><button type="button" class="bv-lb-grip" id="lb-sheet-close" aria-label="Fermer les mots"></button><div class="bv-lb-sheet-body" id="lb-sheet-body"></div></div>`;
+      <div class="bv-lb-sheet" id="lb-sheet"><div class="bv-lb-sheet-tete"><button type="button" class="bv-lb-sortie" id="lb-sheet-close">${ic("chevron-left")}<span id="lb-sheet-mot">Retour à la photo</span></button></div><div class="bv-lb-sheet-body" id="lb-sheet-body"></div></div>`;
     $("#modal-host").appendChild(back);
     document.body.classList.add("lb-open");
 
@@ -1082,8 +1087,25 @@
     let pushed = false, closing = false;
     try { history.pushState({ bvlb: 1 }, "", location.href); pushed = true; } catch { }
 
+    // #78 · LA PAROLE D'UN PROCHE NE PART PLUS AVEC LA PHOTO. Tant que la feuille des mots
+    // est ouverte, fermer la photo ne referme que la photo : le mot en cours d'écriture
+    // reste à l'écran. Sophie a tranché ainsi sur images — supprimer la cause plutôt que
+    // conserver l'effet. Le prix, assumé : depuis la photo, revenir au récit coûte alors
+    // deux pressions (fermer la photo, puis quitter la feuille), chacune portant son mot.
+    let feuilleSeule = false;
+    function photoSeulementFermee(fromBack) {
+      feuilleSeule = true;
+      back.classList.add("feuille-seule");
+      // La photo disparaît de l'écran : une vidéo qui jouait derrière doit se taire.
+      frame.querySelectorAll("video, audio").forEach((v) => { try { v.pause(); } catch { } });
+      majSortieFeuille();
+      // Le bouton retour du téléphone a consommé l'entrée d'historique : on la repose,
+      // sinon la pression suivante quitterait la page au lieu de quitter la feuille.
+      if (fromBack) { try { history.pushState({ bvlb: 1 }, "", location.href); pushed = true; } catch { pushed = false; } }
+    }
     function close(fromBack) {
       if (closing) return;
+      if (sheetOpen && !feuilleSeule) return photoSeulementFermee(fromBack);
       closing = true; lbOpen = false;
       hushAudio(back); if (rec) { rec.stop(); rec = null; }
       document.removeEventListener("keydown", onKey);
@@ -1201,7 +1223,7 @@
     });
     // Safari : sans cela, le pincer agrandit la page entière au lieu de la photo
     ["gesturestart", "gesturechange"].forEach((n) => stage.addEventListener(n, (e) => e.preventDefault()));
-    stage.addEventListener("click", () => { if (sheetOpen) closeSheet(); });
+    stage.addEventListener("click", () => { if (sheetOpen) rangerFeuille(); });
 
     // ----- Le tiroir des mots
     let sheetOpen = false, rec = null;
@@ -1226,6 +1248,43 @@
       sheetOpen = false; back.classList.remove("sheet-on");
       if (rec) { rec.stop(); rec = null; }
     }
+    // #78 · UNE SEULE PORTE pour ranger la feuille. La question du vocal se DÉRIVE d'ici ;
+    // écrite à côté, elle manquerait le jour où un chemin nouveau s'ajoute (la faute de #51).
+    // Un enregistrement en cours est le seul cas où l'on demande : il est rare, et la perte
+    // est irrémédiable — un micro coupé ne se reprend pas. Sophie a tranché.
+    async function rangerFeuille() {
+      if (rec && rec.enCours && rec.enCours() && !(await demanderVocal())) return false;
+      closeSheet();
+      return true;
+    }
+    // La question vit DANS la visionneuse : `.modal-back` est posé à 3000 et `.bv-lb` à 3500,
+    // donc une fenêtre ordinaire s'ouvrirait DERRIÈRE la photo, invisible.
+    // La phrase est une énumération, pas un participe à accorder (la leçon de la v10.60).
+    function demanderVocal() {
+      return new Promise((res) => {
+        const q = document.createElement("div");
+        q.className = "bv-lb-ask";
+        q.innerHTML = `<div class="modal"><h2>Un enregistrement est en cours</h2>
+          <p>Ce qui vient d'être dit ne sera pas gardé.</p>
+          <div class="actions"><button type="button" class="btn" id="ask-non">Continuer l'enregistrement</button><button type="button" class="btn danger" id="ask-oui">Fermer quand même</button></div></div>`;
+        back.appendChild(q);
+        const fin = (v) => { q.remove(); res(v); };
+        $("#ask-non", q).onclick = () => fin(false);
+        $("#ask-oui", q).onclick = () => fin(true);
+      });
+    }
+    // #79 · La poignée muette portait une infobulle pour seul libellé — qui ne s'affiche
+    // jamais sur un écran tactile (règle 10). Elle porte un mot, et ce mot dit OÙ ELLE
+    // RAMÈNE, pas ce qu'elle ferme (v10.49) : à la photo tant que la photo est là, au récit
+    // quand la feuille est restée seule.
+    function majSortieFeuille() {
+      const m = $("#lb-sheet-mot", back);
+      if (m) m.textContent = feuilleSeule ? "Retour au récit" : "Retour à la photo";
+    }
+    async function sortirFeuille() {
+      if (!(await rangerFeuille())) return;
+      if (feuilleSeule) { close(); if (sortieRecit) sortieRecit(); }
+    }
 
     // ----- Ce qui s'affiche autour de la photo (rien de vide : chaque bloc n'existe
     //       que s'il a quelque chose à dire — pastille d'auteur comprise)
@@ -1246,7 +1305,10 @@
     }
     function renderSheet() {
       const m2 = cur(), cs = commentsOf(m2);
-      sheetBody.innerHTML = `<h3>${cs.length ? `${cs.length} mot${cs.length > 1 ? "s" : ""} sur cette photo` : "Aucun mot pour l'instant"}</h3>
+      // #78 · La feuille survit à la photo : sans vignette, plus rien ne dirait de quelle
+      // photo on parle. Elle est posée ici, pendant que la photo est encore à l'écran.
+      const vig = thumb(m2);
+      sheetBody.innerHTML = `<h3 class="bv-lb-sheet-titre">${vig ? `<img src="${vig}" alt="" class="vignette">` : ""}<span>${cs.length ? `${cs.length} mot${cs.length > 1 ? "s" : ""} sur cette photo` : "Aucun mot pour l'instant"}</span></h3>
         <div id="lb-clist">${cs.map(commentHtml).join("") || (D.trip.allow_comments ? `<p class="muted small">Soyez le premier à laisser un mot !</p>` : "")}</div>
         ${D.trip.allow_comments ? commentFormHtml() : ""}`;
       bindBigAudio(sheetBody);
@@ -1267,18 +1329,20 @@
       back.classList.toggle("is-video", m2.kind === "video");
       renderFoot(); renderSheet();
     }
-    function go(dir) {
+    async function go(dir) {
       const n = i + dir;
       if (n < 0 || n >= list.length) return;
+      // Changer de photo reconstruit la feuille : c'est l'autre chemin qui détruit la saisie.
+      if (sheetOpen && !(await rangerFeuille())) return;
       i = n; show(dir);
     }
 
     $("#lb-close", back).onclick = () => close();
     $("#lb-prev", back).onclick = () => go(-1);
     $("#lb-next", back).onclick = () => go(1);
-    $("#lb-sheet-close", back).onclick = closeSheet;
+    $("#lb-sheet-close", back).onclick = sortirFeuille;
     const onKey = (e) => {
-      if (e.key === "Escape") { sheetOpen ? closeSheet() : close(); }
+      if (e.key === "Escape") { sheetOpen ? sortirFeuille() : close(); }
       if (e.key === "ArrowLeft" && !sheetOpen) go(-1);
       if (e.key === "ArrowRight" && !sheetOpen) go(1);
     };

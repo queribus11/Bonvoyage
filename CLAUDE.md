@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.64**
+- Version actuelle : **v10.65**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -1257,6 +1257,66 @@ c'est la bonne exigence, et c'est elle le vrai contenu du lot.
 - **Restent, hors périmètre et signalées** : la **poignée** de la feuille des mots, sortie sans
   libellé elle aussi ; et le fait que la barre du haut **s'efface au toucher** (`chrome-off`) —
   un second toucher la ramène.
+
+### Les leçons de la v10.65 (#78, #79) — l'inventaire a corrigé le diagnostic
+
+Le brief interdisait de commencer par du code : inventaire d'abord, puis des questions à
+Sophie, images en main. **C'est l'inventaire qui a fait le lot** — il a démenti trois points
+du diagnostic de départ, et aucun ne se voyait à la lecture rapide.
+
+- 🔴 **REFERMER LA FEUILLE SEULE N'EFFAÇAIT DÉJÀ RIEN.** `closeSheet()` ne retire que la
+  classe `sheet-on` : le formulaire reste dans la page **avec ce qui est tapé dedans**, et
+  `openSheet()` ne le reconstruit pas. Le texte n'était détruit que par **deux** gestes
+  (fermer la photo, changer de photo), pas par les quatre sorties soupçonnées. *La méthode de
+  #72 et de #66, une troisième fois : le compte se refait, il ne se déduit pas.*
+- 🔴 **LE PLUS FRAGILE DES DEUX ÉTAIT LE SON, pas le texte.** `closeSheet()` **et** `close()`
+  font `rec.stop(); rec = null;` — et `stop()` fabrique bel et bien le son dans `state.blob`
+  avant qu'on le jette. Quatre gestes le détruisaient, dont **un simple appui sur la photo**.
+  *On avait nommé le sujet « le mot effacé » ; le mot était le moins menacé des deux.*
+- **Deux des quatre sorties ne pouvaient pas frapper** : Échap referme d'abord la feuille, et
+  `touchstart` sort d'emblée tant qu'elle est ouverte, donc le balayage n'existe pas là.
+  **Et la visionneuse n'a aucun clic sur le fond** — les deux `back.onclick` du fichier
+  appartiennent à la carte-bilan et à `commentForm`.
+- 🔴 **UN REMÈDE QUI SUPPRIME LA CAUSE VAUT MIEUX QU'UN REMÈDE QUI RÉPARE L'EFFET.** Sophie a
+  choisi que **la feuille ne se ferme plus avec la photo**. Les deux pertes disparaissent
+  **sans rien conserver du tout** : ni brouillon, ni clé d'identité, ni filet de stockage.
+  *La conservation de #72 aurait marché pour le texte et laissé le vocal entier.*
+- **Le prix est assumé et se dit** : depuis la photo, revenir au récit coûte désormais **deux
+  pressions**. Chaque état garde une sortie visible et nommée, mais la règle 13 au sens strict
+  (« une seule pression ») ne tient plus quand la feuille est ouverte. *Le dire vaut mieux que
+  de laisser croire que c'est réglé (v10.44).*
+- 🔴 **UN DÉFAUT QUE `node --check` NE VOIT PAS.** `retourAuRecit` vit dans `render()` ; la
+  visionneuse (`viewer`) en est la **sœur, pas la fille**. L'appel passait la vérification et
+  aurait échoué à l'écran. Un relais de module (`sortieRecit`) le rend joignable — et la
+  règle 13 tient : tout bouton qui porte ce mot appelle bien cette fonction-là.
+  *Chercher ce motif partout : une fonction appelée depuis une autre branche de l'arbre.*
+- 🔴 **Une question ne s'ouvre pas au hasard dans la pile.** `.modal-back` est posé à 3000,
+  `.bv-lb` à 3500 : une fenêtre ordinaire se serait ouverte **derrière la photo**, invisible,
+  et le proche aurait cru à un bouton mort. La question du vocal vit donc **dans** la
+  visionneuse. *Avant de poser une fenêtre, regarder au-dessus de quoi elle doit passer.*
+- **Une garde se dérive d'une porte unique.** Les quatre chemins qui rangent la feuille
+  passent tous par `rangerFeuille()` ; la question du vocal est écrite **là**, une fois. Écrite
+  à côté, elle aurait manqué le chemin suivant — c'est la cause unique des quatre pertes de #51.
+- **#79 · Le mot d'une sortie dit OÙ ELLE RAMÈNE, et il peut changer avec l'état.**
+  « Retour à la photo » tant que la photo est là, « Retour au récit » quand la feuille est
+  restée seule. *Deux mots selon l'état : c'est déjà ce que fait « Plein écran » depuis la
+  v10.46 — ce n'est pas un vocabulaire nouveau.*
+- **La feuille survit à la photo : elle doit dire de laquelle.** Son titre disait « sur cette
+  photo » alors que la photo venait de partir. Une vignette de 46 px, posée pendant que la
+  photo est encore à l'écran. *Choix de Sophie contre l'option « rien à changer ».*
+- 🔴 **Le banc a encore été corrigé par l'image, deux fois.** Première version : page non
+  défilée — on photographiait la **carte collante**, pas la mosaïque. Deuxième : la mosaïque
+  glissait **sous** la carte. Le chiffre utile n'est apparu qu'ensuite : sous la carte, la
+  bande de récit visible fait **401 px** à 440 × 956 et **358 px** à 393 × 852 — la feuille,
+  avec deux mots seulement, en fait **482**. *Elle prend plus que toute la bande de lecture,
+  aux deux largeurs, et c'est ce chiffre qui a permis à Sophie de choisir.*
+- **Un banc qui refuse de mentir compte aussi ce qui doit avoir DISPARU** : il vérifie
+  17 fragments présents **et** que l'identifiant de la poignée muette ne survit ni dans
+  `js/share.js` ni dans `css/style.css`. *Restreint aux fichiers nommés, jamais au dépôt
+  entier (v10.61).*
+- **Hors périmètre, déclaré et non instruit** : la fenêtre « Un mot sur cette journée »
+  (`commentForm`) perd la même saisie, **et en plus par un doigt posé sur le fond**.
+
 
 ---
 

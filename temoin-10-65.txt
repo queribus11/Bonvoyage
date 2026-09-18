@@ -1,0 +1,50 @@
+v10.65 — #78 : la parole d'un proche ne part plus avec la photo · #79 : la poignée muette
+
+CE LOT N'A PAS COMMENCÉ PAR DU CODE. Il a commencé par un inventaire, puis par des
+questions à Sophie, images en main. C'est ce que le brief exigeait, et c'est l'inventaire
+qui a fait le lot.
+
+CE QUE L'INVENTAIRE A CORRIGÉ DU DIAGNOSTIC DE DÉPART :
+- La visionneuse a QUATRE sorties (« Fermer », Échap, balayage vers le bas, bouton retour
+  du téléphone), mais DEUX seulement peuvent frapper pendant qu'un proche écrit : Échap
+  referme d'abord la feuille, et le balayage est désactivé tant qu'elle est ouverte.
+- REFERMER LA FEUILLE SEULE N'EFFAÇAIT DÉJÀ RIEN : le formulaire restait en place avec ce
+  qui était tapé dedans. Le texte n'était détruit que par deux gestes, pas par quatre.
+- LE VOCAL, LUI, ÉTAIT DÉTRUIT PAR QUATRE GESTES — dont un simple appui sur la photo.
+  C'est l'inverse de ce qu'on aurait deviné : le plus fragile des deux était le son.
+
+CE QUE SOPHIE A TRANCHÉ, sur images, aux deux largeurs :
+1. La feuille des mots NE SE FERME PLUS avec la photo. Fermer la photo ne referme que la
+   photo ; le mot en cours reste à l'écran. On supprime la cause au lieu de réparer l'effet.
+2. Un enregistrement en cours fait POSER LA QUESTION, et lui seul : il est rare, et la
+   perte est irrémédiable — un micro coupé ne se reprend pas.
+3. La feuille survivant à la photo, une VIGNETTE dit désormais de quelle photo on parle.
+
+LE PRIX, ASSUMÉ ET DIT : depuis la photo, revenir au récit coûte maintenant DEUX pressions
+(fermer la photo, puis quitter la feuille). Chacune porte son mot, et aucun état n'est sans
+sortie — mais ce n'est plus « une seule pression » quand la feuille est ouverte.
+
+#79 · LA POIGNÉE MUETTE DE LA FEUILLE PREND UN MOT, et ce mot dit OÙ ELLE RAMÈNE, pas ce
+qu'elle ferme : « Retour à la photo » tant que la photo est là, « Retour au récit » quand
+la feuille est restée seule. Deux mots selon l'état — c'est déjà ce que fait le bouton
+« Plein écran » de la carte depuis la v10.46.
+
+UN DÉFAUT QUE `node --check` NE VOIT PAS, trouvé en écrivant : `retourAuRecit` vit dans
+`render()`, et la visionneuse en est la SŒUR, pas la fille. L'appel serait passé à la
+vérification et aurait échoué à l'écran. Un relais a été posé.
+
+La question du vocal vit DANS la visionneuse : une fenêtre ordinaire est posée à 3000 et
+la visionneuse à 3500 — elle se serait ouverte DERRIÈRE la photo, invisible.
+
+Ce qui n'a pas bougé : le mot « Fermer » de la v10.64 et son réglage, choisis par Sophie ·
+les flèches ◀ ▶ · le pliage de la carte · la mosaïque · le cadrage par séquence.
+
+⚠️ SIGNALÉ, NON CORRIGÉ, et hors périmètre déclaré : la fenêtre « Un mot sur cette
+journée » perd la même saisie, et en plus par un doigt posé sur le fond.
+
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-64.txt donne 404, c'est
+bien la v10.65 qui est servie.
+
+LE MOT QUI DISPARAÎT de js/share.js ET de css/style.css : l'identifiant que portait la
+poignée muette de la feuille des mots. Il n'existait nulle part ailleurs dans le code servi.
+⚠️ Il se vérifie DANS ces deux fichiers, jamais dans tout le dépôt : ce témoin le cite.

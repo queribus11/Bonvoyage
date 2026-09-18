@@ -1016,8 +1016,26 @@ body.lb-open { overflow: hidden; }
   transition: transform var(--t-mid) var(--ease), visibility var(--t-mid);
 }
 .bv-lb.sheet-on .bv-lb-sheet { transform: none; visibility: visible; }
-.bv-lb-grip { flex: none; height: 28px; border: 0; padding: 0; background: transparent; display: flex; align-items: center; justify-content: center; }
-.bv-lb-grip::before { content: ""; width: 44px; height: 5px; border-radius: 999px; background: var(--line-strong); }
+/* #79 · La poignee muette n'avait qu'une infobulle pour libelle — elle ne s'affiche jamais
+   sur un ecran tactile (regle 10). Elle est devenue une sortie qui porte un mot, posee
+   A GAUCHE comme toutes les sorties du projet. */
+.bv-lb-sheet-tete { flex: none; display: flex; align-items: center; padding: 10px 14px 2px; }
+.bv-lb-sortie { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 15px 0 9px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--paper-soft); color: var(--ink);
+  font: inherit; font-size: 14px; font-weight: 800; }
+/* #78 · La feuille survit a la photo : la vignette dit de quelle photo on parle. */
+.bv-lb-sheet-titre { display: flex; align-items: center; gap: 10px; }
+.bv-lb-sheet-titre .vignette { flex: none; width: 46px; height: 46px; border-radius: 10px; object-fit: cover; }
+/* #78 · La photo se ferme, la feuille des mots reste : la parole d'un proche ne part pas
+   avec l'image. Il ne reste alors a l'ecran que la feuille et son unique sortie. */
+.bv-lb.feuille-seule { --lb-dim: .45; }
+.bv-lb.feuille-seule .bv-lb-stage, .bv-lb.feuille-seule .bv-lb-top,
+.bv-lb.feuille-seule .bv-lb-foot, .bv-lb.feuille-seule .bv-lb-nav { display: none; }
+/* #78 · La question du vocal vit DANS la visionneuse : une fenetre ordinaire est posee a
+   3000 et la visionneuse a 3500 — elle s'ouvrirait derriere, invisible. */
+.bv-lb-ask { position: absolute; inset: 0; z-index: 3; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(18,63,102,.45); animation: fade var(--t-fast); }
+.bv-lb-ask .modal { max-width: 640px; }
 .bv-lb-sheet-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 18px calc(20px + var(--safe-b)); }
 .bv-lb-sheet-body h3 { font-size: 17px; margin: 0 0 12px; }
 /* Le calage collant des fiches montantes n'a pas de sens ici : le bouton

@@ -782,7 +782,10 @@
     }
     function stop() { if (state.rec && state.rec.state !== "inactive") state.rec.stop(); }
     render();
-    return { getBlob: () => state.blob, isRemoved: () => state.removed, stop, reset: () => { state.blob = null; state.url = null; render(); } };
+    // #78 · « Un enregistrement tourne-t-il ? » ne se répond qu'ici. Sans cet accès, la
+    // garde qui pose la question au proche aurait dû deviner l'état depuis le balisage.
+    return { getBlob: () => state.blob, isRemoved: () => state.removed, enCours: () => !!state.rec, stop,
+      reset: () => { state.blob = null; state.url = null; render(); } };
   }
 
   // ---------- Divers ----------
