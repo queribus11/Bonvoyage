@@ -396,7 +396,6 @@
     $("#app-replay-stop").onclick = () => { if (S.map.stopReplay) S.map.stopReplay(); };
     $("#app-replay-pause").onclick = () => { const c = S.map.replayCtl; if (!c) return; c.paused ? c.resume() : c.pause(); };
     $("#app-replay-next").onclick = () => { const c = S.map.replayCtl; if (c) c.next(); };
-    $$(".speed-btn").forEach((b) => b.onclick = cycleSpeed);
     $("#btn-locate").onclick = () => locateMe(true);
     $("#btn-beacon").onclick = () => addBeacon();
   }
@@ -421,7 +420,6 @@
     const ov = $("#app-replay"); ov.hidden = false; ov.classList.toggle("compact", !!opts.silent);
     const pauseBtn = $("#app-replay-pause"); pauseBtn.innerHTML = `${ic("pause", "sm")}`; pauseBtn.title = "Pause";
     $("#app-replay-next").hidden = !!only;
-    updateSpeedBtns();
     // Le panneau replié change la hauteur de la carte : on la recale avant de lancer l'animation, sinon Valdo est décalé du tracé
     setTimeout(() => BVMAP.resize(S.map), 300);
     setTimeout(() => BVMAP.replay(S.map, S.cur, {
@@ -445,29 +443,10 @@
   // qui ne s'affiche JAMAIS sur un écran tactile. Une seule pression changeait la vitesse du
   // survol et l'enregistrait pour Sophie ET pour tous ses proches, sans rien demander. Un doigt
   // qui a glissé à côté de « Revoir » a mis son carnet sur ×2 à son insu : toutes les durées
-  // du survol étaient divisées par deux, et une séance entière de réglage a été faussée (#45).
-  // Il porte donc maintenant un mot lisible, et il demande confirmation avant d'engager tout
-  // le monde. Ne pas le rendre muet à nouveau.
-  function updateSpeedBtns() {
-    const s = BVMAP.SPEEDS.find((x) => x.k === tripSpeed());
-    $$(".speed-btn").forEach((b) => {
-      b.textContent = `${s.icon} ${s.label}`;
-      b.title = `Vitesse du survol : ${s.label} — pour toi et tes proches`;
-      b.setAttribute("aria-label", b.title);
-    });
-  }
-  async function cycleSpeed() {
-    const i = BVMAP.SPEEDS.findIndex((s) => s.k === tripSpeed()), a = BVMAP.SPEEDS[i];
-    const n = BVMAP.SPEEDS[(i + 1) % BVMAP.SPEEDS.length];
-    const ok = await confirm(
-      `Passer la vitesse du survol de « ${a.label} » à « ${n.label} » ? `
-      + `Ce réglage vaut pour toi ET pour tous tes proches qui ouvriront le lien de partage.`,
-      `Mettre sur « ${n.label} »`);
-    if (!ok) return;
-    S.cur.trip.replay_speed = n.k; updateSpeedBtns();
-    try { S.cur.trip = await API.updateTrip(S.cur.trip.id, { replay_speed: n.k }); saveLocal(); toast(`Vitesse du survol : ${n.label} — pour toi et tes proches (à partir de la prochaine journée)`, "info", 3000); }
-    catch (err) { errToast(err); }
-  }
+  // #40 · Le bouton qui faisait défiler la vitesse est parti. Une seule pression écrivait
+  // un réglage pour Sophie ET pour tous ses proches ; il avait mis le carnet sur ×2 à son
+  // insu (#45). La vitesse se choisit dans les réglages du voyage, à la liste, et nulle part
+  // ailleurs. Ne pas remettre de raccourci.
   // #51 - La fiche-carte flottante d'une journée vieillit dès qu'on enregistre : elle
   // affichait « 0 photo » ou l'ancien titre longtemps après. Elle se redessine donc
   // seule, à la fin de renderPanel() — par où passent déjà tous les enregistrements
@@ -494,7 +473,7 @@
     S.dayFilter = iso; redraw(true); renderPanel();
     const card = $("#day-card");
     card.innerHTML = `<div class="dc-head"><span class="dc-num" id="dc-num" style="background:${CV.colorForDay(allDays(), iso)}">${n != null ? "J" + n : fmtDateShort(iso)}</span><div class="grow" style="min-width:0"><b id="dc-title">${esc(d?.title || fmtDate(iso, false))}</b><span class="small muted" id="dc-meta">${dayCardMeta(iso)}</span></div><button type="button" class="btn icon ghost sm" id="dc-close" title="Tout le voyage">${ic("close")}</button></div>
-      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button><button type="button" class="btn sm speed-btn" title="Vitesse du survol"></button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
+      <div class="row" style="margin-top:8px"><button type="button" class="btn sm primary" id="dc-open">${ic("photo", "sm")} Photos & récit</button><button type="button" class="btn sm" id="dc-stop" title="Toucher la carte à l'endroit de l'arrêt">${ic("pin", "sm")} Marquer un arrêt</button>${hasPath ? `<button type="button" class="btn sm" id="dc-replay">${ic("play", "sm")} Revoir</button>` : ""}<span class="grow"></span><button type="button" class="btn sm ghost" id="dc-all">Tout le voyage</button></div>`;
     card.hidden = false;
     $("#dc-open").onclick = () => dayForm(iso);
     // Marquer un arrêt : on arme le mode, puis c'est le doigt sur la carte qui décide
@@ -515,8 +494,10 @@
       card.hidden = true;
       startReplay(iso, { silent: true, onDone: () => { if (S.cur && S.dayFilter === iso) card.hidden = false; } });
     };
-    if (rp) { rp.onclick = dayReplay; $$(".speed-btn", card).forEach((b) => b.onclick = cycleSpeed); updateSpeedBtns(); }
-    if (hasPath) dayReplay(); else { $("#panel").classList.add("collapsed"); setTimeout(() => BVMAP.resize(S.map), 300); }
+    if (rp) rp.onclick = dayReplay;
+    // #40 · Le survol ne part plus tout seul. « Deux appareils, deux gestes, le même
+    // obstacle » : celui qui veut revoir touche « Revoir », qui est juste là.
+    $("#panel").classList.add("collapsed"); setTimeout(() => BVMAP.resize(S.map), 300);
   }
   function fit() {
     if (S.drawn && S.drawn.bounds) BVMAP.fitBounds(S.map, S.drawn.bounds, { padding: 48, maxZoom: 15 });
@@ -1751,9 +1732,8 @@
         ${on ? `<button class="btn danger" id="gps-stop" style="width:100%">${ic("stop")} Terminer</button>
                 <p class="help">L'app doit rester à l'écran (l'écran est maintenu allumé, baisse la luminosité). Un point est gardé tous les ${cfg.GPS_MIN_DISTANCE_M} m / ${cfg.GPS_MIN_INTERVAL_S} s.</p>
                 <label class="row" style="margin-top:10px;justify-content:space-between"><span class="small">Empêcher la mise en veille</span><input type="checkbox" class="switch" id="wake" ${g.wakeLock ? "checked" : ""}></label>`
-            : `<div class="row" style="flex-wrap:nowrap"><button class="btn secondary grow" id="gps-beacon">${ic("pin")} Balise</button>
-                <button class="btn primary grow" id="gps-start">${ic("route")} Démarrer</button></div>
-               <p class="help"><b>Balise</b> : un point maintenant, même sans réseau. <b>Suivi</b> : trace continue, écran allumé. Pour une belle trace de rando, une montre ou une appli puis « Importer un GPX » reste la meilleure option.</p>`}
+            : `<div class="row" style="flex-wrap:nowrap"><button class="btn secondary grow" id="gps-beacon">${ic("pin")} Balise</button></div>
+               <p class="help"><b>Balise</b> : un point maintenant, même sans réseau. Pour une belle trace de rando, une montre ou une appli puis « Importer un GPX » reste la meilleure option.</p>`}
       </div>
       <div class="row between" style="margin:18px 0 6px"><span class="kicker">Traces · ${S.cur.tracks.length}</span>
         <div class="row"><button class="btn sm" id="gpx-import">${ic("upload", "sm")} Importer un GPX</button>${S.cur.tracks.length ? `<button class="btn sm ghost" id="gpx-export">${ic("download", "sm")}</button>` : ""}</div>
@@ -1762,7 +1742,6 @@
       ${[...S.cur.tracks].reverse().map((t) => `<div class="track-item" data-id="${t.id}"><span class="swatch" style="background:${CV.colorForDay(dl, t.day_date)}"></span>
         <span class="grow" style="min-width:0"><span style="display:block;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name || "Trace")}</span><span class="small muted">${t.day_date ? fmtDate(t.day_date, false) : "sans date"} · ${t.points.length} pts · ${t.source === "gpx" ? "GPX" : t.source === "manual" ? "balises" : t.source === "route" ? "itinéraire estimé" : "suivi"}${t._pending ? ` · <span class="chip draft">à envoyer</span>` : ""}</span></span>
         <span class="dist">${fmtDistance(t.distance_m)}</span>${ic("chevron-right", "sm")}</div>`).join("")}`;
-    const st = $("#gps-start", body); if (st) st.onclick = startRecording;
     const sp = $("#gps-stop", body); if (sp) sp.onclick = stopRecording;
     const bc = $("#gps-beacon", body); if (bc) bc.onclick = addBeacon;
     const wk = $("#wake", body); if (wk) wk.onchange = () => wk.checked ? requestWake() : releaseWake();

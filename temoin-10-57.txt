@@ -1,0 +1,26 @@
+v10.57 — #40 lot 1 : les suppressions
+
+Ce lot ne retire que des choses. Quatre retraits effectués :
+ a) le survol ne démarre plus tout seul à l'ouverture d'une journée — « Revoir » est là ;
+ b) le bouton qui faisait défiler la vitesse du survol (🐢 ▶ 🐇) est parti, de la fiche-carte
+    ET du bandeau du survol. La vitesse se choisit dans les réglages du voyage, à la liste ;
+ c) le « Démarrer » du suivi GPS. La balise et l'import GPX restent ;
+ d) les deux blocs de service en fin de fil du lecteur : « Faire suivre ce carnet » et le
+    conseil d'écran d'accueil. Le conseil reste affiché ailleurs (#14).
+
+TROIS POINTS DU BRIEF NE SONT PAS FAITS, ET C'EST MOTIVÉ :
+ e) l'heure imposée sur un arrêt sans photo : DÉJÀ FAITE. `timeFromNearbyPhotos` rend
+    `at: null` quand aucune photo n'est proche, et la fiche porte déjà « Vide quand il n'y a
+    pas de photo : l'app n'invente pas d'heure ». Aucune ligne à écrire.
+ f) la corbeille de la barre du bas : ARRÊTÉ, comme le brief le demande. C'est le SEUL
+    chemin qui supprime une journée dans toute l'app. La retirer ici laisserait #11 sans
+    aucun moyen d'exister. C'est au lot 2 de lui donner sa nouvelle place.
+ T4) « 0 km » → « — » : DÉJÀ FAIT pour les kilomètres d'une journée. Les quatre écrans
+    passent par `fmtDayDistance`, qui rend du vide, et affichent « — ». Les « 0 km » qui
+    restent sont des compteurs de mesure (le suivi GPS qui démarre), où zéro est vrai.
+
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-56.txt donne 404, c'est
+bien la v10.57 qui est servie.
+
+LE MOT QUI DISPARAÎT du code servi : « speed-btn » — il quitte css/style.css, index.html
+et js/app.js d'un coup. Aucun cache ne supprime un mot.

@@ -3,14 +3,13 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.56";
+window.BV_VERSION = "10.57";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
   const SPEEDS = [{ k: .5, icon: "🐢", label: "lent" }, { k: 1, icon: "▶", label: "normal" }, { k: 2, icon: "🐇", label: "rapide" }];
   const isPhone = () => window.matchMedia("(max-width: 640px)").matches;
   function replaySpeed() { const v = parseFloat(LS.get(SPEED_KEY)); return SPEEDS.some((s) => s.k === v) ? v : (isPhone() ? .5 : 1); }   // sur téléphone : lent par défaut
-  function cycleSpeed() { const i = SPEEDS.findIndex((s) => s.k === replaySpeed()); const n = SPEEDS[(i + 1) % SPEEDS.length]; LS.set(SPEED_KEY, n.k); return n; }
   const LS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { } } };
 
   const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
@@ -1321,5 +1320,5 @@ window.BVMAP = (() => {
   function nearestIndex(coords, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return best; }
   function nearestDist(coords, cum, p) { let best = 0, bd = Infinity; for (let i = 0; i < coords.length; i++) { const dd = dist(coords[i], p); if (dd < bd) { bd = dd; best = i; } } return cum[best]; }
 
-  return { MODES, SPEEDS, joursDeRupture, estRupture, replaySpeed, cycleSpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
+  return { MODES, SPEEDS, joursDeRupture, estRupture, replaySpeed, estimatedLegs, pathFromLegs, dayTransport, dayPhotosSorted, dayPoints, reducedMotion, maps, create, draw, drawStopMarkers, drawCampMarkers, campsOfView, PROCHE_M, ROUTE_MAX_M, FLY_BASE_MS, couperEnSequences, focusMedia, setActiveDay, fitBounds, flyToBounds, setView, easeTo, goTo, flyToDay, flyOverview, setOverview, dayPath, setPageGestures, getZoom, resize, onClick, setCursor, setCooperative, showMe, meLngLat, ping, setBase, setTerrain, intro, replay, colorForDay, computeBounds, boundsOf, BASES, DAY_COLORS };
 })();
