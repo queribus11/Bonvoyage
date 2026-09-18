@@ -1,3 +1,0 @@
-v10.45 — le raccourci vers la page d'essai du survol, et sa sortie « Retour au carnet ».
-Témoin de mise en ligne : si ce fichier répond et que temoin-10-44.txt donne 404,
-c'est bien la v10.45 qui est servie.

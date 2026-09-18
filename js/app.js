@@ -169,9 +169,7 @@
           <option value="live" ${trip.publish_mode === "live" ? "selected" : ""}>Tout apparaît en direct, « Publier » sert seulement à prévenir</option></select></div>
         <div class="field"><label>Vitesse du survol (pour toi et tes proches)</label><select name="replay_speed">
           ${BVMAP.SPEEDS.map((s) => `<option value="${s.k}" ${(+trip.replay_speed || 1) === s.k ? "selected" : ""}>${s.icon} ${s.label}</option>`).join("")}</select></div>
-        <div class="field"><label>Essai en cours (#61)</label>
-          <button type="button" class="btn sm" id="essai-survol">${ic("route", "sm")} Essayer trois façons de survoler</button>
-          <span class="small muted">Trois manières de filmer une journée, à comparer au doigt sur ce carnet. Rien n'est changé tant que tu n'as pas choisi. Ce bouton disparaîtra après.</span></div>` : ""}
+        ` : ""}
         <div class="field"><label>Introduction (affichée en haut du récit)</label><textarea name="description" placeholder="Pourquoi ce voyage, avec qui, l'état d'esprit du départ…">${esc(trip?.description || "")}</textarea></div>
         ${!isNew ? `<div class="field"><label>Photo de couverture</label><select name="cover_path"><option value="">— aucune —</option>
           ${(S.cur?.media || []).filter((x) => x.kind === "photo").map((x) => `<option value="${esc(x.path)}" ${x.path === trip.cover_path ? "selected" : ""}>${esc(x.caption || fmtDate(x.day_date, false) || "photo")}</option>`).join("")}</select></div>` : ""}
@@ -195,12 +193,6 @@
         else { S.cur.trip = await API.updateTrip(trip.id, fd); m.close(); renderTripHeader(); renderPanel(); }
       } catch (err) { errToast(err); }
     };
-    // #61 · Le raccourci vers la page d'essai. Il part dans le MÊME onglet, sans quoi l'app
-    // posée sur l'écran d'accueil ouvrirait Safari — qui garde sa propre mémoire de connexion
-    // et redemanderait le mot de passe. On emporte l'identifiant du voyage pour que le bouton
-    // « Retour au carnet » de la page d'essai ramène ici, et pas sur la liste des voyages.
-    const ess = $("#essai-survol", m.el);
-    if (ess) ess.onclick = () => { location.href = "essai-mesure.html?retour=" + encodeURIComponent(trip.id); };
     const acc = $("#access", m.el); if (acc) acc.onclick = () => { m.close(); openAccess(); };
     const bk = $("#backup", m.el); if (bk) bk.onclick = () => backup(true, bk);
     const bkl = $("#backup-light", m.el); if (bkl) bkl.onclick = () => backup(false, bkl);
@@ -428,6 +420,11 @@
     // Le panneau replié change la hauteur de la carte : on la recale avant de lancer l'animation, sinon Valdo est décalé du tracé
     setTimeout(() => BVMAP.resize(S.map), 300);
     setTimeout(() => BVMAP.replay(S.map, S.cur, {
+      // #61 · La caméra se cadre par SÉQUENCE : un tronçon en avion fait la sienne, ce qui
+      // vient après en fait une autre. Choisi au doigt par Sophie le 18/09 sur son Jour 1
+      // d'Algarve — variante A, le recul d'aujourd'hui. Le récit, les titres, la carte et la
+      // fiche du survol ne changent pas : seule la caméra se coupe.
+      sequences: true,
       dayList: allDays(), only, speed: () => tripSpeed(), dayNumber: (iso) => dayNumber(S.cur.trip, iso),
       onPause: (p) => { pauseBtn.innerHTML = p ? `${ic("play", "sm")}` : `${ic("pause", "sm")}`; pauseBtn.title = p ? "Reprendre" : "Pause"; },
       onDay: (iso, info) => { const d = dayInfo(iso) || {}; $("#app-replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}</span>` : ""}`; },

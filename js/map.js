@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.45";
+window.BV_VERSION = "10.46";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -1028,13 +1028,23 @@ window.BVMAP = (() => {
       for (let di = 0; di < days.length && !ctl.stopped; di++) {
         const d = days[di]; ctl.skip = false;
         const n = options.dayNumber ? options.dayNumber(d.iso) : di + 1;
-        if (options.onDay) options.onDay(d.iso, { n, km: d.km, photos: d.photos.length, index: di, count: days.length });
+        // #61 · UNE ENTRÉE N'EST PLUS FORCÉMENT UNE JOURNÉE : depuis la coupe par séquence, une
+        // journée peut en rendre deux. La fiche du survol, elle, parle de la JOURNÉE — Sophie
+        // a été explicite : aucune notion de sous-journée à l'écran. Elle ne s'annonce donc
+        // qu'à la PREMIÈRE séquence, et avec les chiffres de la journée entière (`_km` et
+        // `_photos`, gardés par couperEnSequences) : sinon elle clignoterait, et dirait
+        // « 1 photo » puis « 5 photos » au lieu de « 6 ».
+        if (options.onDay && (d._seq == null || d._seq === 1))
+          options.onDay(d.iso, { n, km: d._km != null ? d._km : d.km,
+                                 photos: d._photos != null ? d._photos : d.photos.length,
+                                 index: di, count: days.length });
         for (const mk of M.dayMarkers) if (mk.getElement().title === d.iso) mk.getElement().classList.remove("hidden");
 
         if (d.coords.length < 2) {
           // Journée sans trace : on survole ses photos
           const b = boundsOf(d.photos); if (b) { fitBounds(M, b, { maxZoom: 14, duration: calm ? 0 : 1800, keepPitch: true }); await moveEnd(); }
-          d.photos.forEach((m, i) => setTimeout(() => { if (!ctl.stopped) reveal(m); }, i * 350)); revealDay(d.iso);
+          d.photos.forEach((m, i) => setTimeout(() => { if (!ctl.stopped) reveal(m); }, i * 350));
+          if (d._seqs == null || d._seq === d._seqs) revealDay(d.iso);
           await wait(Math.min(4000, 1500 + d.photos.length * 400)); continue;
         }
         // Cumul des distances le long du tracé, pondéré par la vitesse du moyen de locomotion
@@ -1163,7 +1173,11 @@ window.BVMAP = (() => {
           raf = requestAnimationFrame(frame);
         });
         if (ctl.stopped) return;
-        while (pi < photoAt.length) { reveal(photoAt[pi].m); pi++; } revealDay(d.iso);
+        while (pi < photoAt.length) { reveal(photoAt[pi].m); pi++; }
+        // #61 · `revealDay` dévoile TOUTES les photos de la journée. Appelé à la fin de la
+        // première séquence, il montrerait celles de la ville d'arrivée avant que la seconde
+        // ne les joue — tout l'effet du survol serait perdu. Il n'a lieu qu'à la dernière.
+        if (d._seqs == null || d._seq === d._seqs) revealDay(d.iso);
         wEl.classList.remove("walking");
         map.setPaintProperty("track-line", "line-opacity", ["case", ["==", ["get", "day"], d.iso], 1, .25]);
         await wait(1200);
@@ -1223,6 +1237,8 @@ window.BVMAP = (() => {
       photos: pour[k],
       km: 0,                          // la distance affichée reste celle de la journée entière
       _vol: estVol, _seq: k + 1, _seqs: bouts.length,
+      // Ce que la fiche du survol doit dire : les chiffres de la JOURNÉE, pas de la séquence.
+      _km: d.km, _photos: (d.photos || []).length,
     }));
   }
 

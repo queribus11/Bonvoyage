@@ -413,6 +413,10 @@
         $("#replay-overlay").hidden = false; $("#replay-next").hidden = !!only;
         const pauseBtn = $("#replay-pause"); pauseBtn.innerHTML = ic("pause", "sm"); pauseBtn.title = "Pause";
         BVMAP.replay(map, D, {
+          // #61 · Même cadrage par séquence que dans l'atelier : un tronçon en avion fait sa
+          // propre séquence. Choisi au doigt par Sophie. Le récit, les titres, la carte du
+          // jour et la fiche du survol ne changent pas — seule la caméra se coupe.
+          sequences: true,
           dayList: days, only, speed: +D.trip.replay_speed || 1, dayNumber: (iso) => dayNumber(D.trip, iso),
           onPause: (p) => { pauseBtn.innerHTML = p ? ic("play", "sm") : ic("pause", "sm"); pauseBtn.title = p ? "Reprendre" : "Pause"; },
           // #37 · Le cartouche du survol parle la même langue que la légende de la carte :

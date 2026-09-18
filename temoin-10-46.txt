@@ -1,0 +1,5 @@
+v10.46 — le cadrage par séquence est allumé : un tronçon en avion fait sa propre
+séquence de caméra, la fiche du survol et le dévoilement des photos restent à la
+journée. La page d'essai du survol est retirée, la question étant tranchée.
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-45.txt donne 404,
+c'est bien la v10.46 qui est servie.

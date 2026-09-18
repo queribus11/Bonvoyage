@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.45**
+- Version actuelle : **v10.46**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -503,6 +503,36 @@ disait `camp → photo → photo → camp` ; l'écran de Sophie disait `photo �
   pied de la lettre, hors de la carte cette fois. Toute page annexe porte donc sa propre
   sortie : visible en permanence, en haut à gauche, libellée en clair, une seule pression. Et
   elle ramène **au voyage qu'on lisait** (`index.html#trip=<id>`), pas à la liste.
+
+### Les leçons de la v10.46 (#61) — allumer le cadrage par séquence
+
+Le mécanisme dormait depuis la v10.44 derrière `options.sequences`. Sophie a jugé les trois
+variantes sur son iPhone et choisi **A** : la coupe, avec le recul d'aujourd'hui (0,65 cran/s,
+borné à 6 s). Allumer a coûté deux lignes — mais deux autres endroits supposaient encore
+« une entrée de la boucle = une journée », et les deux se voyaient à l'écran.
+
+- 🔴 **Quand une boucle se met à rendre DEUX entrées pour une journée, relire tout ce qui, dans
+  cette boucle, parle de la journée.** `options.onDay` (la fiche du survol) se serait déclenché
+  deux fois pour le Jour 1 — la fiche clignoterait, et afficherait les chiffres de la séquence
+  (« 1 photo » puis « 5 » au lieu de « 6 », et `km` vaut 0 sur une séquence, donc plus de
+  distance du tout). Il ne part plus que sur la **première** séquence (`d._seq == null ||
+  d._seq === 1`), avec les chiffres de la journée entière que `couperEnSequences` transporte
+  (`_km`, `_photos`).
+- 🔴 **Un dévoilement posé à la fin d'une séquence déflore les séquences suivantes.**
+  `revealDay(d.iso)` révèle **toutes** les photos de la journée : appelé à la fin de la
+  séquence 1, il montrait Tavira avant que la séquence 2 ne la joue — tout l'effet du survol
+  perdu. Il n'a lieu qu'à la **dernière** séquence (`d._seqs == null || d._seq === d._seqs`),
+  dans les deux branches (journée sans tracé et parcours).
+- **« Seule la caméra se coupe » est une promesse qui se VÉRIFIE, pas une intention.** Les deux
+  défauts ci-dessus étaient exactement sa violation. Le banc les compte : pour chaque journée,
+  nombre de séquences, nombre d'appels à la fiche, nombre de dévoilements — non-régression
+  comprise (journée sans avion : une entrée, un appel, un dévoilement, comme avant).
+- **Une page d'essai ne reste pas dans le dépôt une fois la question tranchée.**
+  `essai-mesure.html` est partie avec le bouton qui y menait, comme `essai-jours-2.html` avant
+  elle. L'histoire du dépôt la garde si on la veut un jour.
+- **Ce qu'on ne peut pas vérifier ici se dit.** Tuiles et moteur de carte sont refusés par le
+  proxy : le mouvement lui-même n'a été jugé que par Sophie, sur son iPhone. Le banc prouve la
+  mécanique (combien de séquences, quels appels), jamais le confort.
 
 ---
 
