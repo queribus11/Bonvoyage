@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.51**
+- Version actuelle : **v10.52**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -115,7 +115,10 @@ d'écrire quoi que ce soit** — elle tombe parfois.
 **8. Une mise en page se vérifie en image avant de la montrer à Sophie.** Reconstituer
 l'écran avec le vrai `css/style.css`, dans un conteneur de **440 × 956 px** (la taille de
 l'iPhone de Sophie, à fixer dans la page, pas par la fenêtre du navigateur),
-`html class="is-dark"` pour son thème sombre, puis capture. **Ne jamais déduire la taille
+puis capture.
+🔴 **Le thème de Sophie est le thème CLAIR** — ses captures du 18/09 le montrent sans ambiguïté.
+Toutes les miennes étaient en `is-dark` : je photographiais un écran qui n'est pas le sien.
+Photographier **en clair**, et en sombre seulement s'il y a un doute sur le contraste. **Ne jamais déduire la taille
 de son écran des dimensions d'une capture qu'elle envoie** : elles sont redimensionnées en
 chemin. **Ce chiffre ne se déduit ni d'une capture d'écran ni d'une mesure faite par une page
 d'essai. Si une mesure contredit cette règle, c'est la page de mesure qu'il faut suspecter,
@@ -696,6 +699,31 @@ montrait rien — et pour deux raisons indépendantes, toutes deux invisibles da
   `setTrait` rend maintenant `true`/`false`, et le bouton n'affiche « c'est fait » que si la
   carte a vraiment changé. C'est la règle de #51 (*pas d'enregistrement, pas de message de
   succès*) appliquée à un réglage d'affichage.
+
+### Les leçons de la v10.52 (#62) — le trait du survol ignorait le réglage
+
+Quatrième signalement sur le même sujet, et cette fois **ce sont ses captures qui ont tranché** :
+trois des cinq étaient prises **pendant le survol**.
+
+- 🔴 **UN RÉGLAGE GLOBAL SE VÉRIFIE SUR TOUS LES ÉTATS DE L'ÉCRAN, pas sur l'état au repos.**
+  La carte en a deux. Au repos, les tracés sont les couches `track-*`. **Pendant le survol,
+  `js/map.js` les estompe à 25 %** et le seul trait épais devient la trace qui se dessine
+  derrière Valdo : `progress-halo` (9 px) et `progress-line` (5 px). J'avais réglé le premier
+  état et oublié le second — précisément celui que Sophie regardait. Elle a touché les trois
+  boutons sans rien voir changer, et c'était exact.
+- 🔴 **Une valeur écrite À CÔTÉ de sa liste finit toujours par diverger — troisième fois ce
+  mois-ci.** `progress-halo` et `progress-line` étaient déclarées deux lignes au-dessus de
+  `trackLayers`, hors de la table `ATELIER`. Elles y sont entrées : **sept** couches suivent
+  désormais le réglage, contre cinq. Le banc les compte, et aurait trouvé l'oubli tout seul.
+- **Un essai jugé au doigt doit rester ATTEIGNABLE pendant ce qu'on juge.** La bande était en
+  bas, et `.replaying .essai-trait { display: none }` la cachait pendant le survol : Sophie
+  devait choisir, lancer « Revoir », regarder — et d'un essai à l'autre la carte avait bougé.
+  Elle est passée **en haut** (`right: 80px`, le rail reste libre) et reste visible pendant le
+  survol : on compare carte immobile, comme l'exige déjà la note sur les réglages de confort.
+- **Mon contrôle de recouvrement ne comparait que les hauteurs.** Il annonçait « la bande
+  recouvre le rail » alors qu'elle s'arrête à 360 px et que le rail commence à 368. Deux
+  rectangles se recouvrent quand ils se croisent **dans les deux sens** — sinon l'instrument
+  crie au loup, et on finit par ne plus l'écouter.
 
 ---
 

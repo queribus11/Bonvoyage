@@ -280,8 +280,12 @@
   // 440 × 956, cette fenêtre fait 899 px de haut et ne laisse voir que 57 px de carte.
   // Sophie a essayé les trois et n'a rien vu — elle ne pouvait rien voir.
   //
-  // Un réglage jugé au doigt se juge SUR l'objet. La bande est donc posée sur la carte,
-  // juste au-dessus du panneau : rien ne la recouvre, et le tracé change sous l'œil.
+  // Un réglage jugé au doigt se juge SUR l'objet. La bande est donc posée sur la carte.
+  //
+  // 🔴 v10.52 · EN HAUT, et visible PENDANT LE SURVOL. En bas, le bandeau du survol la
+  // cachait — or c'est en regardant le survol que Sophie juge l'épaisseur, et d'un essai à
+  // l'autre la carte avait bougé : rien n'était comparable. En haut, elle touche les trois
+  // pendant que la trace se dessine, carte immobile.
   function essaiTrait() {
     const ecran = $("#screen-trip"); if (!ecran || $("#essai-trait")) return;
     const bande = document.createElement("div");
@@ -290,6 +294,7 @@
       + Object.entries(BVMAP.TRAITS).map(([k, v]) =>
         `<button type="button" class="btn sm${+k === BVMAP.traitActuel() ? " primary" : ""}" data-trait="${k}">${esc(v.nom)}</button>`).join("");
     ecran.appendChild(bande);
+    ecran.classList.add("essai-62");   // décale la fiche-carte, le temps de l'essai
     $$("button", bande).forEach((b) => b.onclick = () => {
       // `setTrait` rend `false` si la carte n'a pas pu changer : on ne dit jamais « c'est
       // fait » sans que ce soit fait. C'est la règle de #51, appliquée à un réglage.

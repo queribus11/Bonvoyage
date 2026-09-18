@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.51";
+window.BV_VERSION = "10.52";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -73,8 +73,8 @@ window.BVMAP = (() => {
         { id: "b-osm", type: "raster", source: "osm", layout: vis("plan"), paint: dark ? { "raster-brightness-max": .72, "raster-saturation": -.35, "raster-contrast": .1 } : {} },
         { id: "b-hill", type: "hillshade", source: "demhill", layout: vis("plan"), paint: { "hillshade-exaggeration": .35, "hillshade-shadow-color": "#123F66", "hillshade-highlight-color": "#ffffff", "hillshade-accent-color": "#123F66" } },
         ...trackLayers(reading),
-        { id: "progress-halo", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": .9 } },
-        { id: "progress-line", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 5 } },
+        { id: "progress-halo", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": W("progress-halo"), "line-opacity": .9 } },
+        { id: "progress-line", type: "line", source: "progress", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": W("progress-line") } },
         { id: "dots", type: "circle", source: "dots", paint: { "circle-radius": 6, "circle-color": ["get", "color"], "circle-stroke-color": "#fff", "circle-stroke-width": 2.5 } },
         // Source « photos » : les vignettes sont des éléments HTML (voir syncPhotoMarkers) ; ce calque invisible sert au regroupement
         { id: "photos-hidden", type: "circle", source: "photos", paint: { "circle-radius": 0, "circle-opacity": 0 } },
@@ -132,8 +132,15 @@ window.BVMAP = (() => {
   // Les largeurs de l'atelier, écrites UNE fois : elles servent à créer les couches, et à les
   // reposer quand l'épaisseur change sans recharger la page. Deux listes auraient divergé.
   // `ENROBAGE` dit laquelle des deux échelles s'applique à chaque couche.
-  const ATELIER = { "track-dash-edge": [8, 12], "track-dash": [3.5, 5.5], "track-halo": [6, 12], "track-edge": [4.5, 7], "track-line": [2.5, 4.5] };
-  const ENROBAGE = new Set(["track-dash-edge", "track-halo", "track-edge"]);
+  // 🔴 v10.52 · LA TRACE DU SURVOL EST DANS CETTE TABLE, ELLE AUSSI. Elle vivait deux lignes
+  // plus haut, à côté — donc hors du réglage. Or pendant le survol les tracés sont estompés
+  // à 25 % (voir `replay`) : le seul trait épais à l'écran est justement celui-là, et Sophie
+  // le regardait. Elle a touché les trois boutons sans rien voir changer, et elle avait
+  // raison. Une valeur écrite à côté de sa liste finit toujours par diverger.
+  // (Sans zoom : les deux bornes sont égales, la largeur ne dépend pas de l'échelle.)
+  const ATELIER = { "track-dash-edge": [8, 12], "track-dash": [3.5, 5.5], "track-halo": [6, 12], "track-edge": [4.5, 7], "track-line": [2.5, 4.5],
+                    "progress-halo": [9, 9], "progress-line": [5, 5] };
+  const ENROBAGE = new Set(["track-dash-edge", "track-halo", "track-edge", "progress-halo"]);
   // Largeur d'une couche de l'atelier : elle grandit avec le zoom, et suit son échelle.
   const W = (id) => { const e = ENROBAGE.has(id) ? E : T, [a, b] = ATELIER[id]; return ["interpolate", ["linear"], ["zoom"], 8, e(a), 14, e(b)]; };
   const READ = { w: 3.2, otherW: 1.8, otherOp: .34, edge: "rgba(8,14,20,.40)", edgeW: 6 };

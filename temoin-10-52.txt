@@ -1,0 +1,10 @@
+v10.52 — le trait du SURVOL suit enfin le réglage d'épaisseur (#62).
+Pendant le survol, les tracés sont estompés à 25 % : le seul trait épais à l'écran
+est la trace qui se dessine derrière Valdo — 9 px de liseré et 5 px de couleur,
+écrits en dur, hors de la table des largeurs. Sophie regardait ce trait-là, et il
+ne changeait jamais. Sept couches suivent désormais le réglage, contre cinq.
+La bande d'essai passe en haut de la carte et reste visible pendant le survol :
+c'est la seule façon de comparer sans que la carte bouge entre deux essais.
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-51.txt donne 404,
+c'est bien la v10.52 qui est servie.
+Preuve de nature : « progress-halo » apparaît dans la table ATELIER de js/map.js.
