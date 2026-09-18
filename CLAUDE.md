@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.48**
+- Version actuelle : **v10.49**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -611,6 +611,30 @@ de chiffre ; quand elle ne sait pas, elle se tait.*
   Le choix d'épaisseur vit dans les réglages du voyage, se voit **immédiatement sur la vraie
   carte**, et le bouton « Voir comme un proche » (déjà présent) emporte le réglage dans
   l'adresse — donc aucune page annexe, et aucun des deux pièges de la v10.45.
+
+### Les leçons de la v10.49 — Sophie enfermée dans la page du proche
+
+Livré la veille, signalé par elle le lendemain : *« Tu ne m'as pas mis de bouton retour, je ne
+peux pas revenir. »* Deux causes, et **les deux étaient déjà écrites dans ce fichier**.
+
+- 🔴 **LA RÈGLE 13 NE S'ARRÊTE PAS AU PLEIN ÉCRAN : elle vaut pour TOUT écran où l'on peut
+  arriver.** `fail()` (`js/share.js`), la page « Oups » de la page du proche, n'avait **aucun
+  bouton** — pas un. Un écran d'erreur est un état comme un autre : dans une app posée sur
+  l'écran d'accueil, il n'existe pas de « retour » de navigateur, donc c'est une impasse.
+  *Chercher partout ailleurs les écrans sans bouton : un état sans sortie, c'est une impasse,
+  même quand il ne dure qu'un instant.*
+- 🔴 **`target="_blank"` SORT DE L'APP, et la mémoire de connexion ne suit pas.** C'est
+  exactement le piège de la v10.45, que je venais d'écrire et que j'ai quand même laissé sur
+  le lien « Voir comme un proche » : il ouvrait Safari, où le carnet de Sophie redemande le
+  mot de passe. Le lien reste donc **dans le même onglet** (`target` retiré), et la sortie
+  ramène dans l'app, session intacte. *Une leçon écrite n'est pas une leçon appliquée : quand
+  on en inscrit une, relire le code existant qui l'enfreint déjà.*
+- **Un bouton de sortie dit où il RAMÈNE, pas ce qu'il ferme.** « Fermer » est devenu
+  « ← Retour au carnet », posé **à gauche**, comme toutes les sorties du projet. Et il ramène
+  au **voyage** qu'on regardait (`index.html#trip=<id>`), pas à la liste.
+- **Ne jamais s'en remettre à `window.close()`.** Il n'agit que sur une page ouverte par un
+  script : ailleurs il échoue en silence, et la sortie ne fait rien. La redirection est le
+  seul chemin sûr, et elle est maintenant la seule.
 
 ---
 

@@ -28,8 +28,16 @@
   const isAndroid = () => /Android/.test(navigator.userAgent);
   const friendly = (e) => (window.OFF ? OFF.friendly(e) : (e && e.message) || String(e));
 
+  // 🔴 v10.49 · UNE PAGE D'ERREUR AUSSI EST UN ÉTAT DONT IL FAUT POUVOIR SORTIR.
+  // Celle-ci n'avait aucun bouton : dans l'app posée sur l'écran d'accueil, où il n'existe
+  // pas de « retour » de navigateur, Sophie s'y est retrouvée enfermée en venant de « Voir
+  // comme un proche ». La règle 13 ne parlait que du plein écran ; elle vaut ici aussi.
+  // La sortie ne s'affiche qu'en aperçu : un proche, lui, est dans un vrai navigateur et
+  // n'a rien à faire dans le carnet de l'autrice.
   function fail(msg) {
-    root.innerHTML = `<div class="center" style="text-align:center"><div class="brand"><div class="logo"><img src="icons/icon.svg" alt=""></div><h1>Oups</h1><p style="font-family:var(--font-body);color:var(--muted);font-size:16px">${esc(msg)}</p></div></div>`;
+    root.innerHTML = sortieApercuHtml()
+      + `<div class="center" style="text-align:center"><div class="brand"><div class="logo"><img src="icons/icon.svg" alt=""></div><h1>Oups</h1><p style="font-family:var(--font-body);color:var(--muted);font-size:16px">${esc(msg)}</p></div></div>`;
+    brancherSortieApercu();
   }
 
   async function load() {
@@ -83,11 +91,29 @@
   }
 
   // Le bandeau d'aperçu, en haut de la page, avec la sortie de secours.
+  // v10.49 · Le bouton s'appelle « Retour au carnet » et non plus « Fermer » : il ne ferme
+  // rien, il RAMÈNE. Et il est à gauche, comme toutes les sorties du projet (règle 13).
   function previewBarHtml() {
     return `<div id="apercu-bar" style="position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:10px;
       padding:10px 14px;background:#123F66;color:#fff;font-size:14px;font-weight:700;line-height:1.35">
-      <span style="flex:1;min-width:0">Aperçu · voici le carnet tel que ${previewName ? esc(previewName) + " le voit" : "le voient tes proches"}.</span>
-      <button type="button" class="btn sm glass" id="apercu-close" style="flex:none">Fermer</button></div>`;
+      <button type="button" class="btn sm glass" id="apercu-close" style="flex:none">← Retour au carnet</button>
+      <span style="flex:1;min-width:0">Aperçu · voici le carnet tel que ${previewName ? esc(previewName) + " le voit" : "le voient tes proches"}.</span></div>`;
+  }
+  // La MÊME sortie, posée sur une page qui n'a pas de bandeau (l'écran « Oups »).
+  function sortieApercuHtml() {
+    if (!preview) return "";
+    return `<div style="position:fixed;top:calc(10px + env(safe-area-inset-top));left:12px;z-index:3000">
+      <button type="button" class="btn sm" id="apercu-close">← Retour au carnet</button></div>`;
+  }
+  // Une seule fonction de sortie, où qu'on ait posé le bouton : elle ramène AU VOYAGE qu'on
+  // regardait quand on le connaît, et à la liste sinon. `window.close()` ne marche que si
+  // la page a été ouverte par un script — on ne s'y fie donc jamais seul.
+  function brancherSortieApercu() {
+    const b = $("#apercu-close"); if (!b) return;
+    b.onclick = () => {
+      const id = D && D.trip && D.trip.id ? "#trip=" + D.trip.id : "";
+      location.href = "index.html" + id;
+    };
   }
   // Le lien de cette page, sans l'ancre ni le repère d'aperçu.
   function shareLink() {
@@ -190,8 +216,7 @@
       </footer>`;
     animateKm();
     bindShareBlock();
-    const ab = $("#apercu-close");
-    if (ab) ab.onclick = () => { window.close(); setTimeout(() => { location.href = "index.html"; }, 250); };
+    brancherSortieApercu();
     const tc = $("#tip-close"); if (tc) tc.onclick = () => $("#tip-top").remove();
     installManifest();
 
