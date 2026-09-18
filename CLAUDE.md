@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.49**
+- Version actuelle : **v10.50**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -635,6 +635,33 @@ peux pas revenir. »* Deux causes, et **les deux étaient déjà écrites dans c
 - **Ne jamais s'en remettre à `window.close()`.** Il n'agit que sur une page ouverte par un
   script : ailleurs il échoue en silence, et la sortie ne fait rien. La redirection est le
   seul chemin sûr, et elle est maintenant la seule.
+
+### Les leçons de la v10.50 — enfermée dans ses propres réglages
+
+Deuxième signalement de Sophie en deux heures, et le plus grave : *« Même dans la page atelier
+je ne peux pas fermer la page pour revenir à la vue du tracé sur le plan !! »* — avec, en
+prime, *« tu ne vérifies pas ce que tu fais ? »*. Elle avait raison.
+
+- 🔴 **AJOUTER UN CHAMP, C'EST DÉPLACER LE BOUTON DE SORTIE.** La fenêtre des réglages était la
+  **seule fenêtre longue du projet sans barre de boutons collante** (`class="actions sticky"`,
+  que `dayForm`, `mediaViewer`, `stopForm` et `campForm` utilisent tous). Ses onze champs
+  poussaient déjà « Annuler » à **177 px sous le bas de l'écran** ; l'essai d'épaisseur de la
+  v10.48 a porté ce chiffre à **340 px**. Rien, à l'écran, ne dit qu'une fenêtre se déroule.
+  *Avant d'allonger un formulaire, regarder où tombe sa sortie — et la coller.*
+- 🔴 **Le projet avait déjà la solution ; je ne l'ai pas cherchée.** `actions sticky` existe
+  depuis longtemps et est appliqué partout ailleurs. L'audit qui l'a montré tient en dix
+  lignes : lister chaque `openModal`, compter ses champs, dire si sa barre est collante. *Faire
+  cet inventaire au lieu de raisonner sur la fenêtre qu'on a sous les yeux.*
+- 🔴 **Une capture d'écran vaut mieux qu'un chiffre — et mon chiffre était faux.** Ma sonde
+  annonçait « bouton hors de l'écran » **aussi pour la fiche journée**, dont Sophie ne s'est
+  jamais plainte : l'instrument ne distinguait donc pas le bon du mauvais cas. C'est la règle
+  écrite en v10.43 (« un résultat identique des deux côtés fait suspecter le banc »). Ce qui a
+  tranché, c'est la **photo à l'ouverture** : avant, aucun bouton ; après, la barre posée en
+  bas. *Quand la mesure et l'image divergent, montrer l'image.*
+- **`vh` dans une fenêtre, c'est la même faute qu'ailleurs.** `.modal-back` en `inset: 0` et
+  `.modal` en `max-height: 94vh` parlaient du viewport **sans** la barre de Safari — le bas de
+  la fenêtre passait dessous. Passés en `svh`, comme `#screen-trip` en v10.48. *Corriger une
+  unité à un endroit oblige à la chercher partout : je ne l'avais faite qu'à moitié.*
 
 ---
 

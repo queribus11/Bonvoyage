@@ -1,9 +1,0 @@
-v10.49 — la sortie manquante. « Voir comme un proche » ouvrait la page du proche
-HORS de l'app posée sur l'écran d'accueil, et la page d'erreur n'avait aucun
-bouton : Sophie s'y est retrouvée enfermée. Le lien reste dans l'app, la page
-d'erreur porte la même sortie que le bandeau d'aperçu, et cette sortie ramène au
-voyage qu'on regardait.
-Témoin de mise en ligne : si ce fichier répond et que temoin-10-48.txt donne 404,
-c'est bien la v10.49 qui est servie.
-Preuve de nature : « sortieApercuHtml » dans js/share.js, un nom qui n'a jamais
-existé avant.

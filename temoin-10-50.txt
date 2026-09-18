@@ -1,0 +1,8 @@
+v10.50 — les boutons de la fenêtre des réglages redeviennent atteignables.
+C'était la SEULE fenêtre longue du projet sans barre de boutons collante : ses
+onze champs poussaient « Annuler » et « Enregistrer » sous le bas de l'écran, et
+l'essai d'épaisseur ajouté en v10.48 a porté le défilement nécessaire de 177 à
+340 px. Rien ne disait que la fenêtre se déroulait.
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-49.txt donne 404,
+c'est bien la v10.50 qui est servie.
+Preuve de nature : « 94svh » dans css/style.css, qui n'a jamais existé avant.

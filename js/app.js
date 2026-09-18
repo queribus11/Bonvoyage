@@ -182,7 +182,12 @@
           <span class="small muted">Inviter quelqu'un à écrire dans ce carnet, et gérer les liens envoyés aux proches.</span></div>` : ""}
         ${!isNew ? `<div class="field"><label>Sauvegarde</label><div class="row"><button type="button" class="btn sm" id="backup">${ic("download", "sm")} Sauvegarde complète</button><button type="button" class="btn sm ghost" id="backup-light">Texte et traces seulement</button></div>
           <span class="small muted">Télécharge un fichier .zip avec ton récit, tes traces (GPX), tes photos, audios et les commentaires. À faire de temps en temps, et à la fin du voyage.</span></div>` : ""}
-        <div class="actions">
+        <!-- 🔴 v10.50 · BARRE COLLANTE, comme toutes les fenêtres longues du projet.
+             C'était la SEULE fenêtre longue à ne pas l'avoir : ses onze champs poussaient
+             « Annuler » et « Enregistrer » à 177 px sous le bas de l'écran, et rien ne disait
+             que la fenêtre se déroulait. En y ajoutant l'essai d'épaisseur, j'ai porté ce
+             chiffre à 340 px et Sophie s'est retrouvée enfermée dans ses propres réglages. -->
+        <div class="actions sticky">
           ${!isNew ? `<button type="button" class="btn ghost danger sm" id="del">${ic("trash", "sm")} Supprimer le voyage</button><span class="grow"></span>` : ""}
           <button type="button" class="btn ghost" data-close>Annuler</button>
           <button class="btn primary" type="submit">${isNew ? "Créer le voyage" : "Enregistrer"}</button>
