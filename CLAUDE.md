@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.55**
+- Version actuelle : **v10.56**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -863,6 +863,49 @@ sans aucune sortie : « Nouveau mot de passe » n'avait que « Changer ». Elle 
   vient de rouvrir — la poser d'abord.*
 - **Les barres collantes, elles, sont en règle** : les six fenêtres longues ont toutes
   `class="actions sticky"`. Le contrôle proposé en #67 n'aurait rien trouvé de plus ici.
+
+### Les leçons de la v10.56 (#63) — le coin n'était pas vide
+
+Sophie a demandé deux réglages au doigt : le bouton « Replier » **descend dans le coin bas
+droit** (« le coin le plus mort, loin de la zone de lecture ») et **rapetisse**, en gardant
+son mot — *un bouton muet ici, ce serait régler #63 en tombant dans #68.* Le coût vis-à-vis
+de la règle 11 est **assumé par elle** : le bas de la carte est une seconde zone de
+commandes, et **rien d'autre ne doit venir s'y ajouter**.
+
+- 🔴 **UN BANC DONT LA MATIÈRE NE RESSEMBLE PAS À LA MATIÈRE RÉELLE REND LE VERDICT
+  INVERSE.** Première sonde, légende courte (« Tavira · 12,4 km ») : **aucun recouvrement**,
+  à toutes les tailles, aux deux largeurs. Même sonde, vrai nom long (« Vila Nova de
+  Milfontes · ≈ 148,7 km ») : **recouvrement partout**, 6 px, aux deux largeurs. `max-width`
+  est un **plafond**, pas une largeur : une légende courte ne dit rien de la place que la
+  légende peut prendre. *Éprouver une mise en page avec la valeur la plus longue plausible,
+  pas avec l'exemple qu'on a sous la main* — c'est la règle « mesurer aux extrêmes » (v10.42)
+  appliquée au texte.
+- 🔴 **Quand on ne peut pas mesurer une largeur de texte, ne pas en réserver une : laisser le
+  NAVIGATEUR arbitrer.** Les polices de Sophie ne sont pas chargeables ici (v10.48), donc
+  tout nombre de pixels réservé pour « Replier » / « Déployer » aurait été faux chez elle.
+  D'où `.map-bas` : la légende (`flex: 0 1 auto; min-width: 0`) et le bouton (`flex: none`)
+  dans **une seule rangée**. Le recouvrement devient impossible **par construction**, quelle
+  que soit la police et quelle que soit la longueur du nom. Le prix, assumé : un nom long est
+  raccourci un peu plus tôt — ce que la légende faisait déjà.
+- 🔴 **Un élément qui disparaît « tout seul » hérite de sa disparition — le sortir de son
+  parent la lui retire.** Le bouton s'effaçait pendant le survol et la journée immobile parce
+  qu'il vivait dans `.map-rail`, et que les deux règles nomment les éléments **un par un**
+  (`css/style.css`). Le descendre dans le coin sans toucher à ces deux listes l'aurait laissé
+  visible pendant le survol — la régression de la v10.52, dans sa famille. `.map-bas` est
+  entrée dans les deux listes, et **le banc vérifie les trois états** (repos, survol, journée
+  immobile), pas seulement le repos.
+- **Le calcul du brief était pessimiste de 12 px.** Le rail privé de son quatrième bouton
+  s'arrête à **160 px** (12 + 3×44 + 2×8), pas 172. Le jeu réel sous le rail, carte repliée à
+  393 × 852, est de **16 px** avec un bouton de 36. *Refaire l'arithmétique plutôt que de la
+  reprendre : elle vient parfois d'un état antérieur du code.*
+- **Deux largeurs, deux verdicts opposés = c'est la sonde.** Elle annonçait la rangée
+  « visible pendant le survol » à 440 et « cachée » à 393, pour le même code : elle lisait
+  l'opacité **pendant** le fondu de 260 ms. *Un résultat qui diffère là où le code est
+  identique n'est jamais une découverte.*
+- **Une règle écrite deux fois le même jour.** Le chevron du bouton avait sa paire de règles
+  en v10.55 ; je l'ai réécrite à côté du bouton en v10.56 sans voir la première. Trouvée au
+  `grep` avant l'envoi — mais c'est la cinquième du mois. *Avant d'ajouter une règle, chercher
+  son nom dans la feuille de style.*
 
 ---
 
