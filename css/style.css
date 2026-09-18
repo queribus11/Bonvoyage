@@ -382,10 +382,6 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
    et ce nombre monte de 52 : le banc le vérifie, il ne se surveille pas à l'œil. */
 body.carte-repliee { --carte-h: max(24svh, 224px); }
 #share-map { height: var(--carte-h); background: #DCEBF7; transition: height var(--t-mid) var(--ease); }
-/* Le chevron du bouton montre où va la carte : vers le haut quand elle se replie, vers le
-   bas quand elle se déploie. Pas de picto neuf — c'est `chevron-right` qu'on tourne. */
-.map-btn.plier svg.i { transform: rotate(-90deg); transition: transform var(--t-fast) var(--ease); }
-body.carte-repliee .map-btn.plier svg.i { transform: rotate(90deg); }
 /* Les dégradés ne prennent aucun geste : la carte reste manipulable dessous. */
 .share-map-wrap::before, .share-map-wrap::after { content: ""; position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; }
 .share-map-wrap::before { top: 0; height: 120px; background: linear-gradient(to bottom, rgba(10,16,24,.55), rgba(10,16,24,0)); }
@@ -397,7 +393,7 @@ body.carte-repliee .map-btn.plier svg.i { transform: rotate(90deg); }
    peint par-dessus une photo. Aucun repère JavaScript n'entre en jeu : la carte reste
    toujours au-dessus du récit, le défilement ne peut plus les faire changer de place. */
 /* La mention Esri : présente, discrète, jamais recouverte. */
-.share-map-wrap .maplibregl-ctrl-bottom-right { z-index: 3; bottom: 34px; right: 12px; }
+.share-map-wrap .maplibregl-ctrl-bottom-right { z-index: 3; bottom: 56px; right: 12px; }   /* #63 · au-dessus de la rangée du bas (12 + 36 + 8), pas dessous */
 .share-map-wrap .maplibregl-ctrl-attrib, .is-dark .share-map-wrap .maplibregl-ctrl-attrib { font-size: 8.5px; opacity: .42; background: transparent; }
 /* Les journées se posent sous la carte collée quand on saute à l'une d'elles */
 /* La même hauteur, lue et non recopiée : écrite à côté, elle aurait menti dès le premier
@@ -414,6 +410,16 @@ body.map-stuck .day-section { scroll-margin-top: calc(var(--carte-h) + 16px); }
    mot. Les autres restent ronds et muets. */
 .map-btn.wide { width: auto; padding: 0 16px 0 13px; }
 .map-btn .lbl { font-size: 14px; font-weight: 700; white-space: nowrap; }
+/* #63 · Le bouton de repli est descendu dans le coin bas droit — le coin le plus loin de
+   la lecture — et il a rapetissé. Mais il GARDE SON MOT : un bouton muet ici, ce serait
+   régler #63 en tombant dans #68. Mesuré à 393 × 852, carte repliée : son haut tombe à
+   176 px quand le rail (trois boutons désormais) s'arrête à 160 — 16 px de jeu. */
+.map-btn.plier { flex: none; margin-left: auto; height: 36px; width: auto; padding: 0 12px 0 9px; gap: 6px; }
+.map-btn.plier .lbl { font-size: 13px; }
+/* Le chevron dit où va la carte : vers le haut quand elle se replie, vers le bas quand elle
+   se déploie. Pas de picto neuf — c'est `chevron-right` qu'on tourne. */
+.map-btn.plier svg.i { width: 15px; height: 15px; transform: rotate(-90deg); transition: transform var(--t-fast) var(--ease); }
+body.carte-repliee .map-btn.plier svg.i { transform: rotate(90deg); }
 /* #37 · Les fonds de carte et le zoom se rangent DANS le rail : une seule zone de
    contrôles sur la carte, plus rien ne peut en recouvrir un autre. */
 .map-rail .bv-layers, .map-rail .maplibregl-ctrl-group { position: static; margin: 0; width: 44px; }
@@ -432,7 +438,17 @@ body.map-stuck .day-section { scroll-margin-top: calc(var(--carte-h) + 16px); }
 .share-map-wrap .maplibregl-ctrl-top-right { display: none; }
 /* #37 · La légende : le numéro du jour dans un disque de couleur, puis le lieu de la photo
    qu'on regarde. C'est le SEUL endroit de la carte où une couleur de journée subsiste. */
-.map-caption { position: absolute; left: 14px; bottom: 30px; z-index: 5; display: flex; align-items: center; gap: 9px; min-width: 0; max-width: min(320px, calc(100% - 128px)); background: rgba(16,22,30,.58); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 8px 15px 8px 9px; box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff; }
+/* #63 · LA RANGÉE DU BAS. La légende et le bouton « Replier » y vivent ensemble, et c'est
+   le NAVIGATEUR qui décide qui a la place — pas un nombre de pixels choisi ici. Réserver
+   une largeur au jugé était impossible : les polices de Sophie ne sont pas chargeables
+   dans la conversation Code, donc toute mesure de largeur de texte y est fausse (v10.48).
+   Mesuré : avec « Tavira » un bouton posé dans le coin ne recouvrait rien, avec
+   « Vila Nova de Milfontes » il recouvrait la légende de 6 px, aux deux largeurs. Dans une
+   rangée partagée, le recouvrement est impossible par construction : la légende cède et se
+   termine par des points de suspension, le bouton ne cède jamais. */
+.map-bas { position: absolute; left: 14px; right: 12px; bottom: 12px; z-index: 6; display: flex; align-items: flex-end; gap: 10px; pointer-events: none; }
+.map-bas > * { pointer-events: auto; }
+.map-caption { flex: 0 1 auto; z-index: 5; display: flex; align-items: center; gap: 9px; min-width: 0; background: rgba(16,22,30,.58); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 8px 15px 8px 9px; box-shadow: 0 6px 20px rgba(0,0,0,.35); color: #fff; }
 /* Rond à un chiffre, il s'allonge tout seul pour « 12 » : le comportement des anciennes
    pastilles J1-J7, repris en plus petit. */
 .map-caption .num, .replay-overlay .caption .num { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 21px; min-width: 21px; padding: 0 5px; border-radius: 999px; font-style: normal; font-size: 12px; font-weight: 800; color: #fff; }
@@ -613,7 +629,7 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .stop-pick .nm { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .stop-pick .meta { display: block; font-size: 12px; color: var(--muted); }
 
-.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .map-caption, .replaying .map-rail { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
+.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .map-bas, .replaying .map-rail { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
 /* Valdo qui marche sur le trajet pendant le survol */
 .bv-walker { width: 66px; height: 44px; pointer-events: none; }
 .bv-walker .in { width: 66px; height: 44px; position: relative; filter: drop-shadow(0 5px 7px rgba(18,63,102,.45)); }
@@ -983,7 +999,7 @@ body.lb-open { overflow: hidden; }
    autres journées en blanc discret pour situer, un cercle creux au départ, un
    cercle plein à l'arrivée. Aucune pastille photo, aucun arrêt, aucun récit.
    ============================================================ */
-.share-map-wrap.jour .map-caption,
+.share-map-wrap.jour .map-bas,
 .share-map-wrap.jour .map-rail,
 .share-map-wrap.jour .bv-layers,
 .share-map-wrap.jour .maplibregl-ctrl-group { display: none !important; }

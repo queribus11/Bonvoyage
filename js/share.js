@@ -188,8 +188,8 @@
       ${showTip ? `<div class="home-tip top" id="tip-top">${homeTipHtml()}<button class="btn sm" id="tip-close" style="margin-top:8px">J'ai compris</button></div>` : ""}
       <div id="map-sentinel" aria-hidden="true"></div>
       <div class="share-map-wrap" id="map-wrap"><div id="share-map"></div>
-        <div class="map-caption" id="map-caption" hidden></div>
-        <div class="map-rail"><button type="button" class="map-btn" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand")}</button>${canReplay ? `<button type="button" class="map-btn" id="map-replay" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>` : ""}<button type="button" class="map-btn" id="map-layers" title="Fonds de carte" aria-label="Choisir le fond de carte" aria-expanded="false">${ic("layers")}</button><button type="button" class="map-btn wide plier" id="map-plier" aria-label="Replier la carte">${ic("chevron-right")}<span class="lbl">Replier</span></button></div>
+        <div class="map-rail"><button type="button" class="map-btn" id="map-expand" title="Plein écran" aria-label="Afficher la carte en plein écran">${ic("expand")}</button>${canReplay ? `<button type="button" class="map-btn" id="map-replay" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>` : ""}<button type="button" class="map-btn" id="map-layers" title="Fonds de carte" aria-label="Choisir le fond de carte" aria-expanded="false">${ic("layers")}</button></div>
+        <div class="map-bas"><div class="map-caption" id="map-caption" hidden></div><button type="button" class="map-btn wide plier" id="map-plier" aria-label="Replier la carte">${ic("chevron-right")}<span class="lbl">Replier</span></button></div>
         <div class="jour-ui" id="jour-ui" hidden>
           <button type="button" class="jour-sortie" id="jour-sortie">${ic("chevron-left")}<span>Retour au récit</span></button>
           <button type="button" class="jour-play" id="jour-play" title="Suivre cette journée" aria-label="Suivre cette journée sur la carte">${ic("play")}</button>

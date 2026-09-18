@@ -1,0 +1,19 @@
+v10.56 — #63 : le bouton « Replier » descend dans le coin bas droit, et rapetisse
+
+Décidé au doigt par Sophie : le bouton quitte la colonne de la carte, descend dans le coin
+le plus loin de la lecture, et passe de 44 à 36 px de haut. Il GARDE SON MOT — un bouton
+muet ici, ce serait régler #63 en tombant dans #68.
+
+Ce que la mesure a corrigé dans l'énoncé : le coin bas droit n'est pas vide, la légende
+s'y étend déjà. Avec « Tavira » un bouton posé dans le coin ne recouvrait rien ; avec
+« Vila Nova de Milfontes » il recouvrait la légende de 6 px, aux deux largeurs. La légende
+et le bouton partagent donc UNE rangée, et c'est le navigateur qui arbitre : la légende
+cède et se termine par des points de suspension, le bouton ne cède jamais. Le recouvrement
+est impossible par construction, quelle que soit la police.
+
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-55.txt donne 404, c'est
+bien la v10.56 qui est servie.
+
+LE MOT QUI DISPARAÎT du code servi : « calc(100% - 128px) » — la réservation de largeur de
+la légende, dans css/style.css, que la rangée partagée rend inutile. Aucun cache ne
+supprime un mot.
