@@ -1582,6 +1582,18 @@
     if (find) find.onclick = () => findStops(iso, refresh);
   }
 
+  // #72 lot 2 · CE QUI IDENTIFIE LE BROUILLON D'UN ARRÊT.
+  // Un arrêt existant a son identifiant. Un arrêt NEUF n'en a pas : sa clé est le point
+  // posé sur la carte, arrondi à ~11 m. Deux raisons, et aucune n'est théorique :
+  //  · au centimètre près (les 6 décimales de `stopFromPoint`) un doigt ne retombe JAMAIS
+  //    deux fois au même endroit — une clé exacte ne restaurerait donc jamais rien ;
+  //  · une clé globale, ou « la journée », ferait réapparaître le texte d'un AUTRE lieu —
+  //    une conservation qui ressuscite un nom faux est pire qu'une perte.
+  // Au-delà de onze mètres, c'est un autre arrêt : la fiche s'ouvre vide.
+  const stopDraftKey = (iso, st, cur) => st && st.id
+    ? `cv_stopd_${S.cur.trip.id}_${st.id}`
+    : `cv_stopn_${S.cur.trip.id}_${iso}_${(+cur.lat || 0).toFixed(4)},${(+cur.lng || 0).toFixed(4)}`;
+
   // ---- La fiche d'un arrêt : nom, catégorie, heure, note ----
   // `preset` sert aux arrêts qui n'existent pas encore (proposés, ou posés sur la carte).
   function stopForm(iso, st, after) {
@@ -1590,18 +1602,32 @@
     const isNew = !st || !st.id;
     if (st && st.id && !canEditStop(st)) return toast("Cet arrêt a été ajouté par quelqu'un d'autre", "info");
     const n = dayNumber(S.cur.trip, iso);
+    // #72 lot 2 · LA FORME DU FORMULAIRE, écrite UNE fois : les cinq champs qu'on tape.
+    // Le gabarit ci-dessous, le brouillon et la garde lisent tous cette même forme (#51).
+    const champsCur = () => ({ name: cur.name || "", category: cur.category || "autre", note: cur.note || "",
+      hhmm: cur.at_time ? toLocalTime(cur.at_time) : "", transport: cur.transport || "" });
+    const dKey = stopDraftKey(iso, st, cur), dBase = champsCur();
+    const draft = OFF.LS.get(dKey);
+    const dVal = (k) => (draft && draft[k] != null) ? draft[k] : dBase[k];
+    const repris = !!draft && Object.keys(dBase).some((k) => dVal(k) !== dBase[k]);
+    // Une écriture d'essai, AVANT la première frappe : si le stockage est refusé (Safari en
+    // navigation privée, mémoire pleine), rien ne sera gardé — alors la question du lot 1
+    // reprend du service et le bouton garde « Annuler ». Sinon elle disparaît, et le mot
+    // devient « Fermer » : une fiche qui garde sa saisie ne s'annule pas (v10.59).
+    const garde = !OFF.LS.set(dKey + "~essai", 1); OFF.LS.del(dKey + "~essai");
     const m = openModal(`<div class="kicker" style="margin-bottom:6px">${n != null ? "Jour " + n + " · " : ""}${fmtDate(iso)}</div>
       <div class="modal-head"><div class="grow"><h2 style="margin-bottom:0">${isNew ? "Un arrêt" : "Modifier l'arrêt"}</h2></div>
-        <button type="button" class="btn ghost sm" data-close>Annuler</button></div>
+        <button type="button" class="btn ghost sm" data-close>${garde ? "Annuler" : "Fermer"}</button></div>
+      ${repris ? `<div class="setup-help" style="margin-bottom:12px">✍️ Un brouillon non enregistré a été retrouvé et restauré.</div>` : ""}
       <form id="sf">
-        <div class="field"><label>Nom du lieu</label><input name="name" required value="${esc(cur.name || "")}" placeholder="Musée de l'Azulejo"></div>
-        <div class="field"><label>Catégorie</label><select name="category">${CV.STOP_CATEGORIES.map((c) => `<option value="${c.k}" ${(cur.category || "autre") === c.k ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>
-        <div class="row"><div class="field grow"><label>Heure</label><input type="time" name="hhmm" value="${cur.at_time ? toLocalTime(cur.at_time) : ""}">
+        <div class="field"><label>Nom du lieu</label><input name="name" required value="${esc(dVal("name"))}" placeholder="Musée de l'Azulejo"></div>
+        <div class="field"><label>Catégorie</label><select name="category">${CV.STOP_CATEGORIES.map((c) => `<option value="${c.k}" ${dVal("category") === c.k ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</select></div>
+        <div class="row"><div class="field grow"><label>Heure</label><input type="time" name="hhmm" value="${esc(dVal("hhmm"))}">
           <p class="help">Vide quand il n'y a pas de photo : l'app n'invente pas d'heure.</p></div></div>
         <div class="field"><label>À partir d'ici, je voyage…</label>
-          <select name="transport">${[["", "comme avant"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, `${v.icon} ${v.label}`])].map(([k, lab]) => `<option value="${k}" ${(cur.transport || "") === k ? "selected" : ""}>${lab}</option>`).join("")}</select>
+          <select name="transport">${[["", "comme avant"], ...Object.entries(BVMAP.MODES).map(([k, v]) => [k, `${v.icon} ${v.label}`])].map(([k, lab]) => `<option value="${k}" ${dVal("transport") === k ? "selected" : ""}>${lab}</option>`).join("")}</select>
           <p class="help">Le parking porte « à pied » quand la photo d'avant portait « voiture » : sans ça, la voiture irait jusqu'à la porte du musée.</p></div>
-        <div class="field"><label>Une note, si tu veux</label><input name="note" value="${esc(cur.note || "")}" placeholder="La lumière de fin d'après-midi"></div>
+        <div class="field"><label>Une note, si tu veux</label><input name="note" value="${esc(dVal("note"))}" placeholder="La lumière de fin d'après-midi"></div>
         ${(cur.media_ids || []).length ? `<p class="small muted">${cur.media_ids.length} photo${cur.media_ids.length > 1 ? "s" : ""} rattachée${cur.media_ids.length > 1 ? "s" : ""} à cet arrêt.</p>` : ""}
         <div class="actions sticky">
           ${!isNew ? `<button type="button" class="btn icon ghost danger" id="sdel" title="Supprimer cet arrêt">${ic("trash")}</button>` : ""}<span class="grow"></span>
@@ -1611,17 +1637,14 @@
       // sans un mot et la saisie partait en silence. Les trois portes qui la referment
       // (« Annuler », un doigt à côté de la fenêtre, Échap) passent toutes par `tryClose` :
       // une seule garde les couvre. « Enregistrer » et la corbeille ferment directement.
-      { guard: () => dirty(), guardText: () => perdu() });
+      { guard: () => garde && dirty(), guardText: () => perdu() });
     const f = $("#sf", m.el);
     // #51 · UNE SEULE LISTE : ce qui part en base. La garde et la phrase de la question la
     // parcourent ; aucune des deux n'écrit la sienne à côté. `from === "cur"` relit l'état
     // d'ouverture avec les MÊMES expressions que les `value=` du formulaire ci-dessus —
     // d'où : ouvrir une fiche et la refermer aussitôt ne change rien, donc ne demande rien.
     const stopFields = (from) => {
-      const fd = from === "cur"
-        ? { name: cur.name || "", category: cur.category || "autre", note: cur.note || "",
-            hhmm: cur.at_time ? toLocalTime(cur.at_time) : "", transport: cur.transport || "" }
-        : Object.fromEntries(new FormData(f));
+      const fd = from === "cur" ? champsCur() : Object.fromEntries(new FormData(f));
       // Le champ « Heure » ne descend qu'à la minute ; `at_time` en base porte des secondes.
       // Tant qu'il montre la même minute que l'heure enregistrée, on garde celle-ci telle
       // quelle — sinon la fiche se croirait modifiée à chaque ouverture (v10.38).
@@ -1658,6 +1681,14 @@
       return isNew ? `Cet arrêt ne sera pas créé. Ce qui part : ${quoi}. Fermer quand même ?`
         : `Ce qui n'est pas enregistré : ${quoi}. Fermer quand même ?`;
     };
+    // #72 lot 2 · Gardé À CHAQUE FRAPPE, comme la fiche journée. La liste des champs
+    // écrits est celle de `champsCur` — la même que le gabarit et que la garde.
+    const champsForm = () => { const fd = Object.fromEntries(new FormData(f)), o = {};
+      Object.keys(dBase).forEach((k) => { o[k] = fd[k] ?? ""; }); return o; };
+    const saveDraft = () => { if (dirty()) OFF.LS.set(dKey, champsForm()); else OFF.LS.del(dKey); };
+    Object.keys(dBase).forEach((k) => { const el = f[k]; if (!el) return;
+      el.addEventListener("input", saveDraft); el.addEventListener("change", saveDraft); });
+
     f.onsubmit = async (e) => {
       e.preventDefault();
       const fields = stopFields();
@@ -1665,14 +1696,15 @@
       try {
         if (isNew) { const r = await API.createStop(S.cur.trip.id, fields); S.cur.stops.push(r); }
         else { const r = await API.updateStop(st.id, fields); Object.assign(st, r); }
+        OFF.LS.del(dKey);                     // enregistré : le brouillon n'a plus lieu d'être
         saveLocal(); redraw(); m.close(); if (after) after();
         toast(isNew ? "Arrêt ajouté" : "Arrêt modifié", "ok");
-      } catch (err) { errToast(err, 6000); }
+      } catch (err) { errToast(err, 6000); }   // la fiche reste ouverte, le brouillon aussi
     };
     const del = $("#sdel", m.el);
     if (del) del.onclick = async () => {
       if (!(await confirm("Supprimer cet arrêt ? (les photos, elles, restent)"))) return;
-      try { await API.deleteStop(st.id); S.cur.stops = S.cur.stops.filter((x) => x.id !== st.id); saveLocal(); redraw(); m.close(); if (after) after(); }
+      try { await API.deleteStop(st.id); S.cur.stops = S.cur.stops.filter((x) => x.id !== st.id); OFF.LS.del(dKey); saveLocal(); redraw(); m.close(); if (after) after(); }
       catch (err) { errToast(err); }
     };
   }

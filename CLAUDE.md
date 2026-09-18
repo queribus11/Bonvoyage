@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.62**
+- Version actuelle : **v10.63**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -1170,6 +1170,60 @@ suit `S.dayFilter`), et le retour au voyage entier reste dans le panneau.
 - **Ce qu'on ne peut pas vérifier se dit** : je prouve que le rectangle visé suit le filtre — ça
   se lit dans le code — mais **je ne peux pas voir la caméra bouger**, le moteur de carte étant
   refusé par le proxy. Cette partie-là, seule Sophie la juge (v10.46).
+
+### Les leçons de la v10.63 (#72 lot 2 clos, #75) — conserver, et un nom qui manquait
+
+**#72 · La fiche d'arrêt garde sa saisie**, à chaque frappe, comme la fiche journée — et son
+bouton passe donc à **« Fermer »** : *une fiche qui garde sa saisie ne s'annule pas* (v10.59).
+
+- 🔴 **CE QUI IDENTIFIE LE BROUILLON D'UN OBJET QUI N'EXISTE PAS ENCORE.** Une journée a sa
+  date ; un arrêt neuf n'a rien. Deux écueils opposés, et il faut passer entre les deux :
+  **la coordonnée exacte** (les 6 décimales de `stopFromPoint`, ~10 cm) n'aurait **jamais**
+  rien restauré — un doigt ne retombe pas deux fois au même endroit ; **une clé globale ou
+  « la journée »** ferait réapparaître le nom d'un **autre lieu**. La clé est donc le point
+  posé sur la carte **arrondi à ~11 m** (`stopDraftKey`, `js/app.js`). *Une conservation qui
+  ressuscite une valeur fausse est pire qu'une perte : elle écrit dans le carnet.*
+- 🔴 **LA GARDE DU LOT 1 NE DISPARAÎT PAS : ELLE DEVIENT UN FILET.** `OFF.LS.set` rend déjà
+  `true`/`false` — une **écriture d'essai à l'ouverture**, avant la première frappe, dit si le
+  stockage accepte. S'il refuse (Safari en navigation privée, mémoire pleine), la question
+  revient **et** le mot reste « Annuler ». *Une conservation silencieusement inopérante aurait
+  rendu le lot 1 inutile sans que personne le sache ; et le mot suit ce que le code fait
+  vraiment, jamais ce qu'on espérait qu'il fasse.*
+- **Conserver n'est pas créer.** `API.createStop` n'a que **deux** appelants, dont un qui
+  n'ouvre pas la fiche : une saisie abandonnée ne laisse **aucun** arrêt fantôme sur la carte.
+  *Avant de conserver, vérifier que l'objet conservé n'existe pas déjà quelque part.*
+- **Le prix, assumé et à dire** : il n'y a plus de geste d'abandon. Un nom tapé par erreur
+  revient à la réouverture, par-dessus le nom enregistré — **exactement la propriété que la
+  fiche journée a déjà** et que Sophie a acceptée (*« Fermer n'annule pas, ça repousse »*).
+
+**#75 · La colonne de l'atelier s'efface pendant le survol.**
+
+- 🔴 **Ce qui ressemblait à « un côté contre l'autre » était UN NOM QUI MANQUAIT dans une
+  liste.** L'inventaire, élément par élément : la règle nommait déjà le **zoom** et les **fonds
+  de carte**, qui existent **dans l'atelier comme chez le proche** — elle les y effaçait donc
+  déjà. Elle nommait `.map-rail` (le proche) et oubliait `.map-tools` (l'atelier). *Le
+  correctif tient en un sélecteur ; c'est l'inventaire qui valait le lot.*
+- 🔴 **Effacer des commandes ne doit jamais effacer LA SORTIE (règle 13).** Des deux côtés, la
+  sortie du survol vit dans `.replay-overlay`, que la règle n'a jamais touché — c'est
+  précisément pourquoi le proche, dont le rail s'efface depuis toujours, n'a enfermé personne.
+  Mesuré pendant le survol : « Arrêter » **visible, cliquable, au même pixel**, et
+  `elementFromPoint` en son milieu tombe bien dessus. *Ne jamais ajouter `.replay-overlay` à
+  cette règle.*
+- **Bénéfice de bord** : « Revoir », dans la colonne, **relançait** le survol au lieu de
+  l'arrêter (contrairement au « Revoir » de la fiche journée). L'effacer le met hors
+  d'atteinte — mieux, sans toucher au code. *Signalé, pas corrigé.*
+
+**Et deux fois le même instrument faux, dans deux familles :**
+- **« visible mais intouchable » est le BON état pour une légende**, le mauvais pour un bouton.
+  `.replay-overlay` porte `pointer-events: none` et seuls ses boutons le reprennent : ma sonde
+  comptait le cartouche du survol comme un défaut. *Une sonde de visibilité doit distinguer ce
+  qui se lit de ce qui se touche.*
+- **Deux tranches de code extraites qui se chevauchent injectent le même bloc deux fois.**
+  Le banc refusait de se charger. *Quand on insère du code entre deux bornes d'extraction,
+  relire les bornes — c'est le banc qu'on vient de casser, pas le code.*
+- **Troisième fois ce mois-ci** : une **apostrophe inverse dans un commentaire** placé à
+  l'intérieur d'un gabarit de texte ferme le gabarit. Les commentaires d'un générateur de page
+  n'en portent plus.
 
 ---
 

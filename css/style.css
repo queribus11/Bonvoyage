@@ -647,7 +647,15 @@ html.is-dark .story .intro::first-letter { color: var(--ink); }
 .stop-pick .nm { display: block; font-weight: 700; overflow-wrap: anywhere; }
 .stop-pick .meta { display: block; font-size: 12px; color: var(--muted); }
 
-.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .map-bas, .replaying .map-rail { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
+/* #75 · Pendant le survol, les commandes de la carte s'effacent — DES DEUX CÔTÉS.
+   La règle nommait déjà le zoom et les fonds de carte, qui existent dans l'atelier COMME
+   chez le proche ; elle nommait `.map-rail`, la colonne du proche, et oubliait `.map-tools`,
+   celle de l'atelier. Ce n'était pas « un côté contre l'autre », c'était un nom qui manquait.
+   ⚠️ La SORTIE du survol n'est dans aucune des deux colonnes : elle vit dans
+   `.replay-overlay`, que cette règle ne touche pas — sans quoi Sophie serait enfermée
+   dans le survol (règle 13). Ne jamais y ajouter `.replay-overlay`. */
+.replaying .maplibregl-ctrl-group, .replaying .bv-layers, .replaying .map-bas,
+.replaying .map-rail, .replaying .map-tools { opacity: 0; pointer-events: none; transition: opacity var(--t-mid); }
 /* Valdo qui marche sur le trajet pendant le survol */
 .bv-walker { width: 66px; height: 44px; pointer-events: none; }
 .bv-walker .in { width: 66px; height: 44px; position: relative; filter: drop-shadow(0 5px 7px rgba(18,63,102,.45)); }
