@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.54**
+- Version actuelle : **v10.55**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -793,6 +793,76 @@ d'Algarve sans camp de Tavira : le voyage passe de **36 871 km à 1 587 km**.
 infraction : c'était un **second plafond que personne n'avait écrit**. *Quand une mesure
 s'écarte durablement d'une règle sans que personne ne s'en plaigne, se demander si ce n'est pas
 un usage différent — avant de corriger le code.*
+
+### Les leçons de la v10.55 (#63, #66) — replier la carte, et rendre une sortie
+
+**#63 a changé de nature en cours de route, et c'est la leçon principale.** La demande
+d'origine — « réduire la carte du proche, reprendre la taille de l'atelier » — était
+**inexécutable, pas difficile** : l'atelier n'a pas de hauteur de carte (`#map { flex: 1 }`,
+sa carte est *ce qui reste* à côté d'un panneau à `46svh`).
+**Le chiffre, une fois pour toutes : la carte de l'atelier vaut `100svh − 46svh = 54svh`** —
+516 px à 440 × 956, 460 px à 393 × 852. Les quatre habillages (`.trip-header`, `.map-tools`,
+`.day-card`, `.replay-overlay.app`) sont tous en `position: absolute`, donc hors du flux : le
+panneau est le SEUL frère de la carte. Ne plus le rechercher.
+Contre 58svh chez le proche, l'écart est de **38 px, quatre points**. Recopier n'aurait rien donné de perceptible.
+Remise devant ce fait, Sophie a demandé **un geste, pas une taille**. *Quand une demande cite
+une valeur à recopier, vérifier que cette valeur existe avant de planifier quoi que ce soit —
+elle est parfois un effet de bord, pas un réglage.*
+
+- 🔴 **Une commande nouvelle sur la carte du lecteur rejoint le RAIL — la règle 11 tient même
+  quand le mot de la demande dit le contraire.** Sophie avait dit « une poignée, comme
+  l'atelier ». La poignée aurait fabriqué une **seconde zone de contrôles**, et donné un
+  **troisième sens** au glissement vertical — en plein sur le terrain de #50. La question lui
+  a été posée avec son coût : elle a choisi le rail. Bénéfice imprévu : ses proches, qui n'ont
+  jamais vu la barrette de l'atelier, lisent **un mot** (« Replier » / « Déployer ») au lieu
+  de deviner un rectangle de 36 × 4 px.
+- 🔴 **Un plancher en pixels ne veut pas dire la même chose sur deux téléphones.**
+  `min-height: 420px` valait **44 %** de l'écran de Sophie mais **49 %** de celui de son fils
+  (393 × 852) : le garder, c'était n'avoir **aucun repli** sur l'iPhone 16. Il est parti.
+  *Un plancher exprimé dans une autre unité que la mesure qu'il borne est un piège qui dort.*
+- 🔴 **Et le plancher qu'il fallait vraiment : « la carte repliée doit contenir ses propres
+  boutons ».** Mesuré, pas deviné : le rail fait 12 + 4×44 + 3×8 = 212 px. À 393 × 852, 24svh
+  ne vaut que 204 — le bouton « Déployer » **débordait de 8 px sur le récit**, et seulement
+  sur ce téléphone-là. D'où `max(24svh, 224px)`. **Un bouton de plus dans le rail et ce
+  nombre monte de 52** : c'est le banc qui le vérifie, pas l'œil.
+- **Un recouvrement se teste dans LES DEUX SENS.** La sonde compare les rectangles en x *et*
+  en y (la faute de la v10.52, corrigée depuis) — c'est elle qui a trouvé le débordement du
+  rail, qu'aucune capture à 440 ne montrait.
+- 🔴 **Une hauteur écrite à DEUX endroits ment dès le premier repli.** `#share-map` portait
+  `58vh`, et `body.map-stuck .day-section { scroll-margin-top: calc(58vh + 16px) }` la
+  recopiait — restée en `vh` quand tout le reste était passé en `svh` (v10.48). Les deux lisent
+  désormais **une seule variable**, `--carte-h`. *Quatrième fois ce mois-ci : le remède n'est
+  jamais de synchroniser deux listes, c'est de n'en avoir qu'une.*
+- 🔴 **`readLine()` se recalcule seule ; les bandes d'élection, NON.** C'est le seul vrai point
+  de rupture de #64, et il ne se voit pas à la lecture : `readLine` mesure la carte à chaque
+  appel (elle suit), mais le `rootMargin` d'un `IntersectionObserver` est **figé à la
+  création**. Sans `armFollow()` après le repli, l'élection viserait encore l'ancienne carte.
+  Mesuré : la bande des journées passe de `-73% 0px -15%` à `-56% 0px -32%`. *Chercher partout
+  ce motif : une valeur qui se recalcule à côté d'une valeur qui ne se recalcule pas.*
+- **Une sonde de mise en page se contrôle sur un chiffre CONNU.** La première version du banc
+  annonçait `innerHeight = 991` pour un écran de 956 (35 px de trop, dus à l'émulation
+  « mobile ») et rendait une ligne de lecture de 772,7 px. Corrigée, elle rend **755,2** —
+  exactement le chiffre du dossier #64. *Si le banc ne retrouve pas un nombre déjà mesuré,
+  c'est le banc qu'on corrige, pas le code.*
+
+**#66 · L'inventaire vaut plus que le correctif.** 19 fenêtres passées en revue, **une seule**
+sans aucune sortie : « Nouveau mot de passe » n'avait que « Changer ». Elle a « Annuler ».
+
+- **Ma première sonde comptait 11 infractions ; il y en avait 1.** Dix fenêtres portaient leur
+  sortie **sur une autre ligne** que la barre de boutons (une tête de fenêtre, un « Retour »,
+  un « Plus tard »). *Un instrument qui compte onze là où il y en a une ne distingue rien* —
+  la leçon de la v10.50, reprise à la lettre : c'est la lecture des dix-neuf fenêtres, une par
+  une, qui a tranché.
+- 🔴 **Un second constat, laissé ouvert exprès : CINQ fenêtres n'ont pour sortie qu'une croix
+  muette avec une infobulle** — fiche journée, visionneuse photo, camp de base, fiche d'arrêt,
+  « Qui a accès ». C'est la **règle 10** au pied de la lettre. Cinq, c'est un autre lot, et
+  Sophie doit dire si une croix lui suffit : aucune des cinq ne l'a jamais bloquée.
+  ⛔ **C'est le sujet #68, et c'est une DÉCISION EN ATTENTE, pas un oubli — ne pas y toucher.**
+  Sophie l'a dit en toutes lettres le 18/09. Une séance qui « corrigerait » ces cinq croix par
+  zèle déferait un choix qu'elle n'a pas encore fait. *Ne pas corriger en masse une règle qu'on
+  vient de rouvrir — la poser d'abord.*
+- **Les barres collantes, elles, sont en règle** : les six fenêtres longues ont toutes
+  `class="actions sticky"`. Le contrôle proposé en #67 n'aurait rien trouvé de plus ici.
 
 ---
 

@@ -1,0 +1,18 @@
+v10.55 — #63 : la carte de la page du proche se replie · #66 : une fenêtre sans sortie
+
+#63 · Deux crans, et un bouton qui porte un MOT. « Replier » / « Déployer » rejoint le rail
+de la carte (règle 11 : une seule zone de contrôles) — pas de poignée sur le bord, qui aurait
+fabriqué une seconde zone et un troisième sens au glissement vertical (#50).
+Déployée 58svh, repliée 24svh : 554 → 229 px sur l'iPhone de Sophie, 494 → 224 px sur celui
+de son fils. La hauteur par défaut ne change pas : c'est une liberté, pas une réduction.
+
+#66 · « Nouveau mot de passe » n'avait AUCUN bouton pour sortir — seulement « Changer ».
+Elle a maintenant « Annuler », à gauche, comme partout ailleurs. Inventaire complet :
+19 fenêtres, une seule en infraction, celle-là.
+
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-54.txt donne 404, c'est bien
+la v10.55 qui est servie.
+
+LE MOT QUI DISPARAÎT du code servi : « min-height: 420px » — le plancher de la carte du
+proche, dans css/style.css. Il valait 49 % de l'écran sur l'iPhone 16 du fils de Sophie :
+le garder, c'était n'avoir aucun repli sur son téléphone. Aucun cache ne supprime un mot.

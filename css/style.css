@@ -367,7 +367,25 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
    main plus bas. */
 #map-sentinel { height: 1px; margin-bottom: -1px; }
 .share-map-wrap { position: sticky; top: 0; z-index: 20; margin: 0; border-radius: 0 0 20px 20px; overflow: hidden; }
-#share-map { height: 58vh; min-height: 420px; background: #DCEBF7; }
+/* #63 · DEUX CRANS, et rien d'autre : la carte se replie pour laisser lire, elle ne
+   s'agrandit pas — le plein écran existe déjà (`.share-map-wrap.big`, plus bas), et le
+   projet dit de ne pas ajouter une commande quand une existante fait le travail.
+   `svh` et non `vh` : c'est la hauteur la PLUS PETITE, celle qui ne bouge pas quand la
+   barre de Safari apparaît (v10.48). `share.html` était le dernier endroit resté en `vh`.
+   Et le plancher de 420 px a disparu : il valait 49svh sur l'iPhone 16 (393 × 852) du fils
+   de Sophie — le garder, c'était n'avoir AUCUN repli sur son téléphone. */
+:root { --carte-h: 58svh; }
+/* 🔴 Repliée, la carte doit AU MOINS contenir ses propres boutons. Mesuré : le rail fait
+   12 px de marge + 4 boutons de 44 + 3 espaces de 8 = 212, et 12 px de marge en bas → 224.
+   Sans ce plancher, à 393 × 852 (l'iPhone du fils de Sophie) 24svh ne vaut que 204 px et
+   le bouton « Déployer » débordait de 8 px SUR le récit. Un bouton de plus dans le rail,
+   et ce nombre monte de 52 : le banc le vérifie, il ne se surveille pas à l'œil. */
+body.carte-repliee { --carte-h: max(24svh, 224px); }
+#share-map { height: var(--carte-h); background: #DCEBF7; transition: height var(--t-mid) var(--ease); }
+/* Le chevron du bouton montre où va la carte : vers le haut quand elle se replie, vers le
+   bas quand elle se déploie. Pas de picto neuf — c'est `chevron-right` qu'on tourne. */
+.map-btn.plier svg.i { transform: rotate(-90deg); transition: transform var(--t-fast) var(--ease); }
+body.carte-repliee .map-btn.plier svg.i { transform: rotate(90deg); }
 /* Les dégradés ne prennent aucun geste : la carte reste manipulable dessous. */
 .share-map-wrap::before, .share-map-wrap::after { content: ""; position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; }
 .share-map-wrap::before { top: 0; height: 120px; background: linear-gradient(to bottom, rgba(10,16,24,.55), rgba(10,16,24,0)); }
@@ -382,7 +400,9 @@ img.fade { opacity: 0; transition: opacity 300ms; } img.fade.loaded { opacity: 1
 .share-map-wrap .maplibregl-ctrl-bottom-right { z-index: 3; bottom: 34px; right: 12px; }
 .share-map-wrap .maplibregl-ctrl-attrib, .is-dark .share-map-wrap .maplibregl-ctrl-attrib { font-size: 8.5px; opacity: .42; background: transparent; }
 /* Les journées se posent sous la carte collée quand on saute à l'une d'elles */
-body.map-stuck .day-section { scroll-margin-top: calc(58vh + 16px); }
+/* La même hauteur, lue et non recopiée : écrite à côté, elle aurait menti dès le premier
+   repli — et elle était restée en `vh` quand tout le reste est passé en `svh`. */
+body.map-stuck .day-section { scroll-margin-top: calc(var(--carte-h) + 16px); }
 /* #37 · Le rail : trois boutons ronds, muets, avec infobulle — le motif du bouton Pause
    du survol, déjà en place sur cette page. */
 .map-rail { position: absolute; right: 12px; top: calc(12px + var(--safe-t)); z-index: 6; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
