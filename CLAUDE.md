@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.63**
+- Version actuelle : **v10.64**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -1224,6 +1224,39 @@ bouton passe donc à **« Fermer »** : *une fiche qui garde sa saisie ne s'annu
 - **Troisième fois ce mois-ci** : une **apostrophe inverse dans un commentaire** placé à
   l'intérieur d'un gabarit de texte ferme le gabarit. Les commentaires d'un générateur de page
   n'en portent plus.
+
+### Les leçons de la v10.64 (#74 clos) — l'image avant la ligne, et le fond sombre qui tranche
+
+La **dernière croix muette** de l'app était dans la **visionneuse de la page du proche** —
+celle que toute la famille ouvre. Le brief exigeait **une image avant la ligne de code** :
+c'est la bonne exigence, et c'est elle le vrai contenu du lot.
+
+- 🔴 **C'EST LE FOND SOMBRE QUI A TRANCHÉ, PAS LE FOND CLAIR.** Sur un ciel surexposé, les
+  trois réglages restaient lisibles — le clair ne départageait rien. Sur une photo de nuit, le
+  réglage d'aujourd'hui (`rgba(11,22,34,.5)`, sans liseré) **n'a plus aucun contour** : la
+  pastille disparaît dans la photo et le mot flotte seul. *Rendre sur les deux extrêmes n'est
+  pas « deux fois plus de travail » : la moitié du temps, un seul des deux dit quelque chose —
+  et on ne sait pas lequel d'avance.*
+- 🔴 **DIRE CE QUE LE BANC NE PEUT PAS DÉPARTAGER.** Deux des trois réglages ne différaient que
+  par le flou d'arrière-plan — et **sur un aplat, un flou n'a rien à flouter**. Je l'ai dit au
+  lieu de trancher ; Sophie a demandé ses vraies photos, puis a choisi **sans elles**, en
+  connaissance de cause. *Un « je ne peux pas juger ceci » vaut mieux qu'un choix présenté
+  comme mesuré alors qu'il ne l'est pas.*
+- **Elle a écarté ma recommandation, et c'est le bon résultat** : j'avais conseillé de garder le
+  flou propre à cet écran ; elle a pris le réglage de l'atelier **recopié tel quel**, flou
+  compris — c'est-à-dire **sans flou**. *« Deux écrans qui font la même chose gagnent à se
+  ressembler » l'a emporté sur un avantage que personne n'avait pu voir.*
+- 🔴 **Nommer une sortie oblige encore à lire ce qu'elle fait — et ça a encore trouvé quelque
+  chose.** `close()` (`js/share.js`) arrête un enregistrement vocal commencé et **détruit le mot
+  qu'un proche est en train d'écrire** dans la feuille des mots (`renderSheet` →
+  `commentFormHtml`). C'est #72, sur la page du proche. **Le mot reste « Fermer »** — on y
+  *regarde* une photo, et la feuille des mots est un sous-écran avec sa propre sortie — mais
+  **le défaut est signalé, pas corrigé** : c'est une décision de Sophie.
+- **L'inventaire refait après coup, et c'est lui la preuve** : **zéro croix muette dans toute
+  l'app**, atelier et page du proche réunis. Le compte se refait, il ne se déduit pas.
+- **Restent, hors périmètre et signalées** : la **poignée** de la feuille des mots, sortie sans
+  libellé elle aussi ; et le fait que la barre du haut **s'efface au toucher** (`chrome-off`) —
+  un second toucher la ramène.
 
 ---
 

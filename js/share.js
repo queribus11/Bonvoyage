@@ -1065,7 +1065,7 @@
     back.innerHTML = `<div class="bv-lb-stage" id="lb-stage"><div class="bv-lb-frame" id="lb-frame"></div></div>
       <div class="bv-lb-top">
         <span class="bv-lb-count" id="lb-count"></span>
-        <button type="button" class="bv-lb-btn" id="lb-close" title="Fermer" aria-label="Fermer la photo">${ic("close")}</button>
+        <button type="button" class="bv-lb-btn mot" id="lb-close" aria-label="Fermer la photo">Fermer</button>
       </div>
       <button type="button" class="bv-lb-nav prev" id="lb-prev" title="Photo précédente" aria-label="Photo précédente">${ic("chevron-left")}</button>
       <button type="button" class="bv-lb-nav next" id="lb-next" title="Photo suivante" aria-label="Photo suivante">${ic("chevron-right")}</button>
