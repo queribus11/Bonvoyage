@@ -957,8 +957,9 @@ window.BVMAP = (() => {
       }
       return { iso, coords, modes, legs, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
     }).filter((d) => d.coords.length >= 2 || d.photos.length)
-      // #61 · ÉTEINT PAR DÉFAUT. Tant que Sophie n'a pas choisi au doigt, le survol est
-      // exactement celui de la v10.43. Voir couperEnSequences juste en dessous.
+      // #61 · v10.46 · ALLUMÉ aux deux endroits qui survolent (`js/app.js`, `js/share.js`),
+      // après que Sophie a jugé les trois variantes au doigt : c'est la variante A, la coupe
+      // avec le recul d'aujourd'hui. Voir couperEnSequences juste en dessous.
       .flatMap((d) => (options.sequences ? couperEnSequences(d) : [d]));
     if (!days.length) { M.replaying = false; return null; }
 
