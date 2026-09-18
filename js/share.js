@@ -250,7 +250,10 @@
 
     function jourRender(iso, noms) {
       const n = dayNumber(D.trip, iso), couleur = CV.colorForDay(days, iso);
-      const km = D.tracks.filter((t) => t.day_date === iso).reduce((a, t) => a + (t.distance_m || 0), 0);
+      // v10.47 · Le CHIFFRE vient de `CV.dayDistance`, comme partout ailleurs : il compte donc
+      // enfin les tronçons vers le camp, et il sait porter un « ≈ ». Seul le FORMAT reste
+      // local, pour la raison dite juste en dessous.
+      const dd = CV.dayDistance(D, iso), km = dd.m;
       const nb = D.media.filter((m) => m.day_date === iso && (m.kind || "photo") === "photo").length;
       // Pas de nom : pas de ligne. Un seul nom : on dit lequel, plutôt qu'une flèche bancale.
       const trajet = noms.depart && noms.arrivee ? `${esc(noms.depart)} → ${esc(noms.arrivee)}`
@@ -258,7 +261,7 @@
         : noms.arrivee ? `arrivée ${esc(noms.arrivee)}` : "";
       // Ici la distance porte une décimale — « 12,4 km » — parce que c'est le chiffre d'UNE
       // journée : arrondi au kilomètre, deux journées voisines se ressemblent toutes.
-      const kmTxt = km >= 1000 && km < 100000 ? (km / 1000).toFixed(1).replace(".", ",") + " km" : (km ? fmtDistance(km) : "");
+      const kmTxt = (km ? (dd.est ? "≈ " : "") : "") + (km >= 1000 && km < 100000 ? (km / 1000).toFixed(1).replace(".", ",") + " km" : (km ? fmtDistance(km) : ""));
       const meta = [kmTxt, nb ? `${nb} photo${nb > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
       $("#jour-info").innerHTML =
         `<div class="l1">${n != null ? `<i class="num" style="background:${couleur}">${n}</i>` : ""}<b>${esc(fmtDate(iso))}</b></div>`
@@ -425,10 +428,13 @@
           // sans chiffres, la seconde ligne n'existe pas.
           onDay: (iso, info) => {
             const d = D.days.find((x) => x.day_date === iso) || {};
-            const strong = d.title || d.place || (info.n ? "Jour " + info.n : fmtDate(iso, false));
+            // v10.47 · La distance vient de `CV.fmtDayDistance`, comme l'en-tête de journée du
+            // récit : même chiffre, même « ≈ ». Et `info.n != null` — le numéro 0 d'une journée
+            // datée la veille du départ est faux en JavaScript (leçon de la v10.42).
+            const strong = d.title || d.place || (info.n != null ? "Jour " + info.n : fmtDate(iso, false));
             const light = d.title && d.place ? d.place : "";
-            const meta = [info.km ? fmtDistance(info.km * 1000) : "", info.photos ? `${info.photos} photo${info.photos > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
-            $("#replay-caption").innerHTML = `<div class="line">${info.n ? `<i class="num" style="background:${CV.colorForDay(days, iso)}">${info.n}</i>` : ""}<b>${esc(strong)}</b>${light ? `<span>${esc(light)}</span>` : ""}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}`;
+            const meta = [CV.fmtDayDistance(info.dist), info.photos ? `${info.photos} photo${info.photos > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ");
+            $("#replay-caption").innerHTML = `<div class="line">${info.n != null ? `<i class="num" style="background:${CV.colorForDay(days, iso)}">${info.n}</i>` : ""}<b>${esc(strong)}</b>${light ? `<span>${esc(light)}</span>` : ""}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}`;
           },
           onDone: () => {
             $("#replay-overlay").hidden = true;

@@ -427,7 +427,10 @@
       sequences: true,
       dayList: allDays(), only, speed: () => tripSpeed(), dayNumber: (iso) => dayNumber(S.cur.trip, iso),
       onPause: (p) => { pauseBtn.innerHTML = p ? `${ic("play", "sm")}` : `${ic("pause", "sm")}`; pauseBtn.title = p ? "Reprendre" : "Pause"; },
-      onDay: (iso, info) => { const d = dayInfo(iso) || {}; $("#app-replay-caption").innerHTML = `<b>${info.n ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${info.km ? `<span>${fmtDistance(info.km * 1000)}</span>` : ""}`; },
+      // v10.47 · La distance vient de `CV.fmtDayDistance`, comme la liste des journées et la
+      // fiche journée : même chiffre, même « ≈ ». Et `info.n != null`, parce qu'une journée
+      // datée la veille du départ porte le numéro 0 — qui est faux en JavaScript (v10.42).
+      onDay: (iso, info) => { const d = dayInfo(iso) || {}; const km = CV.fmtDayDistance(info.dist); $("#app-replay-caption").innerHTML = `<b>${info.n != null ? "Jour " + info.n : fmtDate(iso, false)}</b>${d.title ? ` · ${esc(d.title)}` : ""}${d.place ? `<span>${esc(d.place)}</span>` : ""}${km ? `<span>${km}</span>` : ""}`; },
       onDone: () => { $("#app-replay").hidden = true; if (opts.onDone) opts.onDone(); },
     }), 450);
   }
@@ -1202,7 +1205,10 @@
   // Interpole la position sur les traces GPS à un instant donné (±10 min)
   function positionFromTracks(ts) {
     let best = null, bestDt = 10 * 60 * 1000;
-    for (const tr of S.cur.tracks) for (const p of tr.points || []) {
+    // #34 · On ne place pas une photo d'après une heure inventée. Un itinéraire calculé
+    // portait une seconde par point, à partir de 8 h du matin : chercher « où étais-tu à
+    // 14 h 03 » dedans revenait à tirer un point au hasard sur la route.
+    for (const tr of S.cur.tracks.filter(CV.heuresFiables)) for (const p of tr.points || []) {
       if (!p.t) continue;
       const dt = Math.abs(p.t - ts);
       if (dt < bestDt) { bestDt = dt; best = p; }

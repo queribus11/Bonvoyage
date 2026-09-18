@@ -1,0 +1,8 @@
+v10.47 — « les chiffres disent tous la même chose ». La fiche du survol et le
+cartouche de la journée immobile lisent la même distance que le récit ; la durée
+fabriquée d'un itinéraire calculé (#34) a disparu, avec les heures inventées qui
+la produisaient.
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-46.txt donne 404,
+c'est bien la v10.47 qui est servie.
+Preuve de nature, qu'aucun cache ne peut fabriquer : « heuresFiables » existe
+dans js/common.js, et n'a jamais existé avant.

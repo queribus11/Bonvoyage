@@ -76,8 +76,11 @@
     let out = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Bonvoyage" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${esc(trip.title)}</name></metadata>\n`;
     for (const tr of tracks) {
       out += `<trk><name>${esc(tr.name || tr.day_date)}</name><trkseg>\n`;
+      // #34 · Un itinéraire calculé sort SANS heures : elles étaient fabriquées, et un fichier
+      // GPX qui les emporte les fait passer pour des relevés chez qui l'ouvrira.
+      const heures = heuresFiables(tr);
       for (const p of tr.points) {
-        out += `<trkpt lat="${p.lat}" lon="${p.lng}">${p.alt != null ? `<ele>${p.alt}</ele>` : ""}${p.t ? `<time>${new Date(p.t).toISOString()}</time>` : ""}</trkpt>\n`;
+        out += `<trkpt lat="${p.lat}" lon="${p.lng}">${p.alt != null ? `<ele>${p.alt}</ele>` : ""}${heures && p.t ? `<time>${new Date(p.t).toISOString()}</time>` : ""}</trkpt>\n`;
       }
       out += `</trkseg></trk>\n`;
     }
@@ -95,21 +98,37 @@
     return c[(i < 0 ? 0 : i) % c.length];
   }
 
+  // #34 · LA question, posée une seule fois : peut-on croire les heures de cette trace ?
+  //
+  // Une trace « route » (« Tracer l'itinéraire ») vient d'OSRM, pas d'un GPS. Son tracé est
+  // juste, ses heures ne le sont pas : `buildRoute` leur donnait une seconde par point, ce qui
+  // faisait annoncer « 1 h 16 » pour un itinéraire de 4 560 points — le nombre de points,
+  // déguisé en durée. Depuis la v10.47 elles ne sont plus fabriquées ; mais les traces DÉJÀ
+  // enregistrées gardent les leurs, et c'est cette règle-ci qui les neutralise.
+  //
+  // Une seule liste, trois lecteurs : la durée (dayStats), la position d'une photo sans GPS
+  // (positionFromTracks, js/app.js) et l'export GPX (toGPX). Ne pas en écrire une quatrième
+  // à côté : c'est exactement la faute de #51.
+  const heuresFiables = (tr) => !tr || tr.source !== "route";
+
   // Statistiques d'une journée (ou d'un voyage) à partir de ses traces :
   // distance, durée, dénivelé + / -, altitude min / max, profil d'altitude (échantillonné)
   function dayStats(tracks) {
     const trs = (tracks || []).filter((t) => (t.points || []).length);
     const out = { distance_m: trs.reduce((a, t) => a + (t.distance_m || 0), 0), gain: 0, loss: 0, minAlt: null, maxAlt: null, duration_s: 0, profile: [], hasAlt: false, moving: false };
     if (!trs.length) return out;
-    const sorted = trs.slice().sort((a, b) => ((a.points[0] || {}).t || 0) - ((b.points[0] || {}).t || 0));
+    const sorted = trs.slice().sort((a, b) => ((heuresFiables(a) && a.points[0] || {}).t || 0) - ((heuresFiables(b) && b.points[0] || {}).t || 0));
     let cum = 0, prev = null, tStart = null, tEnd = null;
     const samples = [];
     for (const t of sorted) {
+      // #34 · Les heures d'un itinéraire calculé sont fabriquées : elles ne disent rien du
+      // temps passé. On garde sa géométrie (distance, altitude) et on ignore ses heures.
+      const heures = heuresFiables(t);
       for (const p of t.points) {
         if (!p || p.lat == null) continue;
         if (prev) cum += haversine(prev, p);
         prev = p;
-        if (p.t) { if (tStart == null || p.t < tStart) tStart = p.t; if (tEnd == null || p.t > tEnd) tEnd = p.t; }
+        if (heures && p.t) { if (tStart == null || p.t < tStart) tStart = p.t; if (tEnd == null || p.t > tEnd) tEnd = p.t; }
         if (p.alt != null && isFinite(p.alt)) samples.push({ d: cum, alt: +p.alt });
       }
       prev = null; // pas de distance entre deux traces différentes
@@ -203,8 +222,10 @@
     if (!r.ok) throw new Error("Service d'itinéraire indisponible (" + r.status + ")");
     const j = await r.json();
     if (j.code !== "Ok" || !j.routes || !j.routes[0]) throw new Error("Itinéraire introuvable");
-    const t0 = pts[0].t || Date.parse(pts[0].taken_at || "") || Date.now();
-    return j.routes[0].geometry.coordinates.map(([lng, lat], i) => ({ lat: +lat.toFixed(6), lng: +lng.toFixed(6), t: t0 + i * 1000 }));
+    // #34 · Cette fonction posait « une seconde par point » sur la géométrie d'OSRM. Son seul
+    // appelant la jetait déjà ; la garder, c'était laisser le piège armé pour le prochain
+    // appelant. Un itinéraire calculé rend des positions, jamais des heures.
+    return j.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat: +lat.toFixed(6), lng: +lng.toFixed(6) }));
   }
 
   // Itinéraire estimé d'une journée, tronçon par tronçon selon le moyen de locomotion :
@@ -213,10 +234,7 @@
     const legs = window.BVMAP ? BVMAP.estimatedLegs(data, iso) : null;
     if (!legs) return null;
     const pts = [];
-    const push = (lng, lat, t) => { const last = pts[pts.length - 1]; if (last && last.lng === lng && last.lat === lat) return; pts.push({ lat: +lat.toFixed(6), lng: +lng.toFixed(6), t }); };
-    // #38 · le premier bout n'est plus forcément une photo : un camp n'a pas d'heure.
-    // Sans repli, l'horodatage partait de « maintenant » — on prend le jour concerné.
-    let t = Date.parse(legs[0].from.taken_at || legs[0].from.created_at || "") || Date.parse(iso + "T08:00:00") || Date.now();
+    const push = (lng, lat) => { const last = pts[pts.length - 1]; if (last && last.lng === lng && last.lat === lat) return; pts.push({ lat: +lat.toFixed(6), lng: +lng.toFixed(6) }); };
     for (const l of legs) {
       const mode = l.mode && window.BVMAP.MODES[l.mode] ? window.BVMAP.MODES[l.mode] : null;
       let coords = l.coords;
@@ -228,7 +246,10 @@
       if (mode && mode.path === "road" && !trop) {
         try { const r = await roadRoute([{ lat: l.from.lat, lng: l.from.lng }, { lat: l.to.lat, lng: l.to.lng }]); if (r && r.length >= 2) coords = r.map((p) => [p.lng, p.lat]); } catch { /* ligne droite en secours */ }
       }
-      for (const c of coords) { t += 1000; push(c[0], c[1], t); }
+      // #34 · AUCUNE HEURE ICI. Une seconde par point avait été posée pour que la trace
+      // ressemble à un relevé ; personne n'a jamais mesuré ce temps-là. L'app n'invente pas
+      // d'heure : un itinéraire calculé porte sa géométrie, et rien d'autre.
+      for (const c of coords) push(c[0], c[1]);
     }
     return pts.length >= 2 ? pts : null;
   }
@@ -982,6 +1003,6 @@
   window.CV = { cfg, isoDate, today, fmtDate, fmtDateShort, fmtTime, fmtDistance, dayNumber, haversine, trackDistance,
     parseGPX, toGPX, colorForDay, get DAY_COLORS() { return dayColors(); }, dayStats, fmtDuration, profileSvg, placeName, fillPlaces,
     placesAround, osmCategory, osmKind, STOP_CATEGORIES, stopCategoryLabel, photoClusters, timeFromNearbyPhotos, elevationForPoints, fillElevations, roadRoute, buildRoute, resizeImage, prepareImage, readExif, esc, nl2p, toast, progress, download,
-    searchPlaces, parseLatLng, placeFinder, campOpening, campClosing, dayDistance, tripDistance, fmtDayDistance, polyLength,
+    searchPlaces, parseLatLng, placeFinder, campOpening, campClosing, dayDistance, tripDistance, fmtDayDistance, polyLength, heuresFiables,
     audioRecorder, audioHtml, audioExt, audioMime, ic, bigAudio, bindBigAudio, mosaic };
 })();

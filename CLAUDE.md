@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.46**
+- Version actuelle : **v10.47**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -533,6 +533,46 @@ borné à 6 s). Allumer a coûté deux lignes — mais deux autres endroits supp
 - **Ce qu'on ne peut pas vérifier ici se dit.** Tuiles et moteur de carte sont refusés par le
   proxy : le mouvement lui-même n'a été jugé que par Sophie, sur son iPhone. Le banc prouve la
   mécanique (combien de séquences, quels appels), jamais le confort.
+
+### Les leçons de la v10.47 (#34 et le trou n° 1 du survol) — les chiffres disent tous la même chose
+
+Trois écrans affichaient un chiffre **recalculé à côté de sa source**. C'est la leçon de #51
+appliquée aux nombres, et la doctrine du projet : *l'app n'invente pas d'heure et n'invente pas
+de chiffre ; quand elle ne sait pas, elle se tait.*
+
+- 🔴 **Le chiffre fabriqué ne nuit jamais au seul endroit où on l'a repéré.** #34 était connu
+  comme « la durée fausse » (« 1 h 16 » = le nombre de points OSRM moins un, en secondes). La
+  même seconde inventée par point avait **trois** victimes : la durée (`js/app.js`,
+  `js/share.js`), **la position d'une photo sans GPS** (`positionFromTracks` cherchait « où
+  étais-tu à 14 h 03 » dans des heures qui commençaient à 8 h et avançaient d'une seconde par
+  point — un point au hasard sur la route), et **l'export `traces.gpx`**, qui les faisait passer
+  pour des relevés chez qui l'ouvrirait. *Chercher les autres lecteurs avant de corriger le
+  lecteur qu'on a sous les yeux.*
+- 🔴 **Corriger là où le chiffre est fabriqué, pas là où on l'a vu écrit.** La seconde inventée
+  existait bien dans `roadRoute`, mais son unique appelant la **jetait** deux lignes plus loin :
+  les heures réellement enregistrées venaient de `buildRoute`. Corriger `roadRoute` n'aurait
+  rien changé — et le banc l'aurait dit trop tard.
+- **Une correction qui ne répare que les données à venir n'en est pas une.** Les carnets de
+  Sophie contiennent déjà des traces « route » avec leurs heures fabriquées. D'où une règle
+  unique, `heuresFiables(tr)` (`js/common.js`) — *une trace « route » vient d'OSRM, pas d'un
+  GPS* — écrite **une fois** et lue par les trois lecteurs. Ne pas en écrire une quatrième à
+  côté.
+- **Un repli « quand je ne sais pas, zéro » efface l'information au lieu de la marquer.**
+  `km: est ? 0 : …` (`js/map.js`) ne mettait **aucune** distance dans la fiche du survol des
+  journées estimées — c'est-à-dire de **toutes** celles de Sophie, qui écrit ses carnets après
+  coup. Et l'autre branche sommait les seules traces : elle oubliait les tronçons vers le camp
+  et ignorait qu'un « Itinéraire estimé (route) » est une estimation, donc sans « ≈ ». La fiche
+  lit désormais `CV.dayDistance`, comme les trois autres écrans.
+- **Une valeur unique vaut mieux qu'une copie bien tenue.** `couperEnSequences` transportait
+  `_km` à côté de `km: 0` ; comme `dist` est recopié tel quel par `Object.assign`, les deux ont
+  disparu. Une liste de moins à tenir d'accord.
+- **Le format local peut être un choix, pas un oubli.** Le cartouche de la journée immobile
+  affiche « 12,4 km » avec sa décimale, et un commentaire sur place dit pourquoi (*arrondi au
+  kilomètre, deux journées voisines se ressemblent toutes*). On a donc changé **la valeur et le
+  « ≈ »**, pas le format. *Lire le commentaire avant d'uniformiser.*
+- **Le dixième endroit du `0` qui ment.** Les deux fiches de survol testaient encore `info.n ?`
+  alors que `dayNumber` rend `0` pour une journée datée la veille du départ. Neuf endroits
+  avaient été corrigés en v10.42 ; ceux-là avaient été manqués. `n != null`, toujours.
 
 ---
 

@@ -3,7 +3,7 @@
 //  MapLibre GL · satellite (Esri) · relief 3D (tuiles d'altitude AWS) · globe · photos sur la carte · survol du voyage
 //  Aucune clé d'accès nécessaire.
 // ============================================================
-window.BV_VERSION = "10.46";
+window.BV_VERSION = "10.47";
 window.BVMAP = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const STYLE_KEY = "bv_map_base", TERRAIN_KEY = "bv_map_3d", SPEED_KEY = "bv_replay_speed";
@@ -925,7 +925,8 @@ window.BVMAP = (() => {
   }
 
   // ---------- Survol du voyage : la caméra suit le parcours, l'itinéraire se dessine, les photos apparaissent ----------
-  // options : { dayList, only (iso), speed (nombre ou fonction), dayNumber(iso), onDay(iso, info), onDone(), onPause(paused) }
+  // options : { dayList, only (iso), speed (nombre ou fonction), dayNumber(iso), onDay(iso, info), onDone(), onPause(paused), sequences }
+  // `info` de onDay : { n, dist: { m, est } — à passer tel quel à CV.fmtDayDistance —, photos, index, count }
   // Retourne un contrôleur { stop, pause, resume, next, paused } (aussi dans M.replayCtl ; M.stopReplay = stop).
   const reducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   function replay(M, data, options = {}) {
@@ -955,7 +956,17 @@ window.BVMAP = (() => {
         if (ph.length) { let cur = dayMode, pi = 0; const at = ph.map((p) => ({ i: nearestIndex(coords, [p.lng, p.lat]), mode: p.transport })).sort((a, b) => a.i - b.i); for (let i = 0; i < coords.length; i++) { while (pi < at.length && at[pi].i <= i) { cur = at[pi].mode; pi++; } modes[i] = cur; } }
         if (!modes.some(Boolean)) modes = null;
       }
-      return { iso, coords, modes, legs, photos, est, color: colorForDay(dayList, iso), km: est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000 };
+      // v10.47 · LA DISTANCE DE LA FICHE VIENT D'OÙ VIENNENT LES TROIS AUTRES ÉCRANS.
+      // Elle était recalculée ici, et se trompait deux fois : `est ? 0` n'affichait RIEN sur
+      // une journée estimée — c'est-à-dire sur toutes celles de Sophie, qui écrit ses carnets
+      // après coup — et l'autre branche ne sommait que les traces, oubliant les tronçons vers
+      // le camp et ignorant qu'un « Itinéraire estimé (route) » est une estimation (donc sans
+      // « ≈ »). `CV.dayDistance` sait les trois. Même garde que lignes 491 et 734 : on ne
+      // suppose pas que common.js est déjà là.
+      const CVx = window.CV || {};
+      const dd = CVx.dayDistance ? CVx.dayDistance(data, iso) : null;
+      return { iso, coords, modes, legs, photos, est, color: colorForDay(dayList, iso),
+               dist: dd || { m: Math.round(est ? 0 : trs.reduce((a, t) => a + (t.distance_m || 0), 0)), est } };
     }).filter((d) => d.coords.length >= 2 || d.photos.length)
       // #61 · v10.46 · ALLUMÉ aux deux endroits qui survolent (`js/app.js`, `js/share.js`),
       // après que Sophie a jugé les trois variantes au doigt : c'est la variante A, la coupe
@@ -1032,11 +1043,11 @@ window.BVMAP = (() => {
         // #61 · UNE ENTRÉE N'EST PLUS FORCÉMENT UNE JOURNÉE : depuis la coupe par séquence, une
         // journée peut en rendre deux. La fiche du survol, elle, parle de la JOURNÉE — Sophie
         // a été explicite : aucune notion de sous-journée à l'écran. Elle ne s'annonce donc
-        // qu'à la PREMIÈRE séquence, et avec les chiffres de la journée entière (`_km` et
-        // `_photos`, gardés par couperEnSequences) : sinon elle clignoterait, et dirait
-        // « 1 photo » puis « 5 photos » au lieu de « 6 ».
+        // qu'à la PREMIÈRE séquence, et avec les chiffres de la journée entière (`dist`, qui
+        // est celui de la journée, et `_photos`, gardé par couperEnSequences) : sinon elle
+        // clignoterait, et dirait « 1 photo » puis « 5 photos » au lieu de « 6 ».
         if (options.onDay && (d._seq == null || d._seq === 1))
-          options.onDay(d.iso, { n, km: d._km != null ? d._km : d.km,
+          options.onDay(d.iso, { n, dist: d.dist,
                                  photos: d._photos != null ? d._photos : d.photos.length,
                                  index: di, count: days.length });
         for (const mk of M.dayMarkers) if (mk.getElement().title === d.iso) mk.getElement().classList.remove("hidden");
@@ -1236,10 +1247,12 @@ window.BVMAP = (() => {
       coords: c.slice(a, b + 1),
       modes: m.slice(a, b + 1),
       photos: pour[k],
-      km: 0,                          // la distance affichée reste celle de la journée entière
       _vol: estVol, _seq: k + 1, _seqs: bouts.length,
       // Ce que la fiche du survol doit dire : les chiffres de la JOURNÉE, pas de la séquence.
-      _km: d.km, _photos: (d.photos || []).length,
+      // `dist` est recopié tel quel par Object.assign — la distance de la journée entière, une
+      // seule valeur, aucune copie à tenir d'accord. Seul le nombre de photos a besoin d'être
+      // gardé à part, puisque `photos` est justement ce qui vient d'être réparti.
+      _photos: (d.photos || []).length,
     }));
   }
 
