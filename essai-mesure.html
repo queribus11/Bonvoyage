@@ -53,9 +53,14 @@
   <h1 style="font-family:var(--font-title);font-size:21px;margin:14px 0 6px">Trois façons de survoler une journée</h1>
   <p class="mot" id="mot">Un instant, je cherche tes carnets…</p>
   <form id="connexion" hidden>
-    <div class="field"><label>Ton adresse</label><input name="email" type="email" autocomplete="username" required></div>
-    <div class="field"><label>Ton mot de passe</label><input name="mdp" type="password" autocomplete="current-password" required></div>
+    <div class="field"><label>Ton adresse</label>
+      <input name="email" type="email" autocomplete="email" required placeholder="toi@exemple.fr"></div>
+    <div class="field"><label>Ton mot de passe</label>
+      <input name="mdp" type="password" autocomplete="current-password" required placeholder="celui de ton carnet"></div>
     <button class="btn primary" type="submit">Voir mes carnets</button>
+    <p class="small muted" style="margin:10px 0 0">
+      <a href="#" id="connexion-oubli">J'ai oublié mon mot de passe</a> — tu ne le tapes jamais,
+      c'est normal de ne plus l'avoir en tête.</p>
     <p class="small muted" id="connexion-ko" style="margin:8px 0 0"></p>
   </form>
   <div class="jour" id="carnets"></div>
@@ -120,12 +125,24 @@
     $("#connexion").hidden = false;
     if (raison) $("#connexion-ko").textContent = "";
   }
+  // La MÊME traduction que partout ailleurs dans l'app (OFF.friendly, js/offline.js) : sans
+  // elle, Supabase répond « Invalid login credentials » en anglais, et Sophie reste devant un
+  // message qui ne lui dit rien. Une seule table pour tout le projet, jamais deux.
+  const enClair = (err) => (window.OFF && OFF.friendly ? OFF.friendly(err) : String(err && err.message || err));
   $("#connexion").onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;
     $("#connexion-ko").textContent = "";
     try { await API.signIn(f.email.value.trim(), f.mdp.value); $("#connexion").hidden = true; await listerCarnets(); }
-    catch (err) { $("#connexion-ko").innerHTML = `<span class="ko">${err.message}</span>`; }
+    catch (err) { $("#connexion-ko").innerHTML = `<span class="ko">${enClair(err)}</span>`; }
+  };
+  // Exactement ce que fait le bouton « mot de passe oublié » de l'app (js/app.js).
+  $("#connexion-oubli").onclick = async (e) => {
+    e.preventDefault();
+    const adr = ($("#connexion").email.value || "").trim();
+    if (!adr) { $("#connexion-ko").innerHTML = `<span class="ko">Écris d'abord ton adresse juste au-dessus.</span>`; return; }
+    try { await API.resetPassword(adr); $("#connexion-ko").innerHTML = `Un courriel vient de partir à <b>${adr}</b> : suis le lien qu'il contient pour choisir un nouveau mot de passe.`; }
+    catch (err) { $("#connexion-ko").innerHTML = `<span class="ko">${enClair(err)}</span>`; }
   };
 
   if (jeton) {
