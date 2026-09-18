@@ -16,7 +16,7 @@ photos, traces GPS et carte, et partage un lien avec ses proches qui ne sont pas
 
 - En ligne : <https://queribus11.github.io/Bonvoyage/> — dépôt `queribus11/Bonvoyage`, branche `main`
 - **PWA statique** servie par GitHub Pages + **Supabase** (PostgreSQL, Auth, Storage, Edge Functions)
-- Version actuelle : **v10.57**
+- Version actuelle : **v10.58**
 
 **C'est un projet personnel, pas un produit.** Aucune analyse concurrentielle, aucun
 modèle économique, aucun argumentaire commercial n'est attendu — jamais, même
@@ -943,6 +943,62 @@ du lot.
 - **La dette du §6 ne s'efface pas toute seule.** `estimatedLegs` garde ses cinq appelants
   (`js/map.js` ×2, `js/common.js` ×2, `js/app.js` ×1) : aucun des quatre retraits ne la
   touche. Elle reste ouverte.
+
+### Les leçons de la v10.58 (#40, lot 2) — l'ordre de la page, et deux boutons au lieu de cinq
+
+**Ce lot a commencé par une proposition et s'est arrêté**, comme le brief l'exigeait. Quatre
+questions posées à Sophie, quatre réponses, puis le code. *C'est la troisième fois de suite
+que la question de deux minutes évite une version.*
+
+**T8 · La page d'auteur est réordonnée.** Dehors : le **titre**, les **photos**, le **récit**
+— ce qui fabrique le récit. Dans un repli fermé, « Les détails de la journée » : la date, les
+arrêts, le camp, le moyen de locomotion et les tronçons, le carnet de bord, les chiffres, le
+trajet, la suppression. **Le récit passait en douzième position sur dix-huit blocs ; il est
+maintenant le troisième.**
+
+- 🔴 **Compter les doigts, pas les principes.** Le panneau « Changements en cours de journée »
+  semblait devoir rester dehors : Sophie l'avait édité la veille. Mais **c'était déjà un repli
+  fermé** — un doigt pour l'ouvrir. Dans le grand repli, à plat : **un doigt aussi**. Le coût
+  est identique, et il y a un repli imbriqué de moins. *Quand un déplacement a l'air coûteux,
+  compter les gestes avant et après : le compte tranche mieux que l'intuition.*
+- 🔴 **Dans l'atelier, pas de contenu = UN SIGNAL.** Le repli est fermé mais jamais muet : son
+  titre porte ce qu'il contient — « 3 arrêts · camp · à pied · carnet de bord », ou **« aucun
+  arrêt · pas de camp »**. C'est la règle inverse de celle du proche, et elle est facile à
+  perdre : un repli qui ne dirait que son nom obligerait à l'ouvrir pour savoir s'il y a
+  quelque chose dedans.
+- **Un `<details>` fermé n'enlève rien au formulaire.** Ses champs restent dans le document et
+  partent avec l'envoi : `dirty()`, `saveDay()` et la liste unique des champs (#51) n'ont pas
+  bougé d'une ligne. **Et le garde-fou de la v10.3 tient** : si l'enregistrement échoue, les
+  flèches ◀ ▶ ne changent pas de journée.
+
+**T3 · La barre du bas passe de CINQ boutons à DEUX**, « Enregistrer » et « Publier ».
+
+- **« Publier » ouvre une feuille qui parle du JOUR**, pas du voyage. Les deux façons de
+  publier — en silence, ou en prévenant — y vivent désormais. *Un bouton qui envoie un message
+  à toute la famille ne se touche pas du coin du pouce, entre « Enregistrer » et une corbeille.*
+  Sophie a écarté l'autre piste (enrichir la feuille de partage du voyage) : le partage du
+  carnet se fait une fois, publier une journée se fait tous les soirs.
+- **La corbeille descend au bas du repli, ET elle prend un mot** — « Supprimer cette journée ».
+  Choix de Sophie : une croix muette de plus aurait été #68 en pire. Au passage son ancienne
+  infobulle mentait — elle disait « Supprimer le récit » alors qu'elle emporte **le titre et le
+  récit**, en laissant les photos et les traces. La phrase d'aide le dit maintenant.
+- **« Retirer de la vue de mes proches » a rejoint le badge**, avec l'état qu'il change. Un
+  bouton qui modifie un état vit à côté de cet état, pas dans une barre d'actions.
+- 🔴 **Une journée en mode direct peut n'avoir aucune fiche.** `announceDay(d)` lit `d.day_date` :
+  appelée sans fiche, elle plantait. La feuille passe donc par `publish(true)`, qui crée la
+  fiche **puis** annonce. *Partout où le code lit `d.quelque_chose`, se demander si `d` existe :
+  une journée peut n'être qu'un tas de photos.*
+
+- 🔴 **L'IMAGE A ENCORE CORRIGÉ LA SONDE.** Mon premier banc annonçait « aucun débordement, barre
+  visible » — et la capture montrait la barre **sortie de la fenêtre**, flottant à droite. Cause :
+  mon extraction du gabarit par expression régulière avait mangé les balises fermantes, et je
+  photographiais un écran qui n'existe pas. *Un banc qui construit lui-même son balisage doit
+  prouver que chaque morceau vient bien du code — j'ai remplacé l'extraction fragile par un
+  balisage écrit à la main, mais dont les sept fragments sont vérifiés présents dans `js/app.js`
+  avant que la page ne soit écrite.*
+- **Le contrôle de #60 repassé** : à 440 comme à 393, replié comme déplié, la page fait
+  exactement la largeur de l'écran, rien ne sort de la fenêtre, la barre reste dedans et
+  visible, et le titre du repli fait au moins 44 px de haut.
 
 ---
 

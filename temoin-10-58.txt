@@ -1,0 +1,26 @@
+v10.58 — #40 lot 2 : la barre du bas et l'ordre de la page
+
+T8 · L'ORDRE DE LA PAGE. Dehors, ce qui fabrique le récit : le titre, les photos, le récit
+(et le mot du jour à plusieurs). Tout le reste descend dans un repli fermé, « Les détails
+de la journée » : la date, les arrêts, le camp, le moyen de locomotion et les changements
+en cours de journée, le carnet de bord, les chiffres, le trajet, et la suppression.
+Le repli n'est jamais muet : son titre dit ce qu'il contient, même vide — « aucun arrêt ·
+pas de camp ». Dans l'atelier, pas de contenu ne veut pas dire pas de bloc : ça veut dire
+un signal.
+
+T3 · LA BARRE DU BAS passe de CINQ boutons à DEUX : « Enregistrer » et « Publier ».
+· « Publier » ouvre une feuille qui parle de CE JOUR : publier en silence, publier et
+  prévenir, et le lien de la journée.
+· « Brouillon » cesse d'être un bouton : ce n'est plus qu'un état, lu sur le badge.
+· dépublier s'appelle « Retirer de la vue de mes proches » et a rejoint le badge.
+· la corbeille a quitté la barre : elle est au bas du repli, et elle porte un MOT —
+  « Supprimer cette journée ». Une croix muette de plus aurait été #68 en pire.
+
+Ce qui n'a pas bougé : « Enregistrer » reste (décision prise sur preuve) ; la règle de la
+v10.3 tient — si l'enregistrement échoue, les flèches ◀ ▶ ne changent pas de journée.
+
+Témoin de mise en ligne : si ce fichier répond et que temoin-10-57.txt donne 404, c'est
+bien la v10.58 qui est servie.
+
+LE MOT QUI DISPARAÎT du code servi : « pub-quiet » — l'identifiant du bouton « Publier »
+discret de la barre, dans js/app.js. Aucun cache ne supprime un mot.
